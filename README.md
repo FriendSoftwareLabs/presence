@@ -2,7 +2,7 @@
 
 Presence is a communication service for Friend. It is based on rooms, 
 allowing many to many text chat and video / audio calls. It integrates 
-closely with ( and is infact a service of ) Friend, allowing anyone 
+closely with ( and is a service of ) Friend, allowing anyone 
 logged into Friend to use it, showing up with their Friend name, 
 with no need to set up an account or remember a password. A pixel 
 avatar is generated for everyones amusement.
@@ -22,7 +22,7 @@ All rooms start out in a unnamed state. Chat log in these rooms is not
 saved, neither are participants. Once everyone has logged of or left, the room 
 will be purged. This is good for one-off live sessions, but if you decide 
 there is value in keeping the room, it can be given a name and current chat log 
-and users will be persisted. Much like children in the good old days.
+and users will be persisted.
 
 ### Immediate response
 
@@ -32,7 +32,12 @@ here i guess.
 
 ## Setup
 
-node.js is a requirement. If not already present, the install script will do what
+Requires: 
+* FriendCore
+* node.js
+* mysql
+
+If node.js is not already present, the install script will do what
 exactly? If its suggesting / installing, make sure to use n, https://github.com/tj/n,
 aka node jesus.
 
@@ -45,12 +50,12 @@ This installation clones into the build directory of Friend.
 ### Development
 
 For development purposes, it is probably better to clone this repo to a 
-more convenient place and use the provided update script to move files to 
+more convenient place and use the provided update.sh script to move files to 
 the appropriate folder.
 
 ### Running
 
-While in the Presence folder, the server can be run directly with 'node presence.js',
+While in the Presence folder, the server can be run directly with `node presence.js`,
 or FriendCore can autostart it when it starts up, or it can be run through the 
 provided phoenix script, which will write to error.log and restart.log and pick 
 it back up if it falls down.
