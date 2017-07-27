@@ -9,7 +9,7 @@ avatar is generated for everyones amusement.
 
 ### "I just want to type things at people"
 
-In a slighlty odd position currently, presence is only available through 
+In a slighlty odd position, presence is currently only available through 
 FriendChat. You start out with no rooms, but can create a room, invite 
 someone into it or join other rooms. To send or receive an invite 
 having an active IRC ( you should start with one as default ) or Treeroot 
@@ -27,8 +27,9 @@ and users will be persisted.
 ### Immediate response
 
 Persistent connections are used to ensure all events are promptly delivered. Both 
-vanilla TCP and websockets are used, depending on client needs. Also, write more 
-here i guess.
+vanilla TCP and websockets are used, depending on client needs. For mobile users, 
+these connections are seamlessly reestablished when switcing networks, ie 
+wifi -> mobile data.
 
 ## Setup
 
@@ -59,6 +60,17 @@ While in the Presence folder, the server can be run directly with `node presence
 or FriendCore can autostart it when it starts up, or it can be run through the 
 provided phoenix script, which will write to error.log and restart.log and pick 
 it back up if it falls down.
+
+## SDK / API
+
+A SDK is coming, allowing easy embedding of the presence service in apps or websites. 
+It should come with some predefined widgets to get things up and runnig quickly, but 
+also expose base classes to allow greater customization.
+
+### Documentation
+
+Oh, you sweet summer child..
+
 
 ## License
 
