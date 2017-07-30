@@ -1,0 +1,2 @@
+ALTER TABLE `room` 
+MODIFY `lastActivity` TIMESTAMP NULL;

@@ -1,0 +1,27 @@
+How to node.js
+
+IMPORTANT : If you are switching node version, you must rebuild node_modules directory:
+	1. remove <presence-dir>/node_modules
+	2. > npm install
+	3. if any of the modules threw an error, do once:
+		> npm rebuild
+		
+	4. if you still have errors, you may now commence panicing ( and probably rebuild a few times ).
+
+
+INSTALL : 
+n is a version manager for node, very useful. Follow instruction here
+	https://github.com/tj/n
+	
+v4.x is LTS and is the tested version and the one that plays nice(r) with the node-inspector debugger.
+Using latest stable vesion ( like 6.x.x ) is probably fine aswell if using a debugger is out of scope.
+
+Following defaults might get you a version different from v4.x ( like 6.x.x ). Check with
+	> node -v
+If this is the case
+	> n 4.4.5
+will install and switch to the desired version
+
+
+NPM MISSING : 
+Your node installation is old and/or screwed up, remove node and GOTO INSTALL
