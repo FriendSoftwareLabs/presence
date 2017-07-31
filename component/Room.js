@@ -70,7 +70,6 @@ ns.Room.prototype.disconnect = function( accountId ) {
 // for real accounts, not for guests
 ns.Room.prototype.authorizeUser = function( user ) {
 	const self = this;
-	log( 'authorizeUser', user );
 	const uid = self.addUser( user );
 	self.persistAuthorization( uid );
 }
@@ -167,10 +166,6 @@ ns.Room.prototype.close = function( callback ) {
 
 ns.Room.prototype.init = function() {
 	const self = this;
-	log( 'init', {
-		id   : self.id,
-		name : self.name,
-	});
 	self.roomDb = new dFace.RoomDB( self.dbPool );
 	
 	self.log = new ns.Log(
@@ -247,7 +242,6 @@ ns.Room.prototype.loadUsers = function() {
 			if ( self.users[ uid ])
 				return;
 			
-			log( 'loaded user', dbUser );
 			if ( !dbUser.avatar )
 				tinyAvatar.generate( dbUser.name, ( err, res ) => setUser( res ));
 			else
@@ -529,7 +523,6 @@ ns.Room.prototype.handleRename = function( name, userId ) {
 
 ns.Room.prototype.setIdentity = function( id, userId ) {
 	const self = this;
-	log( 'setIdentity', id );
 	self.identities[ userId ] = id;
 	const uptd = {
 		type : 'identity',
@@ -580,7 +573,6 @@ ns.Room.prototype.setOnline = function( userId ) {
 
 ns.Room.prototype.setOffline = function( userId ) {
 	const self = this;
-	log( 'setOffline', userId );
 	const user = self.users[ userId ];
 	
 	// deleteing signal
@@ -596,7 +588,6 @@ ns.Room.prototype.setOffline = function( userId ) {
 	const userIndex = self.onlineList.indexOf( userId );
 	if ( -1 !== userIndex ) {
 		let removed = self.onlineList.splice( userIndex, 1 );
-		log( 'setOffline - removed from onlinelist', removed );
 	}
 	
 	const offline = {
@@ -662,7 +653,7 @@ ns.Room.prototype.send = function( event, targetId ) {
 			e : event,
 			u : self.users,
 		});
-		throw new Error( 'sending to offline user ' + targetId );
+		return;
 	}
 	
 	user.send( event );
@@ -713,7 +704,6 @@ ns.Chat.prototype.close = function( callback ) {
 
 ns.Chat.prototype.init = function() {
 	const self = this;
-	clog( 'init chat xoxoxo' );
 	self.eventMap = {
 		'msg'   : msg,
 		'log'   : log,
@@ -1412,11 +1402,6 @@ ns.Invite.prototype.authenticate = function( token ) {
 		return true;
 	
 	const hasToken = self.tokens[ token ];
-	ilog( 'authenticate', {
-		token    : token,
-		hastoken : hasToken,
-		tokens   : self.tokens,
-	});
 	if ( !hasToken )
 		return false;
 	

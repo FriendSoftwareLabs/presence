@@ -60,7 +60,6 @@ ns.Account.prototype.init = function() {
 	// prepare 'personalized' logging
 	var logStr = 'Account-' + self.login;
 	self.log = require( './Log' )( logStr );
-	self.log( 'init ^______^', self.id );
 	
 	self.setIdentity();
 	
@@ -116,10 +115,8 @@ ns.Account.prototype.initializeClient = function( event, clientId ) {
 ns.Account.prototype.setIdentity = function( id ) {
 	const self = this;
 	id = id || self.identity || {};
-	self.log( 'setIdentity', id );
 	let name = id.name || id.alias;
 	let avatar = id.avatar || self.settings.avatar;
-	self.log( 'setIdentity - avatar', avatar );
 	if ( !avatar ) {
 		const tinyAvatar = require( './TinyAvatar' );
 		avatar = tinyAvatar.generate( name, avatarBack );

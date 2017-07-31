@@ -60,7 +60,6 @@ module is currently a requirement. Friend workgroup and users integration
 will happen shortly to fix much of this. Only users on the local Friend 
 node can be saved to a room, but guest invites are open to anyone.
 
-
 ## Setup
 
 Requires: 

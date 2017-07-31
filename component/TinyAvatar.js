@@ -121,7 +121,6 @@ ns.TinyAvatar.prototype.generateBlockPattern = function( source ) {
 		tries++;
 		res = generate( limit, source );
 		let filled = res.filled;
-		log( 'filled', filled );
 		if ( filled > max )
 			limit = limit + 10;
 		
@@ -133,7 +132,7 @@ ns.TinyAvatar.prototype.generateBlockPattern = function( source ) {
 		
 	} while ( notSatisfied && ( tries < maxTries ));
 	
-	show( res.pattern )
+	//show( res.pattern );
 	return res.pattern;
 	
 	function generate( limit, source ) {
