@@ -40,6 +40,16 @@ vanilla TCP and websockets are used, depending on client needs. For mobile users
 these connections are seamlessly reestablished when switcing networks, ie 
 wifi -> mobile data.
 
+## Peer to peer connections
+
+webRTC is used for Live connections. It needs to know the IPs of the peers 
+trying to connect ( among other things ). The internet being full of firewalls 
+and other dark things, this would be quite hit-and-miss. This is where STUN/TURN 
+is useful. First STUN servers are used as a 3rd party to discover your 'public' 
+IP. If this fails, the connection can no longer be directly peer to peer, 
+but falls back on a TURN server to relay the stream. This TURN relay can also 
+be used as a service to hide each users IP from each other.
+
 ### Limitations
 
 In a slighlty odd position, presence is currently only available through 
@@ -49,6 +59,7 @@ having an active IRC ( you should start with one as default ) or Treeroot
 module is currently a requirement. Friend workgroup and users integration 
 will happen shortly to fix much of this. Only users on the local Friend 
 node can be saved to a room, but guest invites are open to anyone.
+
 
 ## Setup
 
