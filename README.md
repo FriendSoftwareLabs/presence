@@ -47,7 +47,7 @@ FriendChat. You start out with no rooms, but can create a room, invite
 someone into it or join other rooms. To send or receive an invite 
 having an active IRC ( you should start with one as default ) or Treeroot 
 module is currently a requirement. Friend workgroup and users integration 
-will happend shortly to fix much of this. Only users on the local Friend 
+will happen shortly to fix much of this. Only users on the local Friend 
 node can be saved to a room, but guest invites are open to anyone.
 
 ## Setup
