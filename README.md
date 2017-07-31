@@ -17,6 +17,16 @@ they can quicly rejoin, and maybe check links posted to chat in the meantime.
 In a collaboration environment is is also easy for others in the room 
 too see that things are happening on live and to join in.
 
+### Peer to peer connections
+
+webRTC is used for Live connections. It needs to know the IPs of the peers 
+trying to connect ( among other things ). The internet being full of firewalls 
+and other dark things, this would be quite hit-and-miss. This is where STUN/TURN 
+is useful. First STUN servers are used as a 3rd party to discover your 'public' 
+IP. If this fails, the connection can no longer be directly peer to peer, 
+but falls back on a TURN server to relay the stream. This TURN relay can also 
+be used as a service to hide each users IP from each other.
+
 ### Persistent, or not
 
 All rooms start out in a unnamed state. Chat log in these rooms is not 
@@ -33,22 +43,13 @@ be single-use or public. The public ones can be used by any number of people
 until it is canceled through the interface or the room empties and is removed 
 from server memory. 
 
+
 ### Immediate response
 
 Persistent connections are used to ensure all events are promptly delivered. Both 
 vanilla TCP and websockets are used, depending on client needs. For mobile users, 
 these connections are seamlessly reestablished when switcing networks, ie 
 wifi -> mobile data.
-
-### Peer to peer connections
-
-webRTC is used for Live connections. It needs to know the IPs of the peers 
-trying to connect ( among other things ). The internet being full of firewalls 
-and other dark things, this would be quite hit-and-miss. This is where STUN/TURN 
-is useful. First STUN servers are used as a 3rd party to discover your 'public' 
-IP. If this fails, the connection can no longer be directly peer to peer, 
-but falls back on a TURN server to relay the stream. This TURN relay can also 
-be used as a service to hide each users IP from each other.
 
 ### Limitations
 
@@ -95,11 +96,6 @@ it back up if it falls down.
 A SDK is coming, allowing easy embedding of the presence service in apps or websites. 
 It should come with some predefined widgets to get things up and runnig quickly, but 
 also expose base classes to allow greater customization.
-
-### Documentation
-
-Oh, you sweet summer child..
-
 
 ## License
 
