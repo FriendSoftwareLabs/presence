@@ -40,7 +40,7 @@ vanilla TCP and websockets are used, depending on client needs. For mobile users
 these connections are seamlessly reestablished when switcing networks, ie 
 wifi -> mobile data.
 
-## Peer to peer connections
+### Peer to peer connections
 
 webRTC is used for Live connections. It needs to know the IPs of the peers 
 trying to connect ( among other things ). The internet being full of firewalls 
