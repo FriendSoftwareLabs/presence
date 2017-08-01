@@ -635,8 +635,8 @@ ns.NoMansLand.prototype.getAccount = function( accountId ) {
 	if ( !acc ) {
 		log( 'getAccount - no account for', {
 			aid  : accountId,
-			accs : self.accounts,
-		}, 4);
+			accs : Object.keys( self.accounts ),
+		}, 3);
 		return null; 
 	}
 	
