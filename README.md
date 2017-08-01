@@ -5,7 +5,7 @@ allowing many to many text chat and video / audio calls. It integrates
 closely with ( and is a service of ) Friend, allowing anyone 
 logged into Friend to use it, showing up with their Friend name, 
 with no need to set up an account or remember a password. A pixel 
-avatar is generated for everyones amusement.
+avatar is generated for every ones amusement.
 
 ### Live
 
