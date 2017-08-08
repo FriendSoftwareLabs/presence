@@ -309,7 +309,7 @@ ns.AccountDB.prototype.setActive = function( clientId, isActive ) {
 // Private
 ns.AccountDB.prototype.init = function() {
 	const self = this;
-	accLog( 'init' );
+	
 }
 
 ns.AccountDB.prototype.close = function() {
@@ -490,7 +490,7 @@ ns.RoomDB.prototype.revoke = function( roomId, accountId ) {
 
 ns.RoomDB.prototype.init = function() {
 	const self = this;
-	roomLog( 'init' );
+	
 }
 
 ns.RoomDB.prototype.close = function() {
@@ -572,7 +572,7 @@ ns.MessageDB.prototype.get = function( length, startId ) {
 
 ns.MessageDB.prototype.init = function() {
 	const self = this;
-	msgLog( 'init', self.roomId );
+	
 }
 
 module.exports = ns;

@@ -121,17 +121,20 @@ ns.RoomCtrl.prototype.connect = function( accountId, roomId, callback ) {
 	
 	function roomBack( room ) {
 		if ( !room ) {
-			callback( null );
+			callback( 'ERR_NO_ROOM', null );
 			return;
 		}
 		
 		const user = room.connect( accountId );
-		callback( user );
+		if ( !user )
+			callback( 'ERR_NOT_IN_ROOM' );
+		else
+			callback( null, user );
 	}
 	
 	function roomErr( err ) {
 		log( 'connect - getRoom err', err.stack || err );
-		callback( false );
+		callback( err, null );
 	}
 }
 

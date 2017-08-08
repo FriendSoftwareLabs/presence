@@ -44,12 +44,9 @@ ns.Account.prototype.close = function() {
 	const self = this;
 	self.logout( outBack );
 	function outBack() {
-		var onclose = self.onclose;
 		delete self.dbPool;
 		delete self.roomCtrl;
 		delete self.onclose;
-		if ( onclose )
-			onclose();
 	}
 }
 
@@ -202,7 +199,12 @@ ns.Account.prototype.loadRooms = function() {
 		}
 	}
 	
-	function roomBack( room ) {
+	function roomBack( err, room ) {
+		if ( err ) {
+			self.log( 'loadRoom.roomBack err', err.stack || err );
+			return;
+		}
+		
 		self.joinedARoomHooray( room );
 		//self.connectedRoom( room );
 	}
@@ -265,6 +267,9 @@ ns.Account.prototype.connectedRoom = function( room ) {
 
 ns.Account.prototype.joinedARoomHooray = function( room, reqId  ) {
 	const self = this;
+	if ( !room )
+		return;
+	
 	var res = {
 		clientId   : room.roomId,
 		persistent : room.persistent,
@@ -403,7 +408,7 @@ ns.Rooms.prototype.close = function() {
 
 ns.Rooms.prototype.init = function() {
 	const self = this;
-	rlog( 'init :3' );
+	
 }
 
 ns.Rooms.prototype.handleRoomEvent = function( event, roomId ) {

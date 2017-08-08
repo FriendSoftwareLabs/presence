@@ -23,7 +23,7 @@ ns.Session = function( id, accountId, onclose ) {
 	self.accountId = accountId;
 	self.onclose = onclose;
 	
-	self.sessionTimeout = 1000 * 60;
+	self.sessionTimeout = 1000 * 30;
 	self.sessionTimer = null;
 	self.connections = {};
 	self.connIds = [];
@@ -40,7 +40,6 @@ util.inherits( ns.Session, Emitter );
 // system attaches a new client connection
 ns.Session.prototype.attach = function( conn ) {
 	const self = this;
-	log( 'attach', conn.id );
 	if ( !conn )
 		return;
 	
@@ -61,9 +60,9 @@ ns.Session.prototype.attach = function( conn ) {
 // system detaches a ( most likely closed ) client connection
 ns.Session.prototype.detach = function( cid, callback ) {
 	const self = this;
-	log( 'detach', cid );
 	const conn = self.connections[ cid ];
 	if ( !conn ) {
+		log( 'detach - no conn for cid', cid );
 		if ( callback )
 			callback( null );
 		return;
@@ -75,7 +74,7 @@ ns.Session.prototype.detach = function( cid, callback ) {
 		delete self.connections[ cid ];
 		self.connIds = Object.keys( self.connections );
 		if ( !self.checkConnsTimeout )
-			self.checkConnsTimeout = setTimeout( checkConns, 1000 );
+			self.checkConnsTimeout = setTimeout( checkConns, 250 );
 		
 		if ( callback )
 			callback( conn );
@@ -140,7 +139,6 @@ ns.Session.prototype.send = function() {
 // closes session, either from account( logout ), from lack of client connections
 // or from nomansland for whatever reason
 ns.Session.prototype.close = function() {
-	log( 'close' );
 	const self = this;
 	if ( self.checkConnsTimeout )
 		clearTimeout( self.checkConnsTimeout );
@@ -164,7 +162,7 @@ ns.Session.prototype.close = function() {
 
 ns.Session.prototype.init = function() {
 	const self = this;
-	log( 'init ' );
+	
 }
 
 ns.Session.prototype.handleEvent = function( event, clientId ) {
@@ -192,9 +190,7 @@ ns.Session.prototype.sendOnConn = function( event, cid, callback ) {
 	const self = this;
 	const conn = self.connections[ cid ];
 	if ( !conn ) {
-		log( 'no conn for id', {
-			cid   : cid,
-			conns : self.connections }, 3 );
+		log( 'no conn for id', cid );
 		if ( callback )
 			callback();
 		return;
@@ -209,11 +205,15 @@ ns.Session.prototype.checkConns = function() {
 	if ( self.connIds.length )
 		return;
 	
+	self.close();
+	return;
+	/*
 	self.sessionTimer = setTimeout( sessionTimedOut, self.sessionTimeout );
 	function sessionTimedOut() {
 		self.sessionTimer = null;
 		self.close();
 	}
+	*/
 }
 
 ns.Session.prototype.clearConns = function() {

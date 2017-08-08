@@ -286,11 +286,6 @@ ns.Room.prototype.checkOnline = function() {
 		if ( 0 !== self.onlineList.length )
 			return; // someone joined during the timer. Lets not then, i guess
 		
-		log( 'room is actually empty, closing', {
-			id   : self.id,
-			name : self.name,
-			online : self.onlineList,
-		});
 		self.onempty();
 	}
 }
@@ -300,7 +295,7 @@ ns.Room.prototype.checkOnline = function() {
 ns.Room.prototype.bindUser = function( userId ) {
 	const self = this;
 	const conf = self.users[ userId ];
-	if ( !conf || conf.close ) {
+	if ( !conf ) {
 		log( 'bindUSer - no user for id', {
 			userId : userId,
 			users  : self.users,
@@ -540,8 +535,8 @@ ns.Room.prototype.releaseUser = function( userId ) {
 	if ( !user ) {
 		log( 'releaseUser - no user', {
 			u : userId,
-			users : self.users,
-		});
+			users : Object.keys( self.users ),
+		}, 3 );
 		return;
 	}
 	
@@ -651,8 +646,9 @@ ns.Room.prototype.send = function( event, targetId ) {
 	if ( !user || !user.send ) {
 		log( 'sending to offline user', {
 			e : event,
-			u : self.users,
-		});
+			o : self.onlineList,
+			u : Object.keys( self.users ),
+		}, 3 );
 		return;
 	}
 	

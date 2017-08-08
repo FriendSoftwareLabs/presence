@@ -337,6 +337,12 @@ ns.TCPClient.prototype.sendOnSocket = function( msg, callback ) {
 
 ns.TCPClient.prototype.writeToSocket = function( msg, callback ) {
 	const self = this;
+	if ( !self.socket || self.socket.destroyed ) {
+		if ( callback )
+			callback( true );
+		return;
+	}
+	
 	try {
 		self.socket.write( msg, callback );
 	} catch( e ) {
@@ -379,6 +385,9 @@ ns.WSClient.prototype.bindSocketData = function() {
 
 ns.WSClient.prototype.writeToSocket = function( msg, callback ) {
 	const self = this;
+	if ( !self.socket )
+		return;
+	
 	try {
 		self.socket.send( msg, callback );
 	} catch( e ) {
