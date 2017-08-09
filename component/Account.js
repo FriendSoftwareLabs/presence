@@ -31,9 +31,11 @@ ns.Account = function(
 	dbPool,
 	roomCtrl
 ) {
+	console.log( 'Account.const', conf );
 	const self = this;
 	self.id = conf.clientId;
 	self.login = conf.login;
+	self.auth = conf.auth;
 	self.identity = conf.identity;
 	self.settings = conf.settings;
 	self.session = session;

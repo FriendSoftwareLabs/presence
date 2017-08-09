@@ -48,7 +48,7 @@ ns.NoMansLand = function( dbPool, roomCtrl, fcReq ) {
 
 ns.NoMansLand.prototype.init = function() {
 	const self = this;
-	self.msgMap = {
+	self.accEventMap = {
 		'create' : createAccount,
 		'login'  : doLogin,
 	}
@@ -142,8 +142,7 @@ ns.NoMansLand.prototype.checkClientAuth = function( auth, cid ) {
 			return;
 		}
 		
-		const auth = res.Name;
-		self.setClientAccountStage( auth, cid );
+		self.setClientAccountStage( res, cid );
 	}
 }
 
@@ -209,16 +208,16 @@ ns.NoMansLand.prototype.setClientAccountStage = function( auth, cid ) {
 	}
 	
 	client.auth = auth;
-	client.on( 'msg', handleMsg );
+	client.on( 'msg', handleE );
 	
 	// send account challenge
-	const acc = {
+	const accE = {
 		type : 'account',
 		data : null,
 	};
-	client.send( acc );
+	client.send( accE );
 	
-	function handleMsg( e ) { self.handleMsg( e, cid ); }
+	function handleE( e ) { self.handleAccountEvent( e, cid ); }
 }
 
 ns.NoMansLand.prototype.sendReady = function( cid ) {
@@ -234,9 +233,9 @@ ns.NoMansLand.prototype.sendReady = function( cid ) {
 	client.send( ready );
 }
 
-ns.NoMansLand.prototype.handleMsg = function( event, clientId ) {
+ns.NoMansLand.prototype.handleAccountEvent = function( event, clientId ) {
 	const self = this;
-	const handler = self.msgMap[ event.type ];
+	const handler = self.accEventMap[ event.type ];
 	if ( handler ) {
 		handler( event.data, clientId );
 		return;
@@ -332,15 +331,15 @@ ns.NoMansLand.prototype.clientLogin = function( identity, cid ) {
 	}
 	const login = identity.alias;
 	const client = self.getClient( cid );
-	if ( client.auth !== login ) {
-		loginFailed( 'ERR_LOGIN_AUTH_MISMATCH', {
-			auth  : client.auth,
-			login : login,
+	if ( !client.auth || client.auth.login !== login ) {
+		loginFailed( 'ERR_LOGIN_IDENTITY_MISMATCH', {
+			clogin : client.auth.login,
+			ilogin : login,
 		});
 		return;
 	}
 	
-	self.accDb.get( login )
+	self.accDb.get( client.auth.login )
 		.then( accBack )
 		.catch( accSad );
 	
@@ -365,13 +364,15 @@ ns.NoMansLand.prototype.clientLogin = function( identity, cid ) {
 	}
 	
 	function doLogin( acc ) {
+		let client = self.getClient( cid );
+		acc.auth = client.auth;
 		acc.identity = identity;
 		log( 'loggin in: ' + acc.login );
 		self.unsetClientAccountStage( cid );
 		const account = self.getAccount( acc.clientId );
 		if ( account && !account.session ) {
-			// somethings funky
-			// in the process of logging in/out
+			// somethings funky,
+			// in the process of logging in/out?
 			log( 'no session for account', acc );
 			loginFailed( 'ERR_ACCOUNT_NO_SESSION', acc );
 			return;
@@ -454,10 +455,18 @@ ns.NoMansLand.prototype.validate = function( bundle, callback ) {
 				return;
 			}
 			
-			if ( res.Name === data.login )
-				callback( null, res );
-			else
+			if ( res.Name !== data.login ) {
 				callback( 'ERR_INVALID_LOGIN', null );
+				return;
+			}
+			
+			const isAdmin = !!( 'Admin' === res.Level );
+			const auth = {
+				login      : res.Name,
+				isAdmin    : isAdmin,
+				workgroups : [],
+			};
+			callback( null, auth );
 		}
 	}
 	
@@ -477,6 +486,7 @@ ns.NoMansLand.prototype.validate = function( bundle, callback ) {
 		self.fcReq.post( req );
 		
 		function success( data ) {
+			log( 'FCRequest.res', data );
 			reqBack( null, data );
 		}
 		
