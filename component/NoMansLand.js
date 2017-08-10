@@ -461,13 +461,26 @@ ns.NoMansLand.prototype.validate = function( bundle, callback ) {
 			}
 			
 			const isAdmin = !!( 'Admin' === res.Level );
+			log( 'validate acc back', res );
+			const workgroups = parseWorkgroups( res.Workgroup );
 			const auth = {
 				login      : res.Name,
 				isAdmin    : isAdmin,
-				workgroups : [],
+				workgroups : workgroups,
 			};
 			callback( null, auth );
 		}
+	}
+	
+	function parseWorkgroups( str ) {
+		log( 'parseWorkgroups', str );
+		let wgs = [];
+		if ( !str || !str.length )
+			return wgs;
+		
+		wgs = str.split( ', ' );
+		log( 'wgs', wgs );
+		return wgs;
 	}
 	
 	function authRequest( authId, reqBack ) {
@@ -486,7 +499,6 @@ ns.NoMansLand.prototype.validate = function( bundle, callback ) {
 		self.fcReq.post( req );
 		
 		function success( data ) {
-			log( 'FCRequest.res', data );
 			reqBack( null, data );
 		}
 		
