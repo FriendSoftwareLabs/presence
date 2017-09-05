@@ -928,6 +928,11 @@ ns.Live.prototype.close = function( callback ) {
 	
 	self.clearAddTimeouts();
 	
+	if ( self.speakerTimeout ) {
+		clearTimeout( self.speakerTimeout );
+		delete self.speakerTimeout;
+	}
+	
 	delete self.users;
 	delete self.peers;
 	delete self.peerIds;
@@ -945,12 +950,14 @@ ns.Live.prototype.init = function() {
 		'pong'      : pong,
 		'broadcast' : broadcast,
 		'quality'   : quality,
+		'speaking'  : speaking,
 		'leave'     : leave,
 	};
 	
 	function pong(      e, pid ) { self.handlePong(      e, pid ); }
 	function broadcast( e, pid ) { self.handleBroadcast( e, pid ); }
 	function quality(   e, pid ) { self.handleQuality(   e, pid ); }
+	function speaking(  e, pid ) { self.handleSpeaking(  e, pid ); }
 	function leave(     e, pid ) { self.handleLeave(     e, pid ); }
 	
 }
@@ -1147,6 +1154,24 @@ ns.Live.prototype.handleQuality = function( level, peerId ) {
 	self.quality.level = level;
 	self.lastScaleUpdate = null;
 	self.updateQualityScale();
+}
+
+ns.Live.prototype.handleSpeaking = function( timestamp, peerId ) {
+	const self = this;
+	if ( null != self.speakerTimeout )
+		return;
+	
+	self.speakerTimeout = setTimeout( clear, 1000 * 3 );
+	self.currentSpeaker = peerId;
+	const speaking = {
+		type : 'speaking',
+		data : peerId,
+	};
+	self.broadcast( speaking );
+	
+	function clear() {
+		self.speakerTimeout = null;
+	}
 }
 
 ns.Live.prototype.handleLeave = function( event, peerId ) {
