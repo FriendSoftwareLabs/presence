@@ -1,5 +1,3 @@
-'use strict';
-
 /*©agpl*************************************************************************
 *                                                                              *
 * This file is part of FRIEND UNIFYING PLATFORM.                               *
@@ -18,6 +16,8 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>.        *
 *                                                                              *
 *****************************************************************************©*/
+
+'use strict';
 
 const log = require( './Log' )( 'Room' );
 const uuid = require( './UuidPrefix' )( 'msg' );
@@ -525,6 +525,14 @@ ns.Room.prototype.handleRename = function( name, userId ) {
 
 ns.Room.prototype.setIdentity = function( id, userId ) {
 	const self = this;
+	if ( id.clientId !== userId ) {
+		log( 'setIdentity - clientId does not match userId', {
+			id     : id,
+			userId : userId,
+		});
+		return;
+	}
+	
 	self.identities[ userId ] = id;
 	const uptd = {
 		type : 'identity',

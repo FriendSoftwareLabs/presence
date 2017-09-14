@@ -104,6 +104,7 @@ ns.RoomCtrl.prototype.guestJoinRoom = function( account, roomId, callback ) {
 			return;
 		}
 		
+		log( 'guestJoinRoom', account );
 		account.guest = true;
 		self.addToRoom( account, roomId );
 		const user = room.connect( account.clientId );
@@ -190,7 +191,7 @@ ns.RoomCtrl.prototype.createAnonRoom = function( account, callback ) {
 			return;
 		}
 		
-		self.addToRoom( account, roomId );
+		self.authorizeForRoom( account, roomId );
 		const user = room.connect( account.clientId );
 		callback( null, user );
 	}
@@ -357,7 +358,7 @@ ns.RoomCtrl.prototype.authorizeForRoom = function( account, roomId ) {
 	const self = this;
 	const room = self.rooms[ roomId ];
 	if ( !room ) {
-		// TODO : save auth to db
+		// TODO : check and save auth to db
 		return;
 	}
 	

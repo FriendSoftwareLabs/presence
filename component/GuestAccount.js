@@ -56,6 +56,7 @@ ns.GuestAccount.prototype.close = function() {
 
 ns.GuestAccount.prototype.init = function() {
 	const self = this;
+	self.identity.clientId = self.id;
 	self.session.on( 'initialize', init );
 	self.session.on( 'join', join );
 	function init( e, cid ) { self.handleInitialize( e, cid ); }
@@ -98,6 +99,8 @@ ns.GuestAccount.prototype.joinRoom = function() {
 			return;
 		}
 		
+		log( 'guestacc identity', self.identity );
+		self.room.setIdentity( self.identity );
 		const join = {
 			type : 'join',
 			data : {
