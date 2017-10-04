@@ -22,10 +22,10 @@ if [ -z $nv ]; then
 	esac
 fi
 
-if [ "v4.4.4" != $nv ]; then
+if [ "v8.6.0" \> $nv ]; then
 	echo "Warning : node version"
 	echo "found: $nv"
-	echo "recomended : v4.4.4"
+	echo "recomended : v8.6.0"
 	echo "see node.txt for instructions"
 	read -r -p "continue anyway? [y/N] " response
 	case $response in
