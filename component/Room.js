@@ -1164,18 +1164,51 @@ ns.Live.prototype.handleQuality = function( level, peerId ) {
 	self.updateQualityScale();
 }
 
-ns.Live.prototype.handleSpeaking = function( timestamp, peerId ) {
+ns.Live.prototype.handleSpeaking = function( event, peerId ) {
 	const self = this;
-	if ( null != self.speakerTimeout )
-		return;
+	if ( false === event.isSpeaking )
+		handleStoppedSpeaking( event, peerId );
+	else
+		handleIsSpeaking( event, peerId );
 	
-	self.speakerTimeout = setTimeout( clear, 1000 * 3 );
-	self.currentSpeaker = peerId;
-	const speaking = {
-		type : 'speaking',
-		data : peerId,
-	};
-	self.broadcast( speaking );
+	function handleIsSpeaking( event, peerId ) {
+		if ( null != self.speakerTimeout )
+			return;
+		
+		self.speakerTimeout = setTimeout( clear, 1000 * 2 );
+		self.currentSpeaker = peerId;
+		const speaking = {
+			time       : event.time,
+			peerId     : peerId,
+			isSpeaking : true,
+		};
+		send( speaking );
+	}
+	
+	function handleStoppedSpeaking( event, peerId ) {
+		if ( peerId !== self.currentSpeaker )
+			return;
+		
+		if ( self.speakerTimeout ) {
+			clearTimeout( self.speakerTimeout );
+			self.speakerTimeout = null;
+		}
+		
+		const stopped = {
+			time       : event.time,
+			peerId     : peerId,
+			isSpeaking : false,
+		};
+		send( stopped );
+	}
+	
+	function send( event ) {
+		let speaking = {
+			type : 'speaking',
+			data : event,
+		};
+		self.broadcast( speaking );
+	}
 	
 	function clear() {
 		self.speakerTimeout = null;
