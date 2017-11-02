@@ -379,7 +379,12 @@ ns.Patches.prototype.applyPatches = function( doneBack ) {
 	var notApplied = self.patchList.filter( isGreaterThanDb );
 	
 	applyPatch( 0, applied );
-	function applied( lastIndex ) {
+	function applied( err, lastIndex ) {
+		if ( err ) {
+			done( false );
+			return;
+		}
+		
 		var nextIndex = lastIndex + 1;
 		if ( notApplied[ nextIndex ] ) {
 			applyPatch( nextIndex, applied );
@@ -391,7 +396,12 @@ ns.Patches.prototype.applyPatches = function( doneBack ) {
 	
 	function applyPatch( index, appliedBack ) {
 		var patch = notApplied[ index ];
-		var queries;
+		if ( !patch || !patch.filename ) {
+			appliedBack( 'ERR_INVALID_PATCH' );
+			return;
+		}
+		
+		var queries = null;
 		readPatch( patch.filename, prepareContents );
 		function prepareContents( err, file ) {
 			queries = file.split( ';' );
@@ -474,7 +484,7 @@ ns.Patches.prototype.applyPatches = function( doneBack ) {
 					return;
 				}
 				
-				appliedBack( index );
+				appliedBack( null, index );
 			}
 		}
 	}
