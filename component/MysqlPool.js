@@ -239,7 +239,7 @@ ns.Patches.prototype.check = function( checkDone ) {
 	}
 	function checkUpToDate() {
 		var lastPatch = self.patchList[ self.patchList.length -1 ];
-		if ( lastPatch.version == self.dbState.version ) {
+		if ( lastPatch.version <= self.dbState.version ) {
 			done( true );
 			return;
 		}
