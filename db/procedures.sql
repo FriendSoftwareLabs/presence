@@ -35,8 +35,10 @@ DROP PROCEDURE IF EXISTS auth_add;
 DROP PROCEDURE IF EXISTS auth_remove;
 # MESSAGE
 DROP PROCEDURE IF EXISTS message_set;
-DROP PROCEDURE IF EXISTS message_get;
-DROP PROCEDURE IF EXISTS message_get_from;
+DROP PROCEDURE IF EXISTS message_get_asc;
+DROP PROCEDURE IF EXISTS message_get_desc;
+DROP PROCEDURE IF EXISTS message_get_after;
+DROP PROCEDURE IF EXISTS message_get_before;
 
 # UTIL
 DROP FUNCTION IF EXISTS fn_split_str;
@@ -421,8 +423,8 @@ INSERT INTO `message` (
 );
 END//
 
-# message_get
-CREATE PROCEDURE message_get(
+# message_get_desc
+CREATE PROCEDURE message_get_desc(
 	IN `roomId` VARCHAR( 191 ),
 	IN `length` INT
 )
@@ -444,11 +446,61 @@ FROM (
 ORDER BY tmp._id ASC;
 END//
 
-# message_get_from
-CREATE PROCEDURE message_get_from(
+# message_get_asc
+CREATE PROCEDURE message_get_asc(
 	IN `roomId` VARCHAR( 191 ),
-	IN `length` INT,
-	IN `startId` VARCHAR( 191 )
+	IN `length` INT
+)
+BEGIN
+SELECT
+	tmp.msgId,
+	tmp.roomId,
+	tmp.accountId AS `fromId`,
+	tmp.timestamp AS `time`,
+	tmp.type,
+	tmp.name,
+	tmp.message
+FROM (
+	SELECT * FROM message AS m
+	WHERE m.roomId = `roomId`
+	ORDER BY m._id ASC
+	LIMIT 0, `length`
+) AS tmp;
+END//
+
+#mesage_get_after
+CREATE PROCEDURE message_get_after(
+	IN `roomId` VARCHAR( 191 ),
+	IN `lastId` VARCHAR( 191 ),
+	IN `length` INT
+)
+BEGIN
+SELECT
+	tmp.msgId,
+	tmp.roomId,
+	tmp.accountId AS `fromId`,
+	tmp.timestamp AS `time`,
+	tmp.type,
+	tmp.name,
+	tmp.message
+FROM (
+	SELECT  * FROM message AS m
+	WHERE m.roomId = `roomId`
+	AND m._id > (
+		SELECT l._id
+		FROM message AS l
+		WHERE l.msgId = `lastId`
+	)
+	ORDER BY m._id ASC
+	LIMIT `length`
+) AS tmp;
+END//
+
+# message_get_before
+CREATE PROCEDURE message_get_before(
+	IN `roomId` VARCHAR( 191 ),
+	IN `startId` VARCHAR( 191 ),
+	IN `length` INT
 )
 BEGIN
 SELECT
@@ -472,3 +524,4 @@ FROM (
 ) AS tmp
 ORDER BY tmp._id ASC;
 END//
+

@@ -67,7 +67,6 @@ ns.TCPClient.prototype.send = function( msg, callback ) {
 
 ns.TCPClient.prototype.setSession = function( sid, callback ) {
 	const self = this;
-	log( 'setSession', sid );
 	if ( sid )
 		self.sessionId = sid;
 	
@@ -80,7 +79,6 @@ ns.TCPClient.prototype.setSession = function( sid, callback ) {
 
 ns.TCPClient.prototype.unsetSession = function( callback ) {
 	const self = this;
-	log( 'unsetSession' );
 	self.sessionId = null;
 	var unset = {
 		type : 'session',
@@ -92,7 +90,6 @@ ns.TCPClient.prototype.unsetSession = function( callback ) {
 ns.TCPClient.prototype.close = function() {
 	const self = this;
 	self.clearTimeouts();
-	log( 'close' );
 	if ( self.socket ) {
 		self.releaseSocket();
 		self.socket.destroy();

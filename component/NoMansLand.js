@@ -367,13 +367,11 @@ ns.NoMansLand.prototype.clientLogin = function( identity, cid ) {
 		let client = self.getClient( cid );
 		acc.auth = client.auth;
 		acc.identity = identity;
-		log( 'loggin in: ' + acc.login );
 		self.unsetClientAccountStage( cid );
 		const account = self.getAccount( acc.clientId );
 		if ( account && !account.session ) {
 			// somethings funky,
 			// in the process of logging in/out?
-			log( 'no session for account', acc );
 			loginFailed( 'ERR_ACCOUNT_NO_SESSION', acc );
 			return;
 		}
@@ -461,7 +459,6 @@ ns.NoMansLand.prototype.validate = function( bundle, callback ) {
 			}
 			
 			const isAdmin = !!( 'Admin' === res.Level );
-			log( 'validate acc back', res );
 			const workgroups = parseWorkgroups( res.Workgroup );
 			const auth = {
 				login      : res.Name,
@@ -473,13 +470,11 @@ ns.NoMansLand.prototype.validate = function( bundle, callback ) {
 	}
 	
 	function parseWorkgroups( str ) {
-		log( 'parseWorkgroups', str );
 		let wgs = [];
 		if ( !str || !str.length )
 			return wgs;
 		
 		wgs = str.split( ', ' );
-		log( 'wgs', wgs );
 		return wgs;
 	}
 	
@@ -662,10 +657,6 @@ ns.NoMansLand.prototype.getAccount = function( accountId ) {
 	const self = this;
 	const acc = self.accounts[ accountId ];
 	if ( !acc ) {
-		log( 'getAccount - no account for', {
-			aid  : accountId,
-			accs : Object.keys( self.accounts ),
-		}, 3);
 		return null; 
 	}
 	

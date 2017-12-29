@@ -493,7 +493,6 @@ ns.Room.prototype.revokeAuthorization = function( userId ) {
 	.catch( revokeFailed );
 	
 	function revokeDone( res ) {
-		log( 'revokeAuthorization - done', res );
 	}
 	
 	function revokeFailed( err ) {
@@ -1671,9 +1670,13 @@ ns.Log.prototype.get = function( conf ) {
 	const self = this;
 	return new Promise( logs );
 	function logs( resolve, reject ) {
-		if ( null == conf )
-			resolve( self.items );
-		else
+		if ( null == conf ) {
+			let logs = {
+				type : 'before',
+				data : self.items,
+			};
+			resolve( logs );
+		} else
 			self.load( conf )
 				.then( resolve )
 				.catch( err );
@@ -1712,8 +1715,8 @@ ns.Log.prototype.init = function() {
 		.then( itemsBack )
 		.catch( logErr );
 		
-	function itemsBack( items ) {
-		self.items = items;
+	function itemsBack( log ) {
+		self.items = log.data;
 	}
 	
 	function logErr( err ) {
@@ -1723,32 +1726,71 @@ ns.Log.prototype.init = function() {
 
 ns.Log.prototype.load = function( conf ) {
 	const self = this;
-	if ( !conf )
+	if ( !conf ) {
 		conf = {};
+		return new Promise( loadBefore );
+	}
 	
-	return new Promise( loadAndParse );
-	function loadAndParse( resolve, reject ) {
-		self.msgDb.get( conf.length, conf.startId )
-			.then( parse )
-			.catch( reject );
-		
-		function parse( items ) {
-			if ( null == items ) {
-				resolve( null );
-				return;
-			}
+	if ( conf.lastId )
+		return new Promise( loadAfter );
+	else
+		return new Promise( loadBefore );
+	
+	function loadBefore( resolve, reject ) {
+		self.msgDb.getBefore( conf.firstId, conf.length )
+			.then( loaded )
+			.catch( loadErr );
 			
-			const events = items.map( extractType );
-			resolve( events );
-			function extractType( item ) {
-				const event = {
-					type : item.type,
-					data : null,
-				};
-				delete item.type;
-				event.data = item;
-				return event;
-			}
+		function loaded( items ) {
+			let events = parse( items );
+			let log = {
+				type : 'before',
+				data : events,
+			};
+			resolve( log );
+		}
+		
+		function loadErr( e ) {
+			lllog( 'loadErr', e );
+			reject( e );
+		}
+	}
+	
+	function loadAfter( resolve, reject ) {
+		self.msgDb.getAfter( conf.lastId, conf.length )
+			.then( loaded )
+			.catch( loadErr );
+			
+		function loaded( items ) {
+			let events = parse( items );
+			let log = {
+				type : 'after',
+				data : events,
+			};
+			resolve( log );
+		}
+		
+		function loadErr( e ) {
+			lllog( 'loadErr', e );
+			reject( e );
+		}
+	}
+	
+	function parse( items ) {
+		if ( !items )
+			return null;
+		
+		const events = items.map( extractType );
+		return events;
+		
+		function extractType( item ) {
+			const event = {
+				type : item.type,
+				data : null,
+			};
+			delete item.type;
+			event.data = item;
+			return event;
 		}
 	}
 }

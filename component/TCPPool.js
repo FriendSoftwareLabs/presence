@@ -123,7 +123,6 @@ ns.TCPPool.prototype.closePool = function() {
 
 ns.TCPPool.prototype.handleConnection = function( socket ) {
 	const self = this;
-	log( 'handleConnection' );
 	socket.setEncoding( 'utf8' );
 	socket.setKeepAlive( true );
 	const client = new Client( socket );

@@ -541,24 +541,22 @@ ns.MessageDB.prototype.set = function( conf ) {
 	}
 }
 
-ns.MessageDB.prototype.get = function( length, startId ) {
+ns.MessageDB.prototype.getBefore = function( firstId, length ) {
 	const self = this;
-	if ( null == length )
-		length = 50;
-	
 	const values = [
-		self.roomId,
-		length,
+		self.roomId
 	];
 	
-	if ( null != startId )
-		values.push( startId );
+	if ( firstId )
+		values.push( firstId );
 	
-	return new Promise( loadMessages );
-	function loadMessages( resolve, reject ) {
-		let queryFn = 'message_get';
-		if ( 3 === values.length ) // startId
-			queryFn = 'message_get_from';
+	values.push( length || 50 );
+	
+	return new Promise( load );
+	function load( resolve, reject ) {
+		let queryFn = 'message_get_desc';
+		if ( firstId )
+			queryFn = 'message_get_before';
 		
 		self.query( queryFn, values )
 			.then( msgBack )
@@ -566,9 +564,38 @@ ns.MessageDB.prototype.get = function( length, startId ) {
 		
 		function msgBack( res ) {
 			const rows = res.rows || [];
-			
-			if ( 3 === values.length && !rows.length ) // end of log
+			if ( firstId && !rows.length ) // end of log
 				resolve( null )
+			else
+				resolve( rows );
+		}
+	}
+}
+
+ns.MessageDB.prototype.getAfter = function( lastId, length ) {
+	const self = this;
+	const values = [
+		self.roomId,
+	];
+	
+	if ( lastId )
+		values.push( lastId );
+	
+	values.push( length || 50 );
+	return new Promise( load );
+	function load( resolve, reject ) {
+		let queryFn = 'message_get_asc';
+		if ( lastId )
+			queryFn = 'message_get_after';
+		
+		self.query( queryFn, values )
+			.then( msgsBack )
+			.catch( reject );
+			
+		function msgsBack( res ) {
+			const rows = res.rows || [];
+			if ( lastId && !rows.length ) // end of log
+				resolve( null );
 			else
 				resolve( rows );
 		}
