@@ -531,6 +531,9 @@ ns.Room.prototype.setIdentity = function( id, userId ) {
 		});
 		return;
 	}
+	const user = self.users[ userId ];
+	if ( user && user.guest )
+		user.accountName = id.name;
 	
 	self.identities[ userId ] = id;
 	const uptd = {
