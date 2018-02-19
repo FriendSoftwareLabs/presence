@@ -42,7 +42,7 @@
 	.release( type ), type of event listeners to release - no return value
 		Remove all listeners registered on the object, or specify listener type
 		
-	.emit( type, arguments... ), returns null if event was emitted,
+	.emit( type, ...arguments ), returns null if event was emitted,
 		otherwise returns a object with 'type' and arguments[]
 		Arguments are applied to all registered listeners of the specified type.
 */

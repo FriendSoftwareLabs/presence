@@ -1,5 +1,3 @@
-'use strict';
-
 /*©agpl*************************************************************************
 *                                                                              *
 * This file is part of FRIEND UNIFYING PLATFORM.                               *
@@ -18,6 +16,8 @@
 * along with this program.  If not, see <http://www.gnu.org/licenses/>.        *
 *                                                                              *
 *****************************************************************************©*/
+
+'use strict';
 
 const log = require( './Log' )( 'GuestAccount' );
 
@@ -71,6 +71,7 @@ ns.GuestAccount.prototype.handleInitialize = function( e, clientId ) {
 			account  : {
 				clientId : self.id,
 				name     : self.identity.name,
+				avatar   : self.identity.avatar,
 			},
 			rooms    : [ self.roomId ],
 		},
@@ -89,10 +90,11 @@ ns.GuestAccount.prototype.joinRoom = function() {
 	const guestAcc = {
 		clientId : self.id,
 		name     : self.identity.name,
+		avatar   : self.identity.avatar,
 	};
 	
 	self.roomCtrl.guestJoinRoom( guestAcc, self.roomId, roomBack );
-	function roomBack( room ) {
+	function roomBack( err, room ) {
 		self.room = room;
 		if ( !self.room ) {
 			self.logout();

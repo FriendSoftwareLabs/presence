@@ -52,6 +52,10 @@ ns.Account.prototype.close = function() {
 	const self = this;
 	self.logout( outBack );
 	function outBack() {
+		if ( self.roomCtrl ) {
+			self.roomCtrl.off( self.wgAssEventId );
+		}
+		
 		delete self.dbPool;
 		delete self.roomCtrl;
 		delete self.onclose;
@@ -65,6 +69,11 @@ ns.Account.prototype.init = function() {
 	// prepare 'personalized' logging
 	var logStr = 'Account-' + self.login;
 	self.log = require( './Log' )( logStr );
+	self.log( 'auth', self.auth, 3 );
+	
+	self.wgAssEventId = self.roomCtrl.on( 'workgroup-assigned', wgAssigned );
+	
+	function wgAssigned( wg, roomId ) { self.handleWorkgroupAssigned( wg, roomId ); }
 	
 	self.setIdentity();
 	
@@ -95,6 +104,38 @@ ns.Account.prototype.init = function() {
 	//function leftRoom( e, rid ) { self.handleLeftRoom( e, rid ); }
 }
 
+ns.Account.prototype.handleWorkgroupAssigned = function( addedWorg, roomId ) {
+	const self = this;
+	self.log( 'handleWorkgroupAssigned', {
+		addedWorg : addedWorg,
+		roomId    : roomId,
+	});
+	if ( self.rooms.isParticipant( roomId )) {
+		self.log( 'handleWorkgroupAssigned - is participant', roomId );
+		return;
+	}
+	
+	self.log( 'wgs', self.auth.workgroups, 3 );
+	let isMember = self.auth.workgroups.member.some( checkIsMember );
+	self.log( 'handleWorkgroupAssigned - isMember', isMember );
+	if ( !isMember )
+		return;
+	
+	const account = self.buildRoomAccount();
+	self.roomCtrl.connectWorkgroup( account, roomId, roomBack );
+	
+	function checkIsMember( worg ) {
+		return worg.clientId === addedWorg.cId;
+	}
+	
+	function roomBack( err, room ) {
+		if ( err )
+			return;
+		
+		self.joinedARoomHooray( room );
+	}
+}
+
 ns.Account.prototype.initializeClient = function( event, clientId ) {
 	const self = this;
 	const state = {
@@ -105,6 +146,7 @@ ns.Account.prototype.initializeClient = function( event, clientId ) {
 				clientId : self.id,
 				login    : self.login,
 				name     : self.identity.name,
+				auth     : self.auth,
 			},
 			rooms    : self.rooms.getRooms(),
 		},
@@ -195,15 +237,20 @@ ns.Account.prototype.handleSettings = function( msg, cid ) {
 
 ns.Account.prototype.loadRooms = function() {
 	const self = this;
-	var roomDb = new dFace.RoomDB( self.dbPool );
-	roomDb.getForAccount( self.id )
+	const roomDb = new dFace.RoomDB( self.dbPool );
+	roomDb.getForAccount( self.id, self.auth.workgroups.member )
 		.then( roomsBack )
 		.catch( loadError );
-		
+	
 	function roomsBack( list ) {
+		self.log( 'roomsBack', list, 3 );
 		list.forEach( connect );
 		function connect( room ) {
-			self.roomCtrl.connect( self.id, room.clientId, roomBack );
+			const account = self.buildRoomAccount();
+			if ( room.wgs )
+				self.roomCtrl.connectWorkgroup( account, room.clientId, roomBack );
+			else
+				self.roomCtrl.connect( account, room.clientId, roomBack );
 		}
 	}
 	
@@ -214,7 +261,6 @@ ns.Account.prototype.loadRooms = function() {
 		}
 		
 		self.joinedARoomHooray( room );
-		//self.connectedRoom( room );
 	}
 	
 	function loadError( err ) {
@@ -224,7 +270,8 @@ ns.Account.prototype.loadRooms = function() {
 
 ns.Account.prototype.joinRoom = function( conf, cid ) {
 	const self = this;
-	var room = self.roomCtrl.joinRoom( self.identity, conf.invite, roomBack );
+	const account = self.buildRoomAccount();
+	self.roomCtrl.joinRoom( account, conf.invite, roomBack );
 	function roomBack( err, room ) {
 		if ( err || !room ) {
 			self.log( 'failed to join a room', {
@@ -241,7 +288,8 @@ ns.Account.prototype.joinRoom = function( conf, cid ) {
 ns.Account.prototype.createRoom = function( conf, cid ) {
 	const self = this;
 	conf = conf || {};
-	self.roomCtrl.createRoom( self.identity, conf, roomBack );
+	const account = self.buildRoomAccount();
+	self.roomCtrl.createRoom( account, conf, roomBack );
 	function roomBack( err, room ) {
 		if ( err || !room ) {
 			self.log( 'failed to set up a room', {
@@ -275,8 +323,10 @@ ns.Account.prototype.connectedRoom = function( room ) {
 
 ns.Account.prototype.joinedARoomHooray = function( room, reqId  ) {
 	const self = this;
-	if ( !room )
+	if ( !room ) {
+		self.log( 'joinedARoom - didnt join a room', room );
 		return;
+	}
 	
 	var res = {
 		clientId   : room.roomId,
@@ -295,6 +345,17 @@ ns.Account.prototype.joinedARoomHooray = function( room, reqId  ) {
 	}
 }
 
+ns.Account.prototype.buildRoomAccount = function() {
+	const self = this;
+	return {
+		clientId   : self.id,
+		name       : self.identity.name,
+		avatar     : self.identity.avatar,
+		admin      : self.auth.admin,
+		workgroups : self.auth.workgroups,
+	};
+}
+
 ns.Account.prototype.handleRoomClosed = function( roomId ) {
 	const self = this;
 	const close = {
@@ -306,6 +367,7 @@ ns.Account.prototype.handleRoomClosed = function( roomId ) {
 
 ns.Account.prototype.logout = function( callback ) {
 	const self = this;
+	self.log( 'logout' );
 	if ( self.rooms )
 		self.rooms.close();
 	
@@ -358,6 +420,15 @@ ns.Rooms.prototype.add = function( room ) {
 	function fromRoom( e ) { self.handleRoomEvent( e, rid ); }
 	function fromClient( e ) { self.handleClientEvent( e, rid ); }
 	function onClose( e ) { self.handleRoomClosed( rid ); }
+}
+
+ns.Rooms.prototype.isParticipant = function( roomId ) {
+	const self = this;
+	rlog( 'isParticipant', {
+		rooms  : self.rooms,
+		roomId : roomId,
+	});
+	return !!self.rooms[ roomId ];
 }
 
 ns.Rooms.prototype.remove = function( roomId ) {

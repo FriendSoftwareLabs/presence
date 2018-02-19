@@ -43,6 +43,43 @@ ns.TinyAvatar.prototype.generate = function( string, callback ) {
 	const bgColor = Buffer( '444444FF', 'hex' );
 	const pattern = self.generateBlockPattern( source.slice( 4, 29 ));
 	
+	self.build( color, bgColor, pattern, callback );
+}
+
+ns.TinyAvatar.prototype.generateGuest = function( callback ) {
+	const self = this;
+	//const color = Buffer( 'E73B2BFF', 'hex' );
+	const color = Buffer( '2B97CCFF', 'hex' );
+	const bgColor = Buffer( '444444FF', 'hex' );
+	// ?
+	/*
+	const pattern = [
+		0,1,1,1,0,
+		1,0,0,0,1,
+		0,0,1,1,0,
+		0,0,0,0,0,
+		0,0,1,0,0,
+	];
+	*/
+	
+	// F
+	const pattern = [
+		1,1,1,1,1,
+		1,0,0,0,0,
+		1,1,1,1,0,
+		1,0,0,0,0,
+		1,0,0,0,0,
+	];
+	
+	self.build( color, bgColor, pattern, callback );
+}
+
+// Private
+
+ns.TinyAvatar.prototype.init = function() {}
+
+ns.TinyAvatar.prototype.build = function(color, bgColor, pattern, callback ) {
+	const self = this;
 	const side = 128;
 	const border = 4;
 	const block = ( 128 - ( border * 2 )) / 5;
@@ -62,10 +99,6 @@ ns.TinyAvatar.prototype.generate = function( string, callback ) {
 		});
 	});
 }
-
-// Private
-
-ns.TinyAvatar.prototype.init = function() {}
 
 ns.TinyAvatar.prototype.getBuffer = function( string ) {
 	const self = this;

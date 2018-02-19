@@ -1,7 +1,8 @@
 /*
 	IMPORTANT: Execute this file from the mysql cli, running it in phpMyAdmin will fail.
-	This is because :phpMyAdminTrollface.jpg: 
-	and not a problem with the script itself. Must be. No other possible explanation.
+	This is because :phpMyAdminTrollface.jpg: and not a problem with the script itself. 
+	
+	Or just let the server run it on startup..
 */
 
 DELIMITER //
@@ -28,10 +29,17 @@ DROP PROCEDURE IF EXISTS room_delete;
 DROP PROCEDURE IF EXISTS room_touch;
 DROP PROCEDURE IF EXISTS room_set_name;
 DROP PROCEDURE IF EXISTS room_set_owner;
+DROP PROCEDURE IF EXISTS room_setting_set;
+DROP PROCEDURE IF EXISTS room_settings_get;
+DROP PROCEDURE IF EXISTS room_get_assigned_workgroups;
+DROP PROCEDURE IF EXISTS room_assign_workgroup;
+DROP PROCEDURE IF EXISTS room_dismiss_workgroup;
 # AUTH
 DROP PROCEDURE IF EXISTS auth_get_for_room;
 DROP PROCEDURE IF EXISTS auth_get_for_account;
+DROP PROCEDURE IF EXISTS auth_get_for_workgroups;
 DROP PROCEDURE IF EXISTS auth_add;
+DROP PROCEDURE IF EXISTS auth_check;
 DROP PROCEDURE IF EXISTS auth_remove;
 # MESSAGE
 DROP PROCEDURE IF EXISTS message_set;
@@ -39,6 +47,13 @@ DROP PROCEDURE IF EXISTS message_get_asc;
 DROP PROCEDURE IF EXISTS message_get_desc;
 DROP PROCEDURE IF EXISTS message_get_after;
 DROP PROCEDURE IF EXISTS message_get_before;
+#INVITE TOKENS
+DROP PROCEDURE IF EXISTS invite_set;
+DROP PROCEDURE IF EXISTS invite_get;
+DROP PROCEDURE IF EXISTS invite_get_room;
+DROP PROCEDURE IF EXISTS invite_check_room;
+DROP PROCEDURE IF EXISTS invite_invalidate;
+DROP PROCEDURE IF EXISTS invite_used;
 
 # UTIL
 DROP FUNCTION IF EXISTS fn_split_str;
@@ -315,13 +330,34 @@ BEGIN
 END//
 
 #
+# SET SETTING
+CREATE PROCEDURE room_setting_set(
+	IN `roomId` VARCHAR( 191 ),
+	IN `path` VARCHAR( 191 ),
+	IN `value` TEXT
+)
+BEGIN
+END//
+
+#
+# GET SETTINGS
+CREATE PROCEDURE room_settings_get(
+	IN `roomId` VARCHAR( 191 )
+)
+BEGIN
+SELECT r.settings FROM room AS r
+WHERE r.clientId = `roomId`;
+END//
+
+
+#
 # AUTHORIZED
 #
 
 #
 # load account authorizations for a room
 CREATE PROCEDURE auth_get_for_room(
-	IN `roomId` VARCHAR( 255 )
+	IN `roomId` VARCHAR( 191 )
 )
 BEGIN
 	SELECT 
@@ -341,13 +377,105 @@ END//
 #
 # load rooms available for an account
 CREATE PROCEDURE auth_get_for_account(
-	IN `accountId` VARCHAR( 255 )
+	IN `accountId` VARCHAR( 191 )
 )
 BEGIN
-	SELECT r.clientId, r.name, r.ownerId FROM `authorized_for_room` AS auth 
+	SELECT r.clientId FROM `authorized_for_room` AS auth 
 	LEFT JOIN `room` AS r 
 	ON auth.roomId = r.clientId 
 	WHERE auth.accountId = `accountId`;
+END//
+
+#
+# load rooms for workgroups
+CREATE PROCEDURE auth_get_for_workgroups(
+	IN `accountId` VARCHAR( 191 ),
+	IN `fIds`      TEXT
+)
+BEGIN
+	DECLARE i INT DEFAULT 0;
+	DECLARE str VARCHAR( 191 );
+	DROP TEMPORARY TABLE IF EXISTS str_split_tmp;
+	CREATE TEMPORARY TABLE str_split_tmp( `id` VARCHAR( 191));
+	loopie: LOOP
+		SET i=i+1;
+		SET str=fn_split_str( fIds, '|', i );
+		IF str='' THEN
+			LEAVE loopie;
+		END IF;
+		INSERT INTO str_split_tmp VALUES( str );
+	END LOOP loopie;
+	
+	SELECT
+		r.clientId,
+		wgr.fId
+	FROM `workgroup_rooms` as wgr
+	LEFT JOIN `room` AS r
+	ON wgr.roomId = r.clientId
+	WHERE wgr.fId IN (
+		SELECT id FROM str_split_tmp
+	)
+	AND wgr.roomId NOT IN (
+		SELECT afr.roomId FROM `authorized_for_room` AS afr
+		WHERE afr.accountId=`accountId`
+	);
+END//
+
+#
+# room_get_assigned_workgroups
+CREATE PROCEDURE room_get_assigned_workgroups(
+	IN `roomId` VARCHAR( 191 )
+)
+BEGIN
+SELECT
+	wgr.fId,
+	wgr.setById,
+	wgr.setTime
+FROM `workgroup_rooms` AS wgr
+WHERE wgr.roomId = `roomId`;
+END//
+
+#
+# room_assign_workgroup
+CREATE PROCEDURE room_assign_workgroup(
+	IN `roomId`  VARCHAR( 191 ),
+	IN `fId`     VARCHAR( 191 ),
+	IN `setById` VARCHAR( 191 )
+)
+BEGIN
+INSERT INTO `workgroup_rooms` (
+	`fId`,
+	`roomId`,
+	`setById`
+)
+VALUES (
+	`fId`,
+	`roomId`,
+	`setById`
+);
+
+SELECT
+	wgr.fId,
+	wgr.roomId,
+	wgr.setById,
+	wgr.setTime
+FROM `workgroup_rooms` AS wgr
+WHERE wgr.roomId = `roomId`
+AND wgr.fId = `fId`;
+END//
+
+#
+# room_dismiss_workgroup
+CREATE PROCEDURE room_dismiss_workgroup(
+	IN `roomId` VARCHAR( 191 ),
+	IN `fId`    VARCHAR( 191 )
+)
+BEGIN
+DELETE wgr FROM `workgroup_rooms` AS wgr
+WHERE wgr.roomId = `roomId`
+AND wgr.fId = `fId`;
+
+SELECT `fId` as 'fId', ROW_COUNT() as 'removed';
 END//
 
 #
@@ -378,14 +506,26 @@ BEGIN
 END//
 
 #
+# CHECK ACCOUNT IS AUTHED
+CREATE PROCEDURE auth_check(
+	IN `roomId`    VARCHAR( 255 ),
+	IN `accountId` VARCHAR( 255 )
+)
+BEGIN
+SELECT a.accountId FROM `authorized_for_room` AS a
+WHERE a.roomId = `roomId`
+AND a.accountId = `accountId`;
+END//
+
+#
 # REMOVE ACCOUNT FROM ROOM
 CREATE PROCEDURE auth_remove(
 	IN `roomId` VARCHAR( 255 ),
 	IN `accountId` VARCHAR( 255 )
 )
 BEGIN
-	DELETE afr FROM authorized_for_room AS afr
-	WHERE afr.roomId = `roomId` AND afr.accountId = `accountId`;
+DELETE afr FROM authorized_for_room AS afr
+WHERE afr.roomId = `roomId` AND afr.accountId = `accountId`;
 END//
 
 #
@@ -525,3 +665,74 @@ FROM (
 ORDER BY tmp._id ASC;
 END//
 
+
+## INVITE TOENS
+
+# invite_set;
+CREATE PROCEDURE invite_set(
+	IN `token` VARCHAR( 191 ),
+	IN `roomId` VARCHAR( 191 ),
+	IN `singleUse` BOOLEAN,
+	IN `createdBy` VARCHAR( 191 )
+)
+BEGIN
+INSERT INTO `invite_token` (
+	`token`,
+	`roomId`,
+	`singleUse`,
+	`createdBy`
+) VALUES (
+	token,
+	roomId,
+	singleUse,
+	createdBy
+);
+END//
+
+
+# invite_get;
+CREATE PROCEDURE invite_get(
+	IN `token` VARCHAR( 191 )
+)
+BEGIN
+SELECT * FROM invite_token AS inv
+WHERE iv.token = token;
+END//
+
+
+# invite_get_room;
+CREATE PROCEDURE invite_get_room(
+	IN `roomId` VARCHAR( 191 )
+)
+BEGIN
+SELECT * FROM invite_token AS inv
+WHERE inv.roomId = roomId
+AND inv.isValid = 1;
+END//
+
+# invite_check_room
+CREATE PROCEDURE invite_check_room(
+	IN `token` VARCHAR( 191 ),
+	IN `roomId` VARCHAR( 191 )
+)
+BEGIN
+SELECT * FROM invite_token AS inv
+WHERE inv.token = token
+AND inv.roomId = roomId;
+END//
+
+# invite_invalidate;
+CREATE PROCEDURE invite_invalidate(
+	IN `token` VARCHAR( 191 ),
+	IN `invalidated_by` VARCHAR( 191 )
+)
+BEGIN
+	UPDATE invite_token AS inv
+	SET
+		inv.isValid = 0,
+		inv.invalidatedBy = invalidated_by,
+		inv.invalidated = NOW()
+	WHERE inv.token = token;
+END//
+
+#DROP PROCEDURE IF EXISTS invite_used;

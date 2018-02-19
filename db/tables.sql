@@ -28,7 +28,7 @@ CREATE TABLE `room` (
 	`settings`     JSON NOT NULL,
 	`isPrivate`    BOOLEAN NOT NULL DEFAULT 1,
 	`created`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	`lastActivity` TIMESTAMP NULL,
+	`lastActivity` TIMESTAMP,
 	PRIMARY KEY( _id )
 ) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -42,6 +42,22 @@ CREATE TABLE `authorized_for_room` (
 		ON DELETE CASCADE
 		ON UPDATE CASCADE,
 	FOREIGN KEY( accountId ) REFERENCES account( clientId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE
+) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `workgroup_rooms` (
+	`_id`     INT UNSIGNED NOT NULL auto_increment,
+	`fId`     VARCHAR( 191 ) NOT NULL,
+	`roomId`  VARCHAR( 191 ) NOT NULL,
+	`setById` VARCHAR( 191 ) NOT NULL,
+	`setTime` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY( _id ),
+	UNIQUE KEY( fId, roomId ),
+	FOREIGN KEY( roomId ) REFERENCES room( clientId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+	FOREIGN KEY( setById ) REFERENCES account( clientId )
 		ON DELETE CASCADE
 		ON UPDATE CASCADE
 ) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -64,8 +80,39 @@ CREATE TABLE `message` (
 		ON UPDATE CASCADE
 ) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE `invite_token` (
+	`_id`           INT UNSIGNED NOT NULL auto_increment,
+	`token`         VARCHAR( 191 ) NOT NULL,
+	`roomId`        VARCHAR( 191 ) NOT NULL,
+	`singleUse`     BOOLEAN NOT NULL,
+	`isValid`       BOOLEAN NOT NULL DEFAULT 1,
+	`createdBy`     VARCHAR( 191 ) NOT NULL,
+	`created`       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	`invalidatedBy` VARCHAR( 191 ),
+	`invalidated`   TIMESTAMP DEFAULT NULL,
+	PRIMARY KEY( _id ),
+	UNIQUE KEY( token ),
+	FOREIGN KEY( roomId ) REFERENCES room( clientId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+	FOREIGN KEY( createdBy ) REFERENCES account( clientId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE
+) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `invite_token_used` (
+	`_id`      INT UNSIGNED NOT NULL auto_increment,
+	`tokenId`  INT UNSIGNED NOT NULL,
+	`usedTime` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	`usedBy`   VARCHAR( 191 ),
+	PRIMARY KEY( _id ),
+	FOREIGN KEY( tokenId ) REFERENCES invite_token( _id )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE
+) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE `db_history` (
-	`_id` INT UNSIGNED NOT NULL auto_increment,
+	`_id`     INT UNSIGNED NOT NULL auto_increment,
 	`version` INT UNSIGNED NOT NULL,
 	`comment` VARCHAR( 191 ) NOT NULL,
 	`applied` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -76,6 +123,6 @@ INSERT INTO `db_history`(
 	`version`,
 	`comment`
 ) VALUES (
-	9,
+	16,
 	'tables.sql'
 );

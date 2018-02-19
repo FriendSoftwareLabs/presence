@@ -32,6 +32,7 @@ const dbLog = require( './Log')( 'DB' );
 const accLog = require( './Log' )( 'DB-Account' );
 const roomLog = require( './Log' )( 'DB-Room' );
 const msgLog = require( './Log' )( 'DB-Message' );
+const invLog = require( './Log' )( 'DB-Invite' );
 const uuid = require( './UuidPrefix' )();
 
 var ns = {};
@@ -50,7 +51,7 @@ ns.DB = function( pool ) {
 
 // 'Public'
 
-ns.DB.prototype.dbClose = function() {
+ns.DB.prototype.close = function() {
 	const self = this;
 	if ( !self.pool )
 		return;
@@ -319,11 +320,6 @@ ns.AccountDB.prototype.init = function() {
 	
 }
 
-ns.AccountDB.prototype.close = function() {
-	const self = this;
-	self.dbClose();
-}
-
 //
 // ROOM
 //
@@ -445,22 +441,171 @@ ns.RoomDB.prototype.loadAuthorizations = function( roomId ) {
 	}
 }
 
-ns.RoomDB.prototype.getForAccount = function( accountId ) {
+ns.RoomDB.prototype.getForAccount = function( accountId, workgroups ) {
 	const self = this;
+	let wgIds = null;
+	if ( workgroups )
+		wgIds = workgroups.map( getId ).join( '|' );
+	
 	return new Promise( getRooms );
 	function getRooms( resolve, reject ) {
-		const values = [ accountId ];
-		self.query( 'auth_get_for_account', values )
-			.then( roomsBack )
+		let accountRooms = [];
+		let workgroupRooms = [];
+		getAccountRooms( accRoomsBack );
+		function accRoomsBack( err, accRooms ) {
+			if ( err )
+				roomLog( 'accRoomsBack - err', err );
+			else
+				accountRooms = accRooms;
+			
+			if ( wgIds )
+				getWorkgroupRooms( wgRoomsBack );
+			else
+				done();
+		}
+		
+		function wgRoomsBack( err, wgRooms ) {
+			if ( err )
+				roomLog( 'wgRoomsBack - err', err );
+			else
+				workgroupRooms = wgRooms;
+			
+			done();
+		}
+		
+		function done() {
+			let rooms = accountRooms.concat( workgroupRooms );
+			resolve( rooms );
+		}
+		
+		function getAccountRooms( callback ) {
+			const values = [ accountId ];
+			self.query( 'auth_get_for_account', values )
+				.then( accBack )
+				.catch( accErr );
+			
+			function accBack( res ) { callback( null, res.rows ); }
+			function accErr( err ) { callback( err, null ); }
+		}
+		
+		function getWorkgroupRooms( callback ) {
+			const values = [
+				accountId,
+				wgIds,
+			];
+			self.query( 'auth_get_for_workgroups', values )
+				.then( wgBack )
+				.catch( wgErr );
+				
+			function wgBack( res ) {
+				const rows = res.rows;
+				const mapped = {};
+				rows.forEach( setInMap );
+				const ids = Object.keys( mapped );
+				const list = ids.map( rid => mapped[ rid ]);
+				callback( null, list );
+				
+				function setInMap( dbRoom ) {
+					let alreadySet = mapped[ dbRoom.clientId ];
+					if ( alreadySet ) {
+						alreadySet.wgs.push( dbRoom.fId );
+					}
+					else {
+						let room = {
+							clientId : dbRoom.clientId,
+							wgs      : [],
+						};
+						room.wgs.push( dbRoom.fId );
+						mapped[ dbRoom.clientId ] = room;
+					}
+				}
+			}
+			function wgErr( err ) { callback( err, null ); }
+		}
+	}
+	
+	function getId( wg ) {
+		return wg.fId;
+	}
+}
+
+ns.RoomDB.prototype.getAssignedWorkgroups = function() {
+	const self = this;
+	return new Promise( get );
+	function get( resolve, reject ) {
+		if ( !self.id ) {
+			reject ( 'ERR_NO_ROOMID' );
+			return;
+		}
+		
+		let values = [ self.id, ];
+		self.query( 'room_get_assigned_workgroups', values )
+			.then( worgsBack )
 			.catch( reject );
 		
-		function roomsBack( res ) {
-			if ( !res ) {
-				reject();
+		function worgsBack( res ) {
+			if ( !res || !res.rows ) {
+				reject( 'ERR_NO_ROWS' );
 				return;
 			}
 			
-			resolve( res.rows );
+			let worgs = res.rows;
+			resolve( worgs );
+		}
+	}
+}
+
+ns.RoomDB.prototype.assignWorkgroup = function( fWgId, setById, roomId ) {
+	const self = this;
+	return new Promise( assign );
+	function assign( resolve, reject ) {
+		roomId = roomId || self.id;
+		if ( !roomId || !fWgId || !setById ) {
+			roomLog( 'assingWorkgroup - invalid args', {
+				rid   : roomId,
+				fWgId : fWgId,
+				sid   : setById,
+			});
+			reject( 'ERR_INVALID_ARGS' );
+			return;
+		}
+		
+		const values = [
+			roomId,
+			fWgId,
+			setById,
+		];
+		self.query( 'room_assign_workgroup', values )
+			.then( done )
+			.catch( reject );
+			
+		function done( res ) {
+			const rows = res.rows;
+			resolve( rows[ 0 ] );
+		}
+	}
+}
+
+ns.RoomDB.prototype.dismissWorkgroup = function( fWgId, roomId ) {
+	const self = this;
+	return new Promise( dismiss );
+	function dismiss( resolve, reject ) {
+		roomId = roomId || self.id;
+		if ( !fWgId || !roomId ) {
+			reject( 'ERR_INVALID_ARGS' );
+			return;
+		}
+		const values = [
+			roomId,
+			fWgId,
+		];
+		self.query( 'room_dismiss_workgroup', values )
+			.then( done )
+			.catch( reject );
+		
+		function done( res ) {
+			const rows = res.rows;
+			resolve( rows[ 0 ]);
 		}
 	}
 }
@@ -484,6 +629,29 @@ ns.RoomDB.prototype.authorize = function( roomId, accountIds ) {
 	}
 }
 
+ns.RoomDB.prototype.check = function( accountId, roomId ) {
+	const self = this;
+	console.log( 'RoomDB.check', accountId );
+	roomId = roomId || self.id;
+	return new Promise( checkAuth );
+	function checkAuth( resolve, reject ) {
+		let values = [
+			roomId,
+			accountId,
+		];
+		
+		self.query( 'auth_check', values )
+			.then( checked )
+			.catch( reject );
+		
+		function checked( res ) {
+			roomLog( 'checked', res );
+			let rows = res.rows;
+			resolve( !!rows[ 0 ]);
+		}
+	}
+}
+
 ns.RoomDB.prototype.revoke = function( roomId, accountId ) {
 	const self = this;
 	const values = [
@@ -493,16 +661,64 @@ ns.RoomDB.prototype.revoke = function( roomId, accountId ) {
 	return self.query( 'auth_remove', values );
 }
 
+ns.RoomDB.prototype.getSettings = function() {
+	const self = this;
+	roomLog( 'get', self.id );
+	return new Promise( get );
+	function get( resolve, reject ) {
+		if ( !self.id ) {
+			reject( 'ERR_NO_ROOMID' );
+			return;
+		}
+		
+		let values = [ self.id ];
+		self.query( 'room_settings_get', values )
+			.then( ok )
+			.catch( reject );
+			
+		function ok( res ) {
+			if ( !res || !res.rows ) {
+				reject( 'ERR_NO_ROWS' );
+				return;
+			}
+			
+			let obj = res.rows[ 0 ];
+			if ( !obj || !obj.settings ) {
+				reject( 'ERR_NO_SETTINGS' );
+				return;
+			}
+			
+			let settings = null
+			try {
+				settings = JSON.parse( obj.settings );
+			} catch( e ) {
+				reject( 'ERR_INVALID_JSON' );
+				return;
+			}
+			
+			resolve( settings );
+		}
+	}
+}
+
+ns.RoomDB.prototype.setSetting = function( setting, value ) {
+	const self = this;
+	roomLog( 'setSetting', {
+		s : setting,
+		v : value,
+	});
+	return new Promise( set );
+	function set( resolve, reject ) {
+		reject( 'ERR_NYI_FUCKO' );
+	}
+}
+
+
 // Pirvate
 
 ns.RoomDB.prototype.init = function() {
 	const self = this;
 	
-}
-
-ns.RoomDB.prototype.close = function() {
-	const self = this;
-	self.dbClose();
 }
 
 //
@@ -607,6 +823,135 @@ ns.MessageDB.prototype.getAfter = function( lastId, length ) {
 ns.MessageDB.prototype.init = function() {
 	const self = this;
 	
+}
+
+
+// Invites
+
+// roomId is optonal, it ca be passed to the methods aswell
+ns.InviteDB = function( pool, roomId ) {
+	const self = this;
+	self.roomId = roomId;
+	ns.DB.call( self, pool );
+	
+	self.init();
+}
+
+util.inherits( ns.InviteDB, ns.DB );
+
+// Public
+
+ns.InviteDB.prototype.set = function( token, singleUse, createdBy, roomId ) {
+	const self = this;
+	roomId = roomId || self.roomId;
+	invLog( 'set', {
+		token : token,
+		roomId : roomId,
+		singleUse : singleUse,
+		createdBy : createdBy,
+	});
+	singleUse = !!singleUse;
+	const values = [
+		token,
+		roomId,
+		singleUse,
+		createdBy,
+	];
+	
+	return new Promise( setInvite );
+	function setInvite( resolve, reject ) {
+		self.query( 'invite_set', values )
+			.then( invSet )
+			.catch( reject );
+		
+		function invSet( res ) {
+			invLog( 'invSet', res );
+			resolve( true );
+		}
+	}
+}
+
+ns.InviteDB.prototype.get = function( token ) {
+	const self = this;
+	invLog( 'get', token );
+}
+
+ns.InviteDB.prototype.getForRoom = function( roomId ) {
+	const self = this;
+	roomId = roomId || self.roomId;
+	invLog( 'getForRoom', roomId );
+	const values = [
+		roomId,
+	];
+	
+	return new Promise(( resolve, reject ) => {
+		self.query( 'invite_get_room', values )
+			.then( tokensBack )
+			.catch( reject );
+			
+		function tokensBack( res ) {
+			invLog( 'tokensBack', res );
+			if ( !res || !res.rows ) {
+				reject( 'ERR_DB_INVALID_RESULT' );
+				return;
+			}
+			
+			resolve( res.rows );
+		}
+	});
+}
+
+ns.InviteDB.prototype.checkForRoom = function( token, roomId ) {
+	const self = this;
+	roomId = roomId || self.roomId;
+	invLog( 'checkForRoom', {
+		token,
+		roomId,
+	});
+	const values = [
+		token,
+		roomId,
+	];
+	return new Promise( validToken );
+	function validToken( resolve, reject ) {
+		self.query( 'invite_check_room', values )
+			.then( success )
+			.catch( reject );
+			
+		function success( res ) {
+			if ( !res || !res.rows )
+				resolve( null );
+			else
+				resolve( res.rows[ 0 ]);
+		}
+	}
+}
+
+ns.InviteDB.prototype.invalidate = function( token, invalidatedBy ) {
+	const self = this;
+	invLog( 'invalidate', token );
+	invalidatedBy = invalidatedBy || null;
+	const values = [
+		token,
+		invalidatedBy,
+	];
+	return new Promise( invalidated );
+	function invalidated( resolve, reject ) {
+		self.query( 'invite_invalidate', values )
+			.then( success )
+			.catch( reject );
+			
+		function success( res ) {
+			invLog( 'invalidate.success', res );
+			resolve( true );
+		}
+	}
+}
+
+// Private
+
+ns.InviteDB.prototype.init = function() {
+	const self = this;
 }
 
 module.exports = ns;

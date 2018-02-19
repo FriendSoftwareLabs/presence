@@ -33,7 +33,11 @@ ns.Signal = function( conf ) {
 	self.accountId = conf.accountId;
 	self.accountName = conf.accountName;
 	self.avatar = conf.avatar;
+	self.admin = conf.admin;
+	self.authed = conf.authed;
 	self.guest = conf.guest;
+	self.workgroups = conf.workgroups;
+	
 	Emitter.call( self );
 	
 	self.subs = {};
@@ -59,18 +63,32 @@ ns.Signal.prototype.send = function( event ) {
 	self.emitToAccount( event );
 }
 
-ns.Signal.prototype.setRoomPersistent = function( isPersist, name ) {
+ns.Signal.prototype.setRoomPersistent = function( isPersistent, name ) {
 	const self = this;
-	self.persistent = isPersist;
+	self.persistent = isPersistent;
 	self.roomName = name;
 	const persistent = {
 		type : 'persistent',
 		data : {
-			persistent : isPersist,
+			persistent : isPersistent,
 			name       : name,
 		},
 	};
 	self.send( persistent );
+}
+
+ns.Signal.prototype.setIsAuthed = function( isAuthed ) {
+	const self = this;
+	self.authed = isAuthed;
+	const authed = {
+		type : 'authed',
+		data : {
+			userId   : self.accountId,
+			worgId   : null,
+			authed   : isAuthed,
+		},
+	};
+	self.send( authed );
 }
 
 ns.Signal.prototype.close = function() {

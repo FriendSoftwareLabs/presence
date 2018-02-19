@@ -47,6 +47,7 @@ ns.FcRequest.prototype.init = function() {
 ns.FcRequest.prototype.post = function( conf ) {
 	const self = this;
 	var query = querystring.stringify( conf.data );
+	log( 'query', query );
 	var opts = self.buildPostOptions( conf.path, query.length );
 	var req = https.request( opts, reqBack );
 	req.on( 'error', oops );

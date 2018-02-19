@@ -34,7 +34,7 @@ ns.MysqlPool = function( config, doneBack ) {
 	self.user = config.user;
 	self.pass = config.pass;
 	self.database = config.name;
-	self.connectionLimit = 10;
+	self.connectionLimit = 100;
 	self.pool = null;
 	
 	self.init();
@@ -51,8 +51,8 @@ ns.MysqlPool.prototype.init = function() {
 		charset         : 'utf8mb4',
 	});
 	
-	self.pool.on('connection', logConnection );
-	self.pool.on('enqueue', logEnqueue );
+	self.pool.on( 'connection', logConnection );
+	self.pool.on( 'enqueue', logEnqueue );
 	
 	self.getConnection( systemsCheck );
 	function systemsCheck ( err, conn ) {
@@ -86,9 +86,8 @@ ns.MysqlPool.prototype.init = function() {
 	function logConnection( e ) {
 	}
 	
-	function logEnqueue( e ) {
-		log('connection requested, queued');
-		log( e );
+	function logEnqueue() {
+		log( 'connection requested, queued', arguments );
 	}
 }
 

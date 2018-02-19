@@ -1,2 +1,2 @@
-ALTER TABLE `account` 
+ALTER TABLE `room` 
 MODIFY `settings` JSON NOT NULL;

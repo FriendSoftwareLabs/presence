@@ -162,6 +162,7 @@ ns.NoMansLand.prototype.checkInvite = function( bundle, cid ) {
 
 ns.NoMansLand.prototype.loginGuest = function( identity, roomId, cid ) {
 	const self = this;
+	log( 'loginGuest', identity );
 	const client = self.getClient( cid );
 	if ( !client )
 		return;
@@ -434,42 +435,75 @@ ns.NoMansLand.prototype.logAccounts = function() {
 ns.NoMansLand.prototype.validate = function( bundle, callback ) {
 	const self = this;
 	if ( 'authid' === bundle.type ) {
-		checkAuthId( bundle.data );
+		self.validateAuthId( bundle.data, callback );
 		return;
 	}
 	
 	callback( 'ERR_AUTH_UNKNOWN', null );
+}
+
+ns.NoMansLand.prototype.validateAuthId = function( data, callback ) {
+	const self = this;
+	const authId = data.tokens.authId;
+	authRequest( authId, userBack );
+	function userBack( err, user ) {
+		if ( err ) {
+			callback( err, null );
+			return;
+		}
+		
+		log( 'userBack', user, 3 );
+		if ( !user || !user.Name ) {
+			callback( 'ERR_INVALID_AUTHID', null );
+			return;
+		}
+		
+		if ( user.Name !== data.login ) {
+			callback( 'ERR_INVALID_LOGIN', null );
+			return;
+		}
+		
+		getWorkGroups( authId, wgsBack )
+		function wgsBack( err, wgs ) {
+			if ( !err )
+				
+			buildAccountConf( user, wgs );
+		}
+		
+	}
 	
-	function checkAuthId( data ) {
-		authRequest( data.tokens.authId, userBack );
-		function userBack( err, res ) {
-			if ( err ) {
-				callback( err, null );
-				return;
-			}
-			
-			if ( !res || !res.Name ) {
-				callback( 'ERR_INVALID_AUTHID', null );
-				return;
-			}
-			
-			if ( res.Name !== data.login ) {
-				callback( 'ERR_INVALID_LOGIN', null );
-				return;
-			}
-			
-			const isAdmin = !!( 'Admin' === res.Level );
-			const workgroups = parseWorkgroups( res.Workgroup );
-			const auth = {
-				login      : res.Name,
-				isAdmin    : isAdmin,
-				workgroups : workgroups,
+	function buildAccountConf( user, wgs ) {
+		wgs = wgs.map( normalize );
+		const isAdmin = !!( 'Admin' === user.Level );
+		// WG : workgroup
+		const userWGNames = getWGList( user.Workgroup );
+		const worgs = {
+			available : null,
+			member    : getUserWGs( userWGNames, wgs ),
+		};
+		
+		if ( isAdmin )
+			worgs.available = wgs;
+		
+		const auth = {
+			login      : user.Name,
+			admin      : isAdmin,
+			workgroups : worgs,
+		};
+		callback( null, auth );
+		
+		function normalize( fcwg ) {
+			let wg = {
+				fId      : '' + fcwg.ID,
+				clientId : 'friend_wg_' + fcwg.ID,
+				name     : fcwg.Name,
 			};
-			callback( null, auth );
+			return wg;
 		}
 	}
 	
-	function parseWorkgroups( str ) {
+	function getWGList( str ) {
+		log( 'getWGList', str );
 		let wgs = [];
 		if ( !str || !str.length )
 			return wgs;
@@ -478,11 +512,33 @@ ns.NoMansLand.prototype.validate = function( bundle, callback ) {
 		return wgs;
 	}
 	
+	function getUserWGs( userWGNames, WGs ) {
+		log( 'getUserWgs', {
+			uwgn : userWGNames,
+			wgs  : WGs,
+		});
+		let list = WGs.filter( inUserWGNames );
+		return list;
+		
+		function inUserWGNames( wg ) {
+			let index = userWGNames.indexOf( wg.name );
+			if ( -1 === index )
+				return false;
+			else
+				return true;
+		}
+	}
+	
 	function authRequest( authId, reqBack ) {
 		var data = {
-			module : 'system',
+			module  : 'system',
 			command : 'userinfoget',
-			authid : authId,
+			authid  : authId,
+			/*
+			args    : JSON.stringify({
+				mode : 'all',
+			}),
+			*/
 		};
 		
 		var req = {
@@ -499,6 +555,31 @@ ns.NoMansLand.prototype.validate = function( bundle, callback ) {
 		
 		function error( err ) {
 			reqBack( 'ERR_HOST_UNICORN_POOP', err );
+		}
+	}
+	
+	function getWorkGroups( authId, reqBack ) {
+		const data = {
+			module  : 'system',
+			command : 'workgroups',
+			authid  : authId,
+		};
+		
+		const req = {
+			path    : '/system.library/module',
+			data    : data,
+			success : success,
+			error   : error,
+		};
+		self.fcReq.post( req );
+		function success( data ) {
+			log( 'wgs req back', data );
+			reqBack( null, data );
+		}
+		
+		function error( err ) {
+			log( 'wgs req error', err );
+			reqBack( err, null );
 		}
 	}
 }
