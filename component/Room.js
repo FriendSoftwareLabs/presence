@@ -1168,13 +1168,20 @@ ns.Chat.prototype.send = function( event, userId ) {
 
 // LIVE - collection of users in a live session
 
-var llog = require( './Log' )( 'Room > Live' );
+var lLog = require( './Log' )( 'Room > Live' );
 ns.Live = function( users, onlineList ) {
 	const self = this;
 	self.users = users;
 	self.onlineList = onlineList;
 	self.peers = {};
 	self.peerIds = [];
+	
+	self.mode = null;
+	self.quality = {
+		level : 'medium',
+		scale : 1,
+	};
+	self.lastScaleUpdate = null;
 	
 	self.pingers = {};
 	self.peerTimeouts = {};
@@ -1183,11 +1190,6 @@ ns.Live = function( users, onlineList ) {
 	self.peerTimeout = 1000 * 31;
 	self.peerAddTimeouts = {};
 	
-	self.quality = {
-		level : 'medium',
-		scale : 1,
-	};
-	self.lastScaleUpdate = null;
 	
 	//Emitter.call( self );
 	
@@ -1234,6 +1236,9 @@ ns.Live.prototype.add = function( userId ) {
 
 ns.Live.prototype.remove = function( peerId ) { // userId
 	const self = this;
+	if ( self.mode && self.mode.data.owner === peerId )
+		self.clearMode();
+	
 	var peer = self.getPeer( peerId );
 	if ( !peer )
 		return;
@@ -1282,6 +1287,7 @@ ns.Live.prototype.init = function() {
 		'pong'      : pong,
 		'broadcast' : broadcast,
 		'quality'   : quality,
+		'mode'      : mode,
 		'speaking'  : speaking,
 		'leave'     : leave,
 	};
@@ -1289,6 +1295,7 @@ ns.Live.prototype.init = function() {
 	function pong(      e, pid ) { self.handlePong(      e, pid ); }
 	function broadcast( e, pid ) { self.handleBroadcast( e, pid ); }
 	function quality(   e, pid ) { self.handleQuality(   e, pid ); }
+	function mode(      e, pid ) { self.handleMode(      e, pid ); }
 	function speaking(  e, pid ) { self.handleSpeaking(  e, pid ); }
 	function leave(     e, pid ) { self.handleLeave(     e, pid ); }
 	
@@ -1426,12 +1433,12 @@ ns.Live.prototype.stopPing = function( pid ) {
 
 ns.Live.prototype.handlePeerEvent = function( event, peerId ) {
 	const self = this;
-	// check if its a direct message to another peer ( rtc signaling )
 	if ( !event ) {
-		llog( 'hndlePeerEvent - not an event??', event );
+		lLog( 'hndlePeerEvent - not an event??', event );
 		return;
 	}
 	
+	// check if its a direct message to another peer ( rtc signaling )
 	if ( self.peers[ event.type ] ) {
 		const target = event.type;
 		const source = peerId;
@@ -1447,7 +1454,7 @@ ns.Live.prototype.handlePeerEvent = function( event, peerId ) {
 	}
 	
 	// really?
-	llog( 'handlePeerEvent - no handler for', event );
+	lLog( 'handlePeerEvent - no handler for', event );
 }
 
 // handlers
@@ -1486,6 +1493,93 @@ ns.Live.prototype.handleQuality = function( level, peerId ) {
 	self.quality.level = level;
 	self.lastScaleUpdate = null;
 	self.updateQualityScale();
+}
+
+ns.Live.prototype.handleMode = function( event, peerId ) {
+	const self = this;
+	lLog( 'handleMode', event );
+	if ( 'presentation' === event.mode )
+		self.togglePresentationMode( event, peerId );
+}
+
+ns.Live.prototype.clearMode = function() {
+	const self = this;
+	lLog( 'clearMode', self.mode );
+	if ( !self.mode ) {
+		self.sendMode({
+			type : '',
+		});
+		return;
+	}
+	
+	if ( 'presentation' === self.mode.type )
+		self.togglePresentationMode();
+}
+
+ns.Live.prototype.togglePresentationMode = function( event, peerId ) {
+	const self = this;
+	lLog( 'togglePresentationMode', {
+		event : event,
+		peerId : peerId,
+		livemode : self.mode,
+	});
+	
+	if ( !peerId ) {
+		unset();
+		return;
+	}
+	
+	if ( !allowChange( peerId ))
+		return;
+	
+	if ( !self.mode )
+		set( peerId );
+	else
+		unset();
+	
+	function set( presenterId ) {
+		self.mode = {
+			type : 'presentation',
+			data : {
+				owner : presenterId,
+			},
+		};
+		self.sendMode( self.mode );
+	}
+	
+	function unset() {
+		self.mode = null;
+		const update = {
+			type : '',
+		};
+		self.sendMode( update );
+	}
+	
+	function allowChange( peerId ) {
+		if ( !self.mode )
+			return true;
+		
+		if ( 'presentation' !== self.mode.type )
+			return false;
+		
+		if ( self.mode.data.owner !== peerId )
+			return false;
+		
+		return true;
+	}
+}
+
+ns.Live.prototype.sendMode = function( event, peerId ) {
+	const self = this;
+	lLog( 'sendMode', event );
+	const mode = {
+		type : 'mode',
+		data : event,
+	};
+	if ( peerId )
+		self.send( mode, peerId );
+	else
+		self.broadcast( mode );
 }
 
 ns.Live.prototype.handleSpeaking = function( event, peerId ) {
@@ -1556,22 +1650,22 @@ ns.Live.prototype.updateQualityScale = function() {
 		return;
 	}
 	
-	//llog( 'lastScaleUpdate', self.lastScaleUpdate );
-	//llog( 'peers', peers );
+	//lLog( 'lastScaleUpdate', self.lastScaleUpdate );
+	//lLog( 'peers', peers );
 	const change = peers - self.lastScaleUpdate;
-	//llog( 'change', change );
+	//lLog( 'change', change );
 	let direction = ( 0 < change ) ? 1 : -1;
-	//llog( 'direction', direction )
+	//lLog( 'direction', direction )
 	const delta = Math.abs ( change );
-	//llog( 'delta', delta );
+	//lLog( 'delta', delta );
 	
 	if ( !self.lastScaleDirection ) {
-		//llog( 'lastScaleDirection isnt set', self.lastScaleDirection );
+		//lLog( 'lastScaleDirection isnt set', self.lastScaleDirection );
 		self.lastScaleDirection = 1;
 	}
 	
 	if ( self.lastScaleDirection !== direction ) {
-		//llog( 'direction change', direction );
+		//lLog( 'direction change', direction );
 		self.lastScaleUpdate = peers - direction;
 	}
 	
@@ -1610,6 +1704,11 @@ ns.Live.prototype.updateQuality = function() {
 
 ns.Live.prototype.sendToTarget = function( event, sourceId, targetId ) {
 	const self = this;
+	lLog( 'sendToTarget', {
+		source : sourceId,
+		target : targetId,
+		event  : event,
+	}, 4 );
 	var msg = {
 		type : sourceId,
 		data : event,
@@ -1653,6 +1752,7 @@ ns.Live.prototype.sendOpen  = function( pid, liveId ) {
 				userId   : pid,
 				peerList : self.peerIds,
 				quality  : self.quality,
+				mode     : self.mode,
 			},
 		},
 	};
@@ -1683,7 +1783,7 @@ ns.Live.prototype.getPeer = function( peerId ) {
 	const self = this;
 	var peer = self.peers[ peerId ] || self.users[ peerId ] || null;
 	if ( !peer ) {
-		llog( 'no peer found for', {
+		lLog( 'no peer found for', {
 			pid   : peerId,
 			peers : self.peers,
 		});
@@ -1732,14 +1832,14 @@ ns.Live.prototype.send = function( event, targetId, callback ) {
 	const self = this;
 	const target = self.getPeer( targetId );
 	if ( !target ) {
-		llog( 'send - no peer for id', targetId );
-		llog( 'send - tried to send', event );
+		lLog( 'send - no peer for id', targetId );
+		lLog( 'send - tried to send', event );
 		return;
 	}
 	
 	if ( !target.send ) {
-		llog( 'send - user is no online', target );
-		llog( 'send - tried to send', event );
+		lLog( 'send - user is no online', target );
+		lLog( 'send - tried to send', event );
 		return;
 	}
 	
