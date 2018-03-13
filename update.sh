@@ -7,6 +7,9 @@
 # Edit this line if your Friend directory is not the same as this one
 FRIEND="/home/$USER/friendup"
 
+echo "Stopping presence-server system service"
+sudo systemctl stop presence-server
+
 # Eventually asks for the good directory
 if [ ! -f "$FRIEND/build/cfg/cfg.ini" ]; then
     while true; do
@@ -50,6 +53,9 @@ rsync -ravl \
 	--exclude '/README.md' \
 	. "$PRESENCE_SERVER"
 
+# Remove old startup script (if still exists)
+rm -f ${FRIEND}/build/autostart/startpresence.sh
+
 # Run npm
 echo "Calling 'npm install'."
 TEMP=$(pwd)
@@ -60,4 +66,7 @@ cd "$TEMP"
 # End
 echo ""
 echo "Update successfully completed."
+echo "Starting presence-server system service"
+sudo systemctl start presence-server
+
 echo ""
