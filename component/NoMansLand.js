@@ -162,7 +162,6 @@ ns.NoMansLand.prototype.checkInvite = function( bundle, cid ) {
 
 ns.NoMansLand.prototype.loginGuest = function( identity, roomId, cid ) {
 	const self = this;
-	log( 'loginGuest', identity );
 	const client = self.getClient( cid );
 	if ( !client )
 		return;
@@ -452,7 +451,6 @@ ns.NoMansLand.prototype.validateAuthId = function( data, callback ) {
 			return;
 		}
 		
-		log( 'userBack', user, 3 );
 		if ( !user || !user.Name ) {
 			callback( 'ERR_INVALID_AUTHID', null );
 			return;
@@ -464,26 +462,32 @@ ns.NoMansLand.prototype.validateAuthId = function( data, callback ) {
 		}
 		
 		getWorkGroups( authId, wgsBack )
-		function wgsBack( err, wgs ) {
+		function wgsBack( err, userWgs ) {
 			if ( !err )
 				
-			buildAccountConf( user, wgs );
+			
+			getStreamWorkgroupSetting( authId, streamWgsBack );
+			function streamWgsBack( err , streamWgs ) {
+				buildAccountConf( user, userWgs, streamWgs );
+			}
 		}
-		
 	}
 	
-	function buildAccountConf( user, wgs ) {
-		wgs = wgs.map( normalize );
+	function buildAccountConf( user, userWgs, streamWgs ) {
+		userWgs = userWgs.map( normalize );
 		const isAdmin = !!( 'Admin' === user.Level );
 		// WG : workgroup
 		const userWGNames = getWGList( user.Workgroup );
 		const worgs = {
 			available : null,
-			member    : getUserWGs( userWGNames, wgs ),
+			member    : getUserWGs( userWGNames, userWgs ),
 		};
 		
 		if ( isAdmin )
-			worgs.available = wgs;
+			worgs.available = userWgs;
+		
+		if ( streamWgs )
+			worgs.stream = streamWgs;
 		
 		const auth = {
 			login      : user.Name,
@@ -503,7 +507,6 @@ ns.NoMansLand.prototype.validateAuthId = function( data, callback ) {
 	}
 	
 	function getWGList( str ) {
-		log( 'getWGList', str );
 		let wgs = [];
 		if ( !str || !str.length )
 			return wgs;
@@ -513,10 +516,6 @@ ns.NoMansLand.prototype.validateAuthId = function( data, callback ) {
 	}
 	
 	function getUserWGs( userWGNames, WGs ) {
-		log( 'getUserWgs', {
-			uwgn : userWGNames,
-			wgs  : WGs,
-		});
 		let list = WGs.filter( inUserWGNames );
 		return list;
 		
@@ -573,13 +572,62 @@ ns.NoMansLand.prototype.validateAuthId = function( data, callback ) {
 		};
 		self.fcReq.post( req );
 		function success( data ) {
-			log( 'wgs req back', data );
 			reqBack( null, data );
 		}
 		
 		function error( err ) {
 			log( 'wgs req error', err );
 			reqBack( err, null );
+		}
+	}
+	
+	function getStreamWorkgroupSetting( authId, reqBack ) {
+		const data = {
+			module  : 'system',
+			command : 'getsystemsetting',
+			authid  : authId,
+			args    : JSON.stringify({
+				type : 'friendchat',
+				key  : 'systemsettings',
+			}),
+		};
+		const req = {
+			path    : '/system.library/module',
+			data    : data,
+			success : success,
+			error   : error,
+		};
+		self.fcReq.post( req );
+		function success( data ) {
+			if ( !data || !data.length ) {
+				reqBack( null, null );
+				return;
+			}
+			
+			let wgs = data.map( item => {
+				let setting = null;
+				try {
+					setting = JSON.parse( item.Data );
+				} catch( e ) {
+					log( 'error parsing system setting', item );
+					return null;
+				}
+				
+				if ( setting && setting.classroom_teachers )
+					return setting.classroom_teachers;
+				
+				if ( setting && setting.stream_source )
+					return setting.stream_source;
+				
+				return null;
+			});
+			
+			wgs = wgs.filter( item => !!item );
+			reqBack( null, wgs );
+		}
+		
+		function error( err ) {
+			log( 'getStreamWorkgroupSetting - error', err );
 		}
 	}
 }
@@ -647,7 +695,7 @@ ns.NoMansLand.prototype.getSession = function( sid ) {
 		log( 'no session found for', {
 			sid      : sid,
 			sessions : self.sessions,
-		}, 3 );
+		}, 2 );
 		return null;
 	}
 	
@@ -715,11 +763,6 @@ ns.NoMansLand.prototype.sessionClosed = function( sid ) {
 	
 	self.removeAccount( account.id );
 	account.close();
-}
-
-ns.NoMansLand.prototype.removeSession = function( sid ) {
-	const self = this;
-	log( 'removeSession - NYI', sid );
 }
 
 ns.NoMansLand.prototype.setAccount = function( account ) {

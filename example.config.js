@@ -27,10 +27,10 @@ var server = {
 		name : 'presence_database_name',
 	},
 	tls : {
-		keyPath : 'path_to_key.pem',
+		keyPath  : 'path_to_key.pem',
 		certPath : 'path_to_cert.pem',
-		key : null,
-		cert : null,
+		key      : null,
+		cert     : null,
 	},
 	// failure to provide this means invites wont work
 	domain : 'presence_domain',
@@ -54,6 +54,12 @@ var server = {
 	room : {
 		settings : {
 		},
+	},
+	streamProxy    : null,
+	classroomProxy : null,
+	janus : {
+		api_url    : null,
+		api_secret : null,
 	},
 };
 

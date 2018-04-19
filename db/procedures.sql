@@ -29,8 +29,10 @@ DROP PROCEDURE IF EXISTS room_delete;
 DROP PROCEDURE IF EXISTS room_touch;
 DROP PROCEDURE IF EXISTS room_set_name;
 DROP PROCEDURE IF EXISTS room_set_owner;
-DROP PROCEDURE IF EXISTS room_setting_set;
 DROP PROCEDURE IF EXISTS room_settings_get;
+DROP PROCEDURE IF EXISTS room_settings_get_by_key;
+DROP PROCEDURE IF EXISTS room_settings_set_key_value;
+DROP PROCEDURE IF EXISTS room_settings_remove_key;
 DROP PROCEDURE IF EXISTS room_get_assigned_workgroups;
 DROP PROCEDURE IF EXISTS room_assign_workgroup;
 DROP PROCEDURE IF EXISTS room_dismiss_workgroup;
@@ -312,9 +314,9 @@ CREATE PROCEDURE room_set_name(
 	IN `name` VARCHAR( 255 )
 )
 BEGIN
-	UPDATE room AS r
-	SET r.name = `name`
-	WHERE r.clientId = `clientId`;
+UPDATE room AS r
+SET r.name = `name`
+WHERE r.clientId = `clientId`;
 END//
 
 #
@@ -324,19 +326,9 @@ CREATE PROCEDURE room_set_owner(
 	IN `ownerId` VARCHAR( 255 )
 )
 BEGIN
-	UPDATE room AS r
-	SET r.ownerId = `ownerId`
-	WHERE r.clientId = `clientId`;
-END//
-
-#
-# SET SETTING
-CREATE PROCEDURE room_setting_set(
-	IN `roomId` VARCHAR( 191 ),
-	IN `path` VARCHAR( 191 ),
-	IN `value` TEXT
-)
-BEGIN
+UPDATE room AS r
+SET r.ownerId = `ownerId`
+WHERE r.clientId = `clientId`;
 END//
 
 #
@@ -349,6 +341,49 @@ SELECT r.settings FROM room AS r
 WHERE r.clientId = `roomId`;
 END//
 
+#
+# GET SETTING BY KEY
+CREATE PROCEDURE room_settings_get_by_key(
+	IN `roomId` VARCHAR( 191 ),
+	IN `key` VARCHAR( 191 )
+)
+BEGIN
+SET @path = CONCAT( "$.", `key` );
+SELECT JSON_EXTRACT( r.settings, @path ) AS "value" FROM room AS r
+WHERE r.clientId = roomId;
+END//
+
+#
+# SET SETTING KEY VALUE
+CREATE PROCEDURE room_settings_set_key_value(
+	IN `roomId` VARCHAR( 191 ),
+	IN `key` VARCHAR( 191 ),
+	IN `jsonStr` VARCHAR( 191 )
+)
+BEGIN
+SET @path = CONCAT( "$.", `key` );
+UPDATE room AS r
+SET r.settings = JSON_SET(
+	r.settings,
+	@path,
+	JSON_EXTRACT( jsonStr, @path )
+) WHERE r.clientId = roomId;
+END//
+
+#
+# REMOVE SETTING
+CREATE PROCEDURE room_settings_remove_key(
+	IN `roomId` VARCHAR( 191 ),
+	IN `key` VARCHAR( 191 )
+)
+BEGIN
+SET @path = CONCAT( "$.", `key` );
+UPDATE room AS r
+SET r.settings = JSON_REMOVE(
+	r.settings,
+	@path
+) WHERE r.clientId = roomId;
+END//
 
 #
 # AUTHORIZED
@@ -360,18 +395,18 @@ CREATE PROCEDURE auth_get_for_room(
 	IN `roomId` VARCHAR( 191 )
 )
 BEGIN
-	SELECT 
-		a.clientId,
-		a.login,
-		a.name,
-		a.avatar,
-		a.active,
-		a.lastLogin,
-		a.lastOnline 
-	FROM `authorized_for_room` AS auth 
-	LEFT JOIN `account` AS a 
-	ON auth.accountId = a.clientId 
-	WHERE auth.roomId = `roomId`;
+SELECT 
+	a.clientId,
+	a.login,
+	a.name,
+	a.avatar,
+	a.active,
+	a.lastLogin,
+	a.lastOnline 
+FROM `authorized_for_room` AS auth 
+LEFT JOIN `account` AS a 
+ON auth.accountId = a.clientId 
+WHERE auth.roomId = `roomId`;
 END//
 
 #
@@ -380,10 +415,10 @@ CREATE PROCEDURE auth_get_for_account(
 	IN `accountId` VARCHAR( 191 )
 )
 BEGIN
-	SELECT r.clientId FROM `authorized_for_room` AS auth 
-	LEFT JOIN `room` AS r 
-	ON auth.roomId = r.clientId 
-	WHERE auth.accountId = `accountId`;
+SELECT r.clientId FROM `authorized_for_room` AS auth 
+LEFT JOIN `room` AS r 
+ON auth.roomId = r.clientId 
+WHERE auth.accountId = `accountId`;
 END//
 
 #

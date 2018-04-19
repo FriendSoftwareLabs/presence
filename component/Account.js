@@ -69,7 +69,6 @@ ns.Account.prototype.init = function() {
 	// prepare 'personalized' logging
 	var logStr = 'Account-' + self.login;
 	self.log = require( './Log' )( logStr );
-	self.log( 'auth', self.auth, 3 );
 	
 	self.wgAssEventId = self.roomCtrl.on( 'workgroup-assigned', wgAssigned );
 	
@@ -106,18 +105,12 @@ ns.Account.prototype.init = function() {
 
 ns.Account.prototype.handleWorkgroupAssigned = function( addedWorg, roomId ) {
 	const self = this;
-	self.log( 'handleWorkgroupAssigned', {
-		addedWorg : addedWorg,
-		roomId    : roomId,
-	});
 	if ( self.rooms.isParticipant( roomId )) {
 		self.log( 'handleWorkgroupAssigned - is participant', roomId );
 		return;
 	}
 	
-	self.log( 'wgs', self.auth.workgroups, 3 );
 	let isMember = self.auth.workgroups.member.some( checkIsMember );
-	self.log( 'handleWorkgroupAssigned - isMember', isMember );
 	if ( !isMember )
 		return;
 	
@@ -171,17 +164,6 @@ ns.Account.prototype.setIdentity = function( id ) {
 		setId( avatar );
 	
 	function avatarBack( err, avatar ) {
-		/*
-		if ( !err ) {
-			persistAvatar( avatar, ( err, res ) => {
-				self.log( 'persistAvatar', {
-					err : err,
-					res : res,
-				}, 3 );
-			});
-		}
-		*/
-		
 		setId( avatar );
 		
 	}
@@ -243,7 +225,6 @@ ns.Account.prototype.loadRooms = function() {
 		.catch( loadError );
 	
 	function roomsBack( list ) {
-		self.log( 'roomsBack', list, 3 );
 		list.forEach( connect );
 		function connect( room ) {
 			const account = self.buildRoomAccount();
@@ -367,7 +348,6 @@ ns.Account.prototype.handleRoomClosed = function( roomId ) {
 
 ns.Account.prototype.logout = function( callback ) {
 	const self = this;
-	self.log( 'logout' );
 	if ( self.rooms )
 		self.rooms.close();
 	
@@ -424,10 +404,6 @@ ns.Rooms.prototype.add = function( room ) {
 
 ns.Rooms.prototype.isParticipant = function( roomId ) {
 	const self = this;
-	rlog( 'isParticipant', {
-		rooms  : self.rooms,
-		roomId : roomId,
-	});
 	return !!self.rooms[ roomId ];
 }
 
@@ -524,7 +500,5 @@ ns.Rooms.prototype.handleRoomClosed = function( roomId ) {
 	self.remove( roomId );
 	self.emit( 'close', roomId );
 }
-
-
 
 module.exports = ns.Account;

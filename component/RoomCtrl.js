@@ -73,7 +73,6 @@ ns.RoomCtrl.prototype.joinRoom = function( account, conf, callback ) {
 
 ns.RoomCtrl.prototype.authorizeGuestInvite = function( bundle, callback ) {
 	const self = this;
-	log( 'authorizeGuestInvite', bundle );
 	const token = bundle.token;
 	const roomId = bundle.roomId;
 	const room = self.rooms[ roomId ];
@@ -88,7 +87,6 @@ ns.RoomCtrl.prototype.authorizeGuestInvite = function( bundle, callback ) {
 			.catch( invErr );
 		
 		function checkBack( dbToken ) {
-			log( 'authorizeGuestInvite - checkBack', dbToken );
 			if ( !dbToken || !dbToken.isValid ) {
 				callback( false );
 				return;
@@ -96,7 +94,7 @@ ns.RoomCtrl.prototype.authorizeGuestInvite = function( bundle, callback ) {
 			
 			if ( !!dbToken.singleUse )
 				self.invDb.invalidate( token )
-					.then( () => log( 'invalidate ok', token ))
+					.then( () => {})
 					.catch( () => log( 'invalidate fail', token ));
 			
 			callback( roomId );
@@ -113,7 +111,6 @@ ns.RoomCtrl.prototype.authorizeGuestInvite = function( bundle, callback ) {
 			.then( checkBack );
 			
 		function checkBack( isValid ) {
-			log( 'authorizeGuestInvite.checkroom.checkBack', isValid );
 			if ( isValid )
 				callback( roomId );
 			else
@@ -138,7 +135,6 @@ ns.RoomCtrl.prototype.guestJoinRoom = function( account, roomId, callback ) {
 			return;
 		}
 		
-		log( 'guestJoinRoom', account );
 		room = res;
 		account.guest = true;
 		self.addToRoom( account, roomId, addBack );
@@ -182,12 +178,10 @@ ns.RoomCtrl.prototype.connectWorkgroup = function( account, roomId, callback ) {
 		}
 		
 		room = res;
-		log( 'workgroupJoinRoom', account.name );
 		self.addToRoom( account, roomId, addBack );
 	}
 	
 	function addBack( err, res ) {
-		log( 'addBack' );
 		const user = room.connect( account );
 		callback( null, user );
 	}
@@ -248,14 +242,13 @@ ns.RoomCtrl.prototype.close = function() {
 
 ns.RoomCtrl.prototype.init = function() {
 	const self = this;
-	log( 'room ctrl init ^__^' );
+	log( 'room ctrl init =^y^=' );
 	self.roomDb = new dFace.RoomDB( self.dbPool );
 	self.accDb = new dFace.AccountDB( self.dbPool );
 	self.invDb = new dFace.InviteDB( self.dbPool );
 	const tiny = require( './TinyAvatar' );
 	tiny.generateGuest( avatarBack );
 	function avatarBack( err, avatar ) {
-		log( 'avatarBack', avatar );
 		self.guestAvatar = avatar;
 	}
 }
@@ -368,7 +361,6 @@ ns.RoomCtrl.prototype.setRoom = function( roomConf ) {
 		self.bindRoom( room );
 		
 		function onOpen() {
-			log( 'onopen', roomId );
 			resolve( self.rooms[ roomId ]);
 		}
 	}
@@ -377,7 +369,6 @@ ns.RoomCtrl.prototype.setRoom = function( roomConf ) {
 
 ns.RoomCtrl.prototype.bindRoom = function( room ) {
 	const self = this;
-	log( 'bindRoom', room.id );
 	let roomId = room.id;
 	room.on( 'empty', onEmpty );
 	room.on( 'workgroup-assigned', worgAss );
@@ -385,12 +376,11 @@ ns.RoomCtrl.prototype.bindRoom = function( room ) {
 	
 	function onEmpty( e ) { self.removeRoom( roomId ); }
 	function worgAss( e ) { self.handleWorkgroupAssigned( e, roomId ); }
-	function worgDiss( e ) { log( 'workgroup-dismissed event', e ); }
+	function worgDiss( e ) {  }
 }
 
 ns.RoomCtrl.prototype.handleWorkgroupAssigned = function( worg, roomId ) {
 	const self = this;
-	log( 'handleWorkgroupAssigned', worg );
 	self.emit( 'workgroup-assigned', worg, roomId );
 }
 
@@ -430,7 +420,6 @@ ns.RoomCtrl.prototype.getRoom = function( rid ) {
 			return;
 		}
 		
-		log( 'getRoom', self.roomLoads );
 		loading = new Promise( loadRoom )
 			.then( resolve )
 			.catch( reject );
@@ -471,7 +460,6 @@ ns.RoomCtrl.prototype.getRoom = function( rid ) {
 
 ns.RoomCtrl.prototype.removeRoom = function( rid ) {
 	const self = this;
-	log( 'removeRoom', rid );
 	const room = self.rooms[ rid ];
 	if ( !room )
 		return;
@@ -544,7 +532,7 @@ ns.RoomCtrl.prototype.addToRoom = function( account, roomId, callback ) {
 
 ns.RoomCtrl.prototype.removeFromRoom = function( accountId, roomId ) {
 	const self = this;
-	log( 'removeFromRoom', accountId );
+	log( 'removeFromRoom - NYI', accountId );
 }
 
 

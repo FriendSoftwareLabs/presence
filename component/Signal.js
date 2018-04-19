@@ -33,6 +33,7 @@ ns.Signal = function( conf ) {
 	self.accountId = conf.accountId;
 	self.accountName = conf.accountName;
 	self.avatar = conf.avatar;
+	self.owner = conf.owner;
 	self.admin = conf.admin;
 	self.authed = conf.authed;
 	self.guest = conf.guest;

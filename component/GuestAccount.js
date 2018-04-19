@@ -121,7 +121,7 @@ ns.GuestAccount.prototype.bind = function() {
 	self.session.on( rid, fromClientToRoom );
 	self.room.setOnclose( onClose );
 	self.room.setToAccount( fromRoom );
-	self.room.setIdentity( self.identity );
+	//self.room.setIdentity( self.identity );
 	function fromClientToRoom( e ) { self.handleClientEvent( e ); }
 	function fromRoom( e ) { self.handleRoomEvent( e, rid ); }
 	function onClose( e ) { self.handleRoomClosed( rid ); }

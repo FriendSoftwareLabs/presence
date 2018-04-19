@@ -22,8 +22,10 @@
 const log = require( './Log' )( 'Room' );
 const uuid = require( './UuidPrefix' )( 'msg' );
 const Emitter = require( './Events' ).Emitter;
+const WebRTCProxy = require( './WebRTCProxy' );
 const Signal = require( './Signal' );
 const dFace = require( './DFace' );
+const Janus = require( './Janus' );
 const util = require( 'util' );
 
 var ns = {};
@@ -71,7 +73,6 @@ ns.UserSend.prototype.send = function( event, userId, callback ) {
 			data : event,
 		};
 	
-	self.sendLog( 'send', event );
 	user.send( event, callback );
 	
 	function error( err ) {
@@ -82,7 +83,6 @@ ns.UserSend.prototype.send = function( event, userId, callback ) {
 
 ns.UserSend.prototype.broadcast = function( event, sourceId, wrapSource ) {
 	const self = this;
-	log( 'send.broadcast', self.onlineList );
 	if ( !self.onlineList )
 		return;
 	
@@ -92,13 +92,12 @@ ns.UserSend.prototype.broadcast = function( event, sourceId, wrapSource ) {
 			data : event,
 		};
 	
-	self.sendLog( 'broadcast', event );
 	self.onlineList.forEach( sendIfNotSource );
-	function sendIfNotSource( pid ) {
-		if ( pid === sourceId )
+	function sendIfNotSource( userId ) {
+		if ( userId === sourceId )
 			return;
 		
-		self.send( event, pid );
+		self.send( event, userId );
 	}
 }
 
@@ -158,7 +157,6 @@ util.inherits( ns.Room, Emitter );
 // when users come online
 ns.Room.prototype.connect = function( account ) {
 	const self = this;
-	log( 'connect', account.workgroups, 3 );
 	self.processWorkgroups( account );
 	const signal = self.bindUser( account );
 	if ( self.emptyTimer ) {
@@ -186,7 +184,6 @@ ns.Room.prototype.disconnect = function( accountId ) {
 // authorizes an account to connect to this room
 ns.Room.prototype.authorizeUser = function( user, callback ) {
 	const self = this;
-	log( 'authorizeUser', user );
 	let uid = user.accountId;
 	self.persistAuthorization( uid );
 	if ( callback )
@@ -197,7 +194,6 @@ ns.Room.prototype.authorizeUser = function( user, callback ) {
 ns.Room.prototype.addUser = function( user, callback ) {
 	const self = this;
 	// add to users
-	log( 'addUser', user.workgroups, 3 );
 	const uid = user.accountId;
 	if ( self.users[ uid ]) {
 		callback( null, uid );
@@ -225,6 +221,7 @@ ns.Room.prototype.addUser = function( user, callback ) {
 				clientId   : user.accountId,
 				name       : user.accountName,
 				avatar     : user.avatar,
+				owner      : user.accountId === self.ownerId,
 				admin      : user.admin || undefined,
 				guest      : user.guest || undefined,
 				workgroups : user.workgroups || undefined,
@@ -238,8 +235,7 @@ ns.Room.prototype.addUser = function( user, callback ) {
 // 
 ns.Room.prototype.removeUser = function( accountId ) {
 	const self = this;
-	log( 'removeUser', accountId );
-	var user = self.users[ accountId ];
+	const user = self.users[ accountId ];
 	if ( !user ) {
 		log( 'removeUser - invalid user', {
 			aid : accountId,
@@ -252,6 +248,9 @@ ns.Room.prototype.removeUser = function( accountId ) {
 	self.releaseUser( accountId );
 	
 	// remove
+	if ( user.guest )
+		self.removeIdentity( accountId );
+	
 	delete self.users[ accountId ];
 	self.revokeAuthorization( accountId );
 	
@@ -270,10 +269,6 @@ ns.Room.prototype.removeUser = function( accountId ) {
 ns.Room.prototype.authenticateInvite = async function( token ) {
 	const self = this;
 	const valid = await self.invite.authenticate( token );
-	log( 'authenticateInvite', {
-		token : token,
-		valid : valid,
-	});
 	return valid;
 }
 
@@ -328,69 +323,72 @@ ns.Room.prototype.close = function( callback ) {
 
 ns.Room.prototype.init = function() {
 	const self = this;
-	log( 'init', self.name );
 	self.roomDb = new dFace.RoomDB( self.dbPool, self.id );
-	
-	self.worgs = new ns.Workgroup(
-		self.dbPool,
-		self.id,
-		self.users,
-		self.onlineList,
-		removeUser
-	);
-	log( 'worgs', self.worgs.prototype );
-	self.worgs.on( 'dismissed', worgDismissed );
-	self.worgs.on( 'assigned', worgAssigned );
-	
-	// for when a workgroup is dismissed
-	function removeUser( userId ){ self.removeUser( userId ); }
-	function worgDismissed( e ) { self.handleWorkgroupDismissed( e ); }
-	function worgAssigned( e ) { self.emit( 'workgroup-assigned', e ); }
 	
 	self.settings = new ns.Settings(
 		self.dbPool,
 		self.id,
-		self.worgs,
 		self.users,
 		self.onlineList,
+		settingsDone
 	);
 	
-	self.log = new ns.Log(
-		self.dbPool,
-		self.id,
-		self.persistent
-	);
-	
-	self.invite = new ns.Invite(
-		self.dbPool,
-		self.id,
-		self.users,
-		self.onlineList,
-		self.persistent
-	);
-	
-	self.chat = new ns.Chat(
-		self.id,
-		self.users,
-		self.onlineList,
-		self.log
-	);
-	
-	self.live = new ns.Live(
-		self.users,
-		self.onlineList
-	);
-	
-	if ( self.persistent )
-		self.loadUsers();
-	else
-		self.setOpen();
-	
+	function settingsDone( err , res ) {
+		self.worgs = new ns.Workgroup(
+			self.dbPool,
+			self.id,
+			self.users,
+			self.onlineList,
+			self.settings,
+			removeUser
+		);
+		self.worgs.on( 'dismissed', worgDismissed );
+		self.worgs.on( 'assigned', worgAssigned );
+		
+		// for when a workgroup is dismissed, refactor to use dismissed event
+		function removeUser( userId ){ self.removeUser( userId ); }
+		function worgDismissed( e ) { self.handleWorkgroupDismissed( e ); }
+		function worgAssigned( e ) { self.emit( 'workgroup-assigned', e ); }
+		
+		self.log = new ns.Log(
+			self.dbPool,
+			self.id,
+			self.persistent
+		);
+		
+		self.invite = new ns.Invite(
+			self.dbPool,
+			self.id,
+			self.users,
+			self.onlineList,
+			self.persistent
+		);
+		
+		self.chat = new ns.Chat(
+			self.id,
+			self.users,
+			self.onlineList,
+			self.log
+		);
+		
+		self.live = new ns.Live(
+			self.users,
+			self.onlineList,
+			self.log,
+			self.worgs,
+			self.settings
+		);
+		
+		if ( self.persistent )
+			self.loadUsers();
+		else
+			self.setOpen();
+		
+	}
 }
 
 ns.Room.prototype.handleWorkgroupDismissed = function( worg ) {
 	const self = this;
-	log( 'handleWorkgroupDismissed', worg );
 	self.emit( 'workgroup-dismissed', worg );
 }
 
@@ -468,18 +466,15 @@ ns.Room.prototype.loadUsers = function() {
 
 ns.Room.prototype.processWorkgroups = function( user ) {
 	const self = this;
-	log( 'processWorkgroups', user.workgroups );
 	if ( !user.workgroups || !user.workgroups.member )
 		return;
 	
 	const wgs = user.workgroups;
-	addAvailableWorkgroups( wgs.available || wgs.member );
-	user.workgroups = wgs.member.map( wg => wg.clientId );
-	log( 'processWorkgroups - post', user.workgroups );
+	self.worgs.add( wgs.available || wgs.member );
+	if ( wgs.stream )
+		self.worgs.addStream( wgs.stream );
 	
-	function addAvailableWorkgroups( wgs ) {
-		self.worgs.add( wgs );
-	}
+	user.workgroups = wgs.member.map( wg => wg.clientId );
 }
 
 ns.Room.prototype.checkOnline = function() {
@@ -505,7 +500,6 @@ ns.Room.prototype.checkOnline = function() {
 
 ns.Room.prototype.bindUser = function( account ) {
 	const self = this;
-	log( 'bindUser', account );
 	const userId = account.clientId;
 	const conf = self.users[ userId ];
 	if ( !conf ) {
@@ -527,7 +521,6 @@ ns.Room.prototype.bindUser = function( account ) {
 	// removing basic user obj
 	delete self.users[ userId ];
 	
-	log( 'bindUser', conf.accountName );
 	// add signal user obj
 	const sigConf = {
 		roomId      : self.id,
@@ -536,6 +529,7 @@ ns.Room.prototype.bindUser = function( account ) {
 		accountId   : conf.accountId,
 		accountName : conf.accountName,
 		avatar      : conf.avatar,
+		owner       : conf.accountId === self.ownerId,
 		admin       : account.admin, // <-- using account
 		authed      : account.authed || conf.authed || false,
 		guest       : conf.guest,
@@ -581,6 +575,7 @@ ns.Room.prototype.initialize =  function( requestId, userId ) {
 		name        : self.name,
 		ownerId     : self.ownerId,
 		persistent  : self.persistent,
+		settings    : self.settings.get(),
 		guestAvatar : self.guestAvatar,
 		users       : buildBaseUsers(),
 		online      : self.onlineList,
@@ -588,8 +583,6 @@ ns.Room.prototype.initialize =  function( requestId, userId ) {
 		peers       : self.live.peerIds,
 		workgroups  : self.worgs.getAssigned(),
 	};
-	
-	log( 'initalize - state', self.name );
 	
 	const init = {
 		type : 'initialize',
@@ -680,7 +673,6 @@ ns.Room.prototype.persistRoom = function( callback ) {
 	}
 	
 	function authSet( res ) {
-		log( 'authSet', res );
 		callback( true );
 	}
 	
@@ -702,7 +694,6 @@ ns.Room.prototype.persistAuthorization = function( userId ) {
 		.catch( authFailed );
 		
 	function authorized( res ) {
-		log( 'persistAuthorization - authorized', res );
 		self.authorized.push( userId );
 	}
 	
@@ -718,7 +709,6 @@ ns.Room.prototype.revokeAuthorization = function( userId, callback ) {
 	.catch( revokeFailed );
 	
 	function revokeDone( res ) {
-		log( 'revokeAuthorization - done', res );
 		self.authorized = self.authorized.filter( uid => userId !== uid );
 		if ( callback )
 			callback( null, userId );
@@ -782,6 +772,12 @@ ns.Room.prototype.setIdentity = function( id, userId ) {
 		},
 	};
 	self.broadcast( uptd );
+}
+
+ns.Room.prototype.removeIdentity = function( userId ) {
+	const self = this;
+	delete self.identities[ userId ];
+	// TODO, tell clientS? eh.. v0v
 }
 
 // cleans up a users signal connection to this room
@@ -865,7 +861,6 @@ ns.Room.prototype.setOffline = function( userId ) {
 
 ns.Room.prototype.handleLeave = function( uid ) {
 	const self = this;
-	log( 'handleLeave', uid );
 	// check if user is authorized, if so, remove
 	self.roomDb.check( uid )
 		.then( authBack )
@@ -884,7 +879,6 @@ ns.Room.prototype.handleLeave = function( uid ) {
 			return;
 		}
 		
-		log( 'revokeBack', revokeUid );
 		checkHasWorkgroup( uid );
 	}
 	
@@ -897,7 +891,6 @@ ns.Room.prototype.handleLeave = function( uid ) {
 		if ( !user )
 			return;
 		
-		log( 'checkHasWorkgroup - user wgs', user.workgroups );
 		let wgs = user.workgroups;
 		if ( !wgs || !wgs.length ) {
 			disconnect( uid );
@@ -905,7 +898,6 @@ ns.Room.prototype.handleLeave = function( uid ) {
 		}
 		
 		let ass = self.worgs.getAssignedForUser( uid );
-		log( 'checkhasworkgroup - user ass', ass );
 		if ( !ass || !ass.length )
 			disconnect( uid );
 		else
@@ -913,7 +905,6 @@ ns.Room.prototype.handleLeave = function( uid ) {
 	}
 	
 	function showInWorkgroup( uid, wg ) {
-		log( 'showInworkgroup', wg );
 		const authed = {
 			type : 'authed',
 			data : {
@@ -926,7 +917,6 @@ ns.Room.prototype.handleLeave = function( uid ) {
 	}
 	
 	function disconnect( uid ) {
-		log( 'disconnect', uid );
 		self.removeUser( uid );
 	}
 	
@@ -953,7 +943,6 @@ ns.Room.prototype.handleJoinLive = function( event, uid ) {
 
 ns.Room.prototype.handleLeaveLive = function( event, uid ) {
 	const self = this;
-	log( 'handleLeaveLive', uid );
 	self.live.remove( uid );
 }
 
@@ -982,21 +971,15 @@ ns.Room.prototype.send = function( event, targetId ) {
 		throw new Error( 'Room.send - no event' );
 	
 	var user = self.users[ targetId ];
-	if ( !user || !user.send ) {
-		log( 'sending to offline user', {
-			e : event,
-			o : self.onlineList,
-			u : Object.keys( self.users ),
-		}, 3 );
+	if ( !user || !user.send )
 		return;
-	}
 	
 	user.send( event );
 }
 
 // CHAT
 
-const clog = require( './Log' )( 'Room > Chat' );
+const cLog = require( './Log' )( 'Room > Chat' );
 ns.Chat = function(
 	roomId,
 	users,
@@ -1054,7 +1037,7 @@ ns.Chat.prototype.handleChat = function( event, userId ) {
 	const self = this;
 	var handler = self.eventMap[ event.type ];
 	if ( !handler ) {
-		clog( 'unknown chat event', event );
+		cLog( 'unknown chat event', event );
 		return;
 	}
 	
@@ -1102,7 +1085,7 @@ ns.Chat.prototype.handleLog = function( event, userId ) {
 	}
 	
 	function logErr( err ) {
-		clog( 'handleLog - log load err', err.stack || err );
+		cLog( 'handleLog - log load err', err.stack || err );
 	}
 }
 
@@ -1137,7 +1120,7 @@ ns.Chat.prototype.broadcast = function( event, sourceId, wrapSource ) {
 
 ns.Chat.prototype.relay = function( event, targetId, sourceId ) {
 	const self = this;
-	clog( 'relay wahtnow?', {
+	cLog( 'relay wahtnow?', {
 		e : event,
 		t : targetId,
 		s : sourceId,
@@ -1148,7 +1131,7 @@ ns.Chat.prototype.send = function( event, userId ) {
 	const self = this;
 	const user = self.users[ userId ];
 	if ( !user ) {
-		clog( 'send - no user for userId', {
+		cLog( 'send - no user for userId', {
 			uid : userId,
 			users : Object.keys( self.users ),
 		});
@@ -1169,10 +1152,19 @@ ns.Chat.prototype.send = function( event, userId ) {
 // LIVE - collection of users in a live session
 
 var lLog = require( './Log' )( 'Room > Live' );
-ns.Live = function( users, onlineList ) {
+ns.Live = function(
+	users,
+	onlineList,
+	log,
+	workgroups,
+	settings,
+) {
 	const self = this;
 	self.users = users;
 	self.onlineList = onlineList;
+	self.worgs = workgroups;
+	self.settings = settings;
+	self.log = log;
 	self.peers = {};
 	self.peerIds = [];
 	
@@ -1200,7 +1192,7 @@ ns.Live = function( users, onlineList ) {
 
 // Public
 
-ns.Live.prototype.add = function( userId ) {
+ns.Live.prototype.add = function( userId ) { //adds user to existing room
 	const self = this;
 	const user = self.users[ userId ];
 	if ( !user )
@@ -1210,6 +1202,27 @@ ns.Live.prototype.add = function( userId ) {
 	if ( self.peers[ pid ]) {
 		self.reAdd( pid );
 		return;
+	}
+	
+	if ( self.isStream ) {
+		if ( null == self.proxy ) {
+			self.setupStreamProxy();
+		}
+		
+		if ( !self.sourceId ) {
+			let isStreamer = self.worgs.isStreamer( user.workgroups );
+			if ( isStreamer ) {
+				self.sourceId = userId;
+				self.proxy.set_source( userId );
+				self.broadcast({
+					type : 'source',
+					data : self.sourceId,
+				});
+			}
+		}
+		
+		self.proxy.add_user( userId );
+		
 	}
 	
 	self.peers[ pid ] = user;
@@ -1235,11 +1248,29 @@ ns.Live.prototype.add = function( userId ) {
 }
 
 ns.Live.prototype.remove = function( peerId ) { // userId
+	//peerId is the same as userId
 	const self = this;
 	if ( self.mode && self.mode.data.owner === peerId )
 		self.clearMode();
 	
-	var peer = self.getPeer( peerId );
+	if ( peerId === self.sourceId ) {
+		self.sourceId = null;
+		if ( self.proxy )
+			self.proxy.set_source( null );
+		
+		self.broadcast({
+			type : 'source',
+			data : null,
+		});
+	}
+	
+	if ( self.proxy ) {
+		if ( self.proxy.remove_user( peerId ) == false ) { //room is empty
+			self.closeStreamProxy();
+		}
+	}
+	
+	const peer = self.getPeer( peerId );
 	if ( !peer )
 		return;
 	
@@ -1270,7 +1301,18 @@ ns.Live.prototype.close = function( callback ) {
 		delete self.speakerTimeout;
 	}
 	
+	if ( self.proxy )
+		self.closeStreamProxy();
+	
+	if ( self.settings && self.onStreamEventId )
+		self.settings.off( self.onStreamEventId );
+	
+	delete self.isStream;
 	delete self.users;
+	delete self.onlineList;
+	delete self.log;
+	delete self.workgroups;
+	delete self.settings;
 	delete self.peers;
 	delete self.peerIds;
 	delete self.eventMap;
@@ -1283,16 +1325,33 @@ ns.Live.prototype.close = function( callback ) {
 
 ns.Live.prototype.init = function() {
 	const self = this;
+	self.isStream = self.settings.get( 'isStream' );
+	self.onStreamEventId = self.settings.on( 'isStream', isStreamUpdated );
+	function isStreamUpdated( isStream ) {
+		self.isStream = isStream;
+		if ( !isStream ) {
+			self.closeStreamProxy();
+			self.sourceId = null;
+		}
+		
+		self.broadcast({
+			type : 'source',
+			data : self.sourceId,
+		});
+	}
+	
 	self.eventMap = {
-		'pong'      : pong,
-		'broadcast' : broadcast,
-		'quality'   : quality,
-		'mode'      : mode,
-		'speaking'  : speaking,
-		'leave'     : leave,
+		'pong'           : pong,
+		'stream'         : stream,
+		'broadcast'      : broadcast,
+		'speaking'       : speaking,
+		'quality'        : quality,
+		'mode'           : mode,
+		'leave'          : leave,
 	};
 	
 	function pong(      e, pid ) { self.handlePong(      e, pid ); }
+	function stream(    e, pid ) { self.handleStream(    e, pid ); }
 	function broadcast( e, pid ) { self.handleBroadcast( e, pid ); }
 	function quality(   e, pid ) { self.handleQuality(   e, pid ); }
 	function mode(      e, pid ) { self.handleMode(      e, pid ); }
@@ -1459,6 +1518,16 @@ ns.Live.prototype.handlePeerEvent = function( event, peerId ) {
 
 // handlers
 
+ns.Live.prototype.handleStream = function( event, peerId ) {
+	const self = this;
+	if ( !self.proxy ) {
+		lLog( 'handleStream - no proxy', event );
+		return;
+	}
+	
+	self.proxy.handle_signal( event, peerId );
+}
+
 ns.Live.prototype.handlePong = function( timestamp, peerId ) {
 	const self = this;
 	const timeouts = self.peerTimeouts[ peerId ];
@@ -1488,6 +1557,42 @@ ns.Live.prototype.handleBroadcast = function( event, peerId ) {
 	self.broadcast( event, peerId, true );
 }
 
+ns.Live.prototype.setupStreamProxy = function() {
+	const self = this;
+	if ( self.proxy )
+		return;
+	
+	const jConf = global.config.server.janus;
+	self.proxy = new Janus( jConf );
+	self.proxy.on( 'signal', toSignal );
+	self.proxy.on( 'closed', closed );
+	
+	function toSignal( e, uid ) { self.send( e, uid ); }
+	function closed( e ) { self.proxyClosed( e ); }
+}
+
+ns.Live.prototype.closeStreamProxy = function() {
+	const self = this;
+	if ( !self.proxy )
+		return;
+	
+	self.proxy.close( proxyClosed );
+	delete self.proxy;
+	function proxyClosed( reason ) {
+		self.proxyClosed( reason );
+	}
+}
+
+ns.Live.prototype.proxyClosed = function( reason ) {
+	const self = this;
+	if ( self.proxy ) {
+		self.proxy.close();
+		delete self.proxy;
+	}
+	
+	// TODO :  re setup? still in stream mode? still/again has users?
+}
+
 ns.Live.prototype.handleQuality = function( level, peerId ) {
 	const self = this;
 	self.quality.level = level;
@@ -1497,14 +1602,12 @@ ns.Live.prototype.handleQuality = function( level, peerId ) {
 
 ns.Live.prototype.handleMode = function( event, peerId ) {
 	const self = this;
-	lLog( 'handleMode', event );
 	if ( 'presentation' === event.mode )
 		self.togglePresentationMode( event, peerId );
 }
 
 ns.Live.prototype.clearMode = function() {
 	const self = this;
-	lLog( 'clearMode', self.mode );
 	if ( !self.mode ) {
 		self.sendMode({
 			type : '',
@@ -1518,12 +1621,6 @@ ns.Live.prototype.clearMode = function() {
 
 ns.Live.prototype.togglePresentationMode = function( event, peerId ) {
 	const self = this;
-	lLog( 'togglePresentationMode', {
-		event : event,
-		peerId : peerId,
-		livemode : self.mode,
-	});
-	
 	if ( !peerId ) {
 		unset();
 		return;
@@ -1571,7 +1668,6 @@ ns.Live.prototype.togglePresentationMode = function( event, peerId ) {
 
 ns.Live.prototype.sendMode = function( event, peerId ) {
 	const self = this;
-	lLog( 'sendMode', event );
 	const mode = {
 		type : 'mode',
 		data : event,
@@ -1704,12 +1800,7 @@ ns.Live.prototype.updateQuality = function() {
 
 ns.Live.prototype.sendToTarget = function( event, sourceId, targetId ) {
 	const self = this;
-	lLog( 'sendToTarget', {
-		source : sourceId,
-		target : targetId,
-		event  : event,
-	}, 4 );
-	var msg = {
+	const msg = {
 		type : sourceId,
 		data : event,
 	};
@@ -1750,9 +1841,11 @@ ns.Live.prototype.sendOpen  = function( pid, liveId ) {
 			liveConf : {
 				ICE      : global.config.shared.rtc.iceServers,
 				userId   : pid,
+				sourceId : self.sourceId,
 				peerList : self.peerIds,
 				quality  : self.quality,
 				mode     : self.mode,
+				logTail  : self.log.getLast( 20 ),
 			},
 		},
 	};
@@ -1899,8 +1992,6 @@ ns.Invite.prototype.release = function( userId ) {
 
 ns.Invite.prototype.authenticate = async function( token ) {
 	const self = this;
-	iLog( 'authenticate', token );
-	iLog( 'authenticate', self.tokens );
 	if ( self.publicToken && ( token === self.publicToken.value ))
 		return true;
 	
@@ -1910,7 +2001,6 @@ ns.Invite.prototype.authenticate = async function( token ) {
 		return true;
 	}
 	
-	iLog( 'authenticate - check db' );
 	let valid = null;
 	try {
 		valid = await self.checkDbToken( token );
@@ -1922,13 +2012,11 @@ ns.Invite.prototype.authenticate = async function( token ) {
 		await self.revokeToken( token );
 	}
 	
-	iLog( 'authenticate - returning db result', valid );
 	return valid;
 }
 
 ns.Invite.prototype.setPersistent = function( isPersistent ) {
 	const self = this;
-	iLog( 'setPersistent', isPersistent );
 	if ( !!self.isPersistent === isPersistent )
 		return;
 	
@@ -1984,10 +2072,8 @@ ns.Invite.prototype.loadPublicToken = function() {
 		.catch( dbFail );
 		
 	function tokensBack( dbTokens ) {
-		iLog( 'loadPublicToken - tokensBack', dbTokens );
 		dbTokens.some( setPublic );
 		function setPublic( dbToken ) {
-			iLog( 'setPublic', dbToken );
 			if ( dbToken.singleUse ) // private token
 				return false;
 			
@@ -2007,7 +2093,6 @@ ns.Invite.prototype.loadPublicToken = function() {
 
 ns.Invite.prototype.checkDbToken = function( token ) {
 	const self = this;
-	iLog( 'checkDbToken', token );
 	return new Promise( tokenIsValid );
 	function tokenIsValid( resolve, reject ) {
 		self.db.checkForRoom( token )
@@ -2015,7 +2100,6 @@ ns.Invite.prototype.checkDbToken = function( token ) {
 			.catch( fail );
 		
 		function isValid( res ) {
-			iLog( 'checkDbToken.valid', res );
 			if ( !res )
 				resolve( false );
 			else
@@ -2076,18 +2160,8 @@ ns.Invite.prototype.handlePublic = function( event, userId ) {
 	}
 	
 	function setPublicToken( reqId, userId ) {
-		iLog( 'setPublicToken', {
-			reqId  : reqId,
-			userId : userId,
-		});
-		
 		self.createToken( false, userId, tokenBack );
 		function tokenBack( err, token ) {
-			iLog( 'handlePublic.tokenBack', {
-				err   : err,
-				token : token,
-			});
-			
 			if ( err ) {
 				iLog( 'setPublicToken - db error', err );
 				token = null;
@@ -2107,10 +2181,6 @@ ns.Invite.prototype.handlePrivate = function( event, userId ) {
 	event = event || {};
 	self.createToken( true, userId, tokenBack );
 	function tokenBack( err, token ) {
-		iLog( 'handlePrivate.tokenBack', {
-			err : err,
-			token : token,
-		});
 		if ( token && !self.isPersistent )
 			self.tokens[ token ] = {
 				value : token,
@@ -2143,7 +2213,6 @@ ns.Invite.prototype.createToken =  function( isSingleUse, createdBy, callback ) 
 		.catch( fail );
 	
 	function success( res ) {
-		iLog( 'createToken.trySetToken.success', res );
 		callback( null, token );
 	}
 	
@@ -2155,10 +2224,6 @@ ns.Invite.prototype.createToken =  function( isSingleUse, createdBy, callback ) 
 
 ns.Invite.prototype.persistCurrentTokens = async function() {
 	const self = this;
-	iLog( 'persistCurrentTokens', {
-		tokens : self.tokens,
-		pubToken : self.publicToken,
-	});
 	if ( !self.isPersistent )
 		return;
 	
@@ -2167,7 +2232,6 @@ ns.Invite.prototype.persistCurrentTokens = async function() {
 		let pubToken = self.publicToken;
 		try {
 			pubSuccess = await self.db.set( pubToken.value, false, pubToken.by );
-			iLog( 'after pub await', pubSuccess );
 		} catch( err ) {
 			iLog( 'failed to persist public token', err );
 		}
@@ -2177,7 +2241,6 @@ ns.Invite.prototype.persistCurrentTokens = async function() {
 	privTokens.forEach( persist );
 	async function persist( token ) {
 		let meta = self.tokens[ token ];
-		iLog( 'persist', meta );
 		try {
 			await self.db.set( meta.value, true, meta.by );
 		} catch( err ) {
@@ -2192,12 +2255,11 @@ ns.Invite.prototype.handleRevoke = function( token, userId ) {
 	const self = this;
 	// TODO guest check here
 	self.revokeToken( token, userId )
-		.then(( ok ) => iLog( 'handleRevoke', ok ));
+		.then(( ok ) => {});
 }
 
 ns.Invite.prototype.revokeToken = async function( token, userId ) {
 	const self = this;
-	iLog( 'revokeToken', token );
 	let ok = false;
 	if ( 'public' === token || ( self.publicToken && ( self.publicToken.value === token ) ))
 		ok = await revokePublic( token, userId );
@@ -2289,7 +2351,7 @@ ns.Invite.prototype.send = function( event, targetId ) {
 // LOG
 //
 
-const lllog = require( './Log' )( 'Room > Log' );
+const llLog = require( './Log' )( 'Room > Log' );
 ns.Log = function( dbPool, roomId, persistent ) {
 	const self = this;
 	self.roomId = roomId;
@@ -2330,10 +2392,15 @@ ns.Log.prototype.get = function( conf ) {
 				.catch( err );
 		
 		function err( err ) {
-			lllog( 'load error', err.stack || err );
+			llLog( 'load error', err.stack || err );
 			resolve( null );
 		}
 	}
+}
+
+ns.Log.prototype.getLast = function( length ) {
+	const self = this;
+	return self.items.slice( -length );
 }
 
 ns.Log.prototype.setPersistent = function( isPersistent ) {
@@ -2368,7 +2435,7 @@ ns.Log.prototype.init = function( pool ) {
 	}
 	
 	function logErr( err ) {
-		lllog( 'init load err', err.stack || err );
+		llLog( 'init load err', err.stack || err );
 	}
 }
 
@@ -2399,7 +2466,7 @@ ns.Log.prototype.load = function( conf ) {
 		}
 		
 		function loadErr( e ) {
-			lllog( 'loadErr', e );
+			llLog( 'loadErr', e );
 			reject( e );
 		}
 	}
@@ -2419,7 +2486,7 @@ ns.Log.prototype.load = function( conf ) {
 		}
 		
 		function loadErr( e ) {
-			lllog( 'loadErr', e );
+			llLog( 'loadErr', e );
 			reject( e );
 		}
 	}
@@ -2452,12 +2519,10 @@ ns.Log.prototype.persist = function( event ) {
 		.then( ok )
 		.catch( err );
 		
-		function ok( res ) {
-			//lllog( 'write ok', res, 4 );
-		}
+		function ok( res ) {}
 		
 		function err( err ) {
-			lllog( 'write err', err.stack || err );
+			llLog( 'write err', err.stack || err );
 		}
 }
 
@@ -2472,20 +2537,31 @@ ns.Log.prototype.writeLogToDb = function() {
 
 // Workgroup - always connected to a Room
 
-let wlog = require( './Log' )( 'Room > Workgroup' );
-ns.Workgroup = function( dbPool, roomId, users, onlineList, releaseUser ) {
+let wLog = require( './Log' )( 'Room > Workgroup' );
+ns.Workgroup = function(
+	dbPool,
+	roomId,
+	users,
+	onlineList,
+	settings,
+	removeUser
+ ) {
 	const self = this;
 	Emitter.call( self );
 	
 	self.roomId = roomId;
 	self.users = users;
 	self.onlineList = onlineList;
+	self.settings = settings;
+	
 	self.db = null;
 	self.groups = {};
 	self.ids = [];
 	self.list = [];
 	self.assigned = {};
-	self.releaseUser = releaseUser; // callback to release user from Room
+	self.stream = [];
+	self.streamIds = [];
+	self.removeUser = removeUser; // callback to remove user from Room
 	
 	self.init( dbPool );
 }
@@ -2506,6 +2582,7 @@ ns.Workgroup.prototype.add = function( wgs ) {
 	if ( added.length )
 		updateData();
 	
+	self.updateSettings();
 	return added;
 	
 	function add( wg ) {
@@ -2527,17 +2604,33 @@ ns.Workgroup.prototype.add = function( wgs ) {
 	}
 }
 
+ns.Workgroup.prototype.addStream = function( streamWgs ) {
+	const self = this;
+	streamWgs = streamWgs.filter( newWg => {
+		return !self.stream.some( currentWg => newWg === currentWg );
+	});
+	if ( !streamWgs.length )
+		return;
+	
+	self.stream = streamWgs;
+	self.streamIds = self.list.filter( wg => {
+		let wgName = wg.name;
+		return streamWgs.some( streamWgName => streamWgName === wgName );
+	}).map( wg => wg.clientId );
+}
+
+ns.Workgroup.prototype.isStreamer = function( userWgs ) {
+	const self = this;
+	let isStreamer = userWgs.some( uwgId => {
+		return self.streamIds.some( sId => uwgId === sId );
+	});
+	
+	return isStreamer;
+}
+
 ns.Workgroup.prototype.getAvailable = function() {
 	const self = this;
 	return self.list;
-}
-
-ns.Workgroup.prototype.setAssigned = function( dbWorgs ) {
-	const self = this;
-	dbWorgs.forEach( add );
-	function add( wg ) {
-		self.assigned[ wg.fId ] = wg;
-	}
 }
 
 ns.Workgroup.prototype.getAssigned = function() {
@@ -2566,10 +2659,9 @@ ns.Workgroup.prototype.getAssignedClientIds = function() {
 
 ns.Workgroup.prototype.getAssignedForUser = function( userId ) {
 	const self = this;
-	wlog( 'getAssignedForUser', userId );
 	const user = self.users[ userId ];
 	if ( !user ) {
-		wlog( 'getAssignedfor - user', user );
+		wLog( 'getAssignedfor - user', user );
 		return null;
 	}
 	
@@ -2579,11 +2671,6 @@ ns.Workgroup.prototype.getAssignedForUser = function( userId ) {
 	
 	const ass = self.getAssignedClientIds();
 	const userAss = ass.filter( userIsMember );
-	wlog( 'getAss - post', {
-		uwgs : uwgs,
-		ass  : ass,
-		uass : userAss,
-	});
 	
 	return userAss;
 	
@@ -2595,77 +2682,86 @@ ns.Workgroup.prototype.getAssignedForUser = function( userId ) {
 // Update assigned workgroups on room (item)
 ns.Workgroup.prototype.updateAssigned = function( item, userId ) {
 	const self = this;
-	return new Promise( save );
-	function save( resolve, reject ) {
+	let err = getValid( item );
+	if ( err ) {
+		sendErr( item, userId );
+		return;
+	}
 	
-		if ( !isValid( item, reject ))
+	const cId = item.clientId;
+	const worg = self.groups[ cId ];
+	const fId = worg.fId;
+	if ( true === item.value )
+		assign();
+	else
+		dismiss();
+	
+	self.updateSettings();
+	
+	// Assign workgroup to room
+	function assign() {
+		if ( self.assigned[ fId ]) {
+			sendOk( item, userId );
 			return;
-		
-		const cId = item.clientId;
-		const worg = self.groups[ cId ];
-		const fId = worg.fId;
-		if ( true === item.value )
-			assign();
-		else
-			dismiss();
-		
-		// Assign workgroup to room
-		function assign() {
-			if ( self.assigned[ fId ]) {
-				resolve( item );
-				return;
-			}
-			
-			self.db.assignWorkgroup( fId, userId )
-				.then( assigned )
-				.catch( reject );
-				
-			function assigned( dbWorg ) {
-				self.addAssigned( dbWorg );
-				self.emit( 'assigned', {
-					fId : fId,
-					cId : cId,
-				});
-				resolve( dbWorg );
-			}
 		}
 		
-		// Remove workgroup from room
-		function dismiss() {
-			if ( !self.assigned[ fId ]) {
-				resolve( fId );
-				return;
-			}
-			
-			self.db.dismissWorkgroup( fId )
-				.then( dismissed )
-				.catch( reject );
-				
-			function dismissed( res ) {
-				self.removeAssigned( fId );
-				self.removeUsers();
-				self.emit( 'dismissed', {
-					fId : fId,
-					cId : cId,
-				});
-				resolve( res.fId );
-			}
+		self.db.assignWorkgroup( fId, userId )
+			.then( assigned )
+			.catch( dbErr );
+		
+		function assigned( dbWorg ) {
+			self.addAssigned( dbWorg );
+			self.emit( 'assigned', {
+				fId : fId,
+				cId : cId,
+			});
+			sendOk( item, userId );
+		}
+	}
+	
+	// Remove workgroup from room
+	function dismiss() {
+		if ( !self.assigned[ fId ]) {
+			resolve( fId );
+			return;
 		}
 		
-		function isValid( item, reject ) {
-			if ( !item || !item.clientId ) {
-				reject( 'ERR_INVALID_DATA' );
-				return false;
-			}
-			
-			const group = self.groups[ item.clientId ];
-			if ( !group ) {
-				reject( 'ERR_INVALID_DATA' );
-				return false;
-			}
-			
-			return true;
+		self.db.dismissWorkgroup( fId )
+			.then( dismissed )
+			.catch( dbErr );
+		
+		function dismissed( res ) {
+			self.removeDismissed( fId );
+			self.removeUsers();
+			self.emit( 'dismissed', {
+				fId : fId,
+				cId : cId,
+			});
+			sendOk( item, )
 		}
+	}
+	
+	function getValid( item ) {
+		if ( !item || !item.clientId )
+			return 'ERR_NO_CLIENTID';
+		
+		const group = self.groups[ item.clientId ];
+		if ( !group )
+			return 'ERR_NO_GROUP';
+		
+		return null;
+	}
+	
+	function dbErr( err ) {
+		wLog( 'dbErr', err );
+	}
+	
+	function sendOk( item, userId ) {
+		self.settings.sendSaved( 'workgroups', item, true, userId );
+	}
+	
+	function sendErr( item, err, userId ) {
+		self.settings.sendError( 'workgroups', err, userId );
 	}
 }
 
@@ -2702,19 +2798,53 @@ ns.Workgroup.prototype.close = function() {
 	delete self.db;
 	delete self.users;
 	delete self.onlineList;
+	delete self.settings;
 	delete self.groups;
 	delete self.ids;
 	delete self.list;
-	delete self.releaseUser;
+	delete self.stream;
+	delete self.streamIds;
+	delete self.removeUser;
 }
 
 // private
 
 ns.Workgroup.prototype.init = function( dbPool ) {
 	const self = this;
-	wlog( 'init', self.on );
 	self.conn = new ns.UserSend( 'workgroup', self.users, self.onlineList );
 	self.db = new dFace.RoomDB( dbPool, self.roomId );
+	self.db.getAssignedWorkgroups()
+		.then( wgs )
+		.catch( loadErr );
+	
+	function wgs( res ) {
+		self.setAssigned( res );
+		self.updateSettings();
+	};
+	
+	function loadErr( err ) {
+		wLog( 'failed to load workgroups from DB', err );
+	}
+	
+	self.settings.on( 'workgroups', handleWorgUpdate );
+	function handleWorgUpdate( item, userId ) {
+		self.updateAssigned( item, userId );
+	}
+}
+
+ns.Workgroup.prototype.setAssigned = function( dbWorgs ) {
+	const self = this;
+	dbWorgs.forEach( add );
+	function add( wg ) {
+		self.assigned[ wg.fId ] = wg;
+	}
+}
+
+ns.Workgroup.prototype.updateSettings = function() {
+	const self = this;
+	let available = self.getAvailable();
+	let assigned = self.getAssignedClientIds();
+	self.settings.updateWorkgroups( available, assigned );
 }
 
 ns.Workgroup.prototype.updateClients = function() {
@@ -2728,7 +2858,6 @@ ns.Workgroup.prototype.updateClients = function() {
 
 ns.Workgroup.prototype.addAssigned = function( dbWorg ) {
 	const self = this;
-	wlog( 'addAssigned', dbWorg );
 	self.assigned[ dbWorg.fId ] = dbWorg;
 	const update = {
 		type : 'assigned',
@@ -2737,7 +2866,7 @@ ns.Workgroup.prototype.addAssigned = function( dbWorg ) {
 	self.broadcast( update );
 }
 
-ns.Workgroup.prototype.removeAssigned = function( fId ) {
+ns.Workgroup.prototype.removeDismissed = function( fId ) {
 	const self = this;
 	delete self.assigned[ fId ];
 }
@@ -2752,32 +2881,36 @@ ns.Workgroup.prototype.removeUsers = function() {
 		
 		let assForUser = self.getAssignedForUser( userId );
 		if ( !assForUser.length )
-			self.releaseUser( userId );
+			self.removeUser( userId );
 	}
 }
 
 
 // Settings
 
-const slog = require( './Log' )( 'Room > Settings' );
+const sLog = require( './Log' )( 'Room > Settings' );
 ns.Settings = function(
 	dbPool,
 	roomId,
-	worgs,
 	users,
-	onlineList
+	onlineList,
+	callback
 ) {
 	const self = this;
+	Emitter.call( self );
+	
 	self.roomId = roomId;
-	self.worgs = worgs;
 	self.users = users;
 	self.onlineList = onlineList;
 	
+	self.setting = {};
 	self.handlerMap = {};
 	self.list = [];
 	
-	self.init( dbPool );
+	self.init( dbPool, callback );
 }
+
+util.inherits( ns.Settings, Emitter );
 
 // Public
 
@@ -2794,28 +2927,51 @@ ns.Settings.prototype.bind = function( userId ) {
 	function saveSetting( e ) { self.saveSetting( e, userId ); }
 }
 
-ns.Settings.prototype.get = function() {
+ns.Settings.prototype.updateWorkgroups = function( available, assigned ) {
 	const self = this;
-	// pre
-	const worgs = {
-		available : self.worgs.getAvailable(),
-		assigned  : self.worgs.getAssignedClientIds(),
-	};
-	//
-	const settings = {
-		userLimit : self.userLimit,
-		workgroups : worgs
-	};
-	
-	return settings;
+	self.set( 'workgroups', {
+		available : available,
+		assigned  : assigned,
+	});
 }
 
-ns.Settings.prototype.set = function( setting, value ) {
+ns.Settings.prototype.get = function( setting ) {
 	const self = this;
-	slog( 'set', {
-		s : setting,
-		v : value,
-	});
+	let settings = JSON.parse( self.settingStr );
+	if ( setting )
+		return settings[ setting ] || null;
+	else
+		return settings;
+}
+
+ns.Settings.prototype.sendSaved = function( setting, value, success, userId ) {
+	const self = this;
+	const update = {
+		type : 'update',
+		data : {
+			success : success,
+			setting : setting,
+			value   : value,
+		},
+	};
+	if ( success )
+		self.broadcast( update );
+	else
+		self.send( update, userId );
+}
+
+ns.Settings.prototype.sendError = function( setting, errMsg, userId ) {
+	const self = this;
+	const fail = {
+		type : 'update',
+		data : {
+			success : false,
+			errMsg  : errMsg,
+			setting : setting,
+			value   : null,
+		},
+	};
+	self.send( fail, userId );
 }
 
 ns.Settings.prototype.send = function( event, userId, callback ) {
@@ -2847,21 +3003,23 @@ ns.Settings.prototype.close = function() {
 	delete self.conn;
 	delete self.db;
 	delete self.roomId;
-	delete self.worgs;
 }
 
 // Private
 
-ns.Settings.prototype.init = function( dbPool ) {
+ns.Settings.prototype.init = function( dbPool, callback ) {
 	const self = this;
-	slog( 'init' );
 	self.conn = new ns.UserSend( 'settings', self.users, self.onlineList );
 	self.handlerMap = {
-		userLimit  : userLimit,
-		workgroups : worgs,
+		'userLimit'   : userLimit,
+		'isStream' : isStream,
+		'isClassroom' : isClassroom,
+		'workgroups'  : worgs,
 	};
 	
 	function userLimit( e, uid ) { self.handleUserLimit( e, uid ); }
+	function isStream( e, uid  ) { self.handleStream( e, uid ); }
+	function isClassroom( e, uid ) { self.handleClassroom( e, uid ); }
 	function worgs( e, uid ) { self.handleWorgs( e, uid ); }
 	
 	self.list = Object.keys( self.handlerMap );
@@ -2870,39 +3028,84 @@ ns.Settings.prototype.init = function( dbPool ) {
 	self.db.getSettings()
 		.then( settings )
 		.catch( loadErr );
-		
+	
 	function settings( res ) {
 		self.setDbSettings( res );
-		self.db.getAssignedWorkgroups()
-			.then( wgs )
-			.catch( loadErr );
+		done();
 	}
 	
-	function wgs( res ) {
-		self.worgs.setAssigned( res );
+	function loadErr( err ) {
+		sLog( 'loadErr', err );
+		self.setDefaults();
+		done( err );
 	}
 	
-	function loadErr( err ) { slog( 'loadErr', err ); }
+	function done( err ) {
+		callback( err, self.setting );
+	}
 }
 
 ns.Settings.prototype.setDbSettings = function( settings ) {
 	const self = this;
-	self.userLimit = settings.userLimit || 0;
+	if ( settings.isClassroom ) {
+		settings.isStream = settings.isClassroom;
+		delete settings.isClassroom;
+		self.db.removeSetting( 'isClassroom' );
+	}
+	
+	settings.userLimit = settings.userLimit == null ? 0 : settings.userLimit;
+	if ( streamingEnabled( global.config.server )) {
+		settings.isStream = settings.isStream == null ? false : settings.isStream;
+	}
+	else {
+		delete settings.isStream;
+	}
+	
+	let keys = Object.keys( settings );
+	keys.forEach( add );
+	self.settingStr = JSON.stringify( self.setting );
+	
+	function add( key ) {
+		let value = settings[ key ];
+		self.setting[ key ] = value;
+	}
+	
+	function streamingEnabled( conf ) {
+		if ( conf.streamProxy && conf.streamProxy.length )
+			return true;
+		
+		if ( conf.classroomProxy && conf.classroomProxy.length )
+			return true;
+		
+		return false;
+	}
+}
+
+ns.Settings.prototype.setDefaults = function() {
+	const self = this;
+	self.set( 'userLimit', 0 );
+	self.set( 'isStream', false );
+}
+
+ns.Settings.prototype.set = function( setting, value ) {
+	const self = this;
+	self.setting[ setting ] = value;
+	self.settingStr = JSON.stringify( self.setting );
 }
 
 ns.Settings.prototype.handleLoad = function( event, userId ) {
 	const self = this;
-	const res = self.get();
-	self.send( res, userId );
+	const values = self.get();
+	if ( null != global.config.server.classroomProxy ) {
+		values.isClassroom = values.isStream;
+		delete values.isStream;
+	}
+	
+	self.send( values, userId );
 }
 
 ns.Settings.prototype.saveSetting = function( event, userId ) {
 	const self = this;
-	slog( 'saveSetting', {
-		e : event,
-		u : userId,
-	});
-	
 	const user = self.users[ userId ];
 	if ( !user )
 		return;
@@ -2912,7 +3115,7 @@ ns.Settings.prototype.saveSetting = function( event, userId ) {
 	
 	const handler = self.handlerMap[ event.setting ];
 	if ( !handler ) {
-		slog( 'saveSetting - no handler for ', event );
+		sLog( 'saveSetting - no handler for ', event );
 		return;
 	}
 	
@@ -2922,9 +3125,8 @@ ns.Settings.prototype.saveSetting = function( event, userId ) {
 ns.Settings.prototype.checkIsAdmin = function( setting, userId ) {
 	const self = this;
 	const user = self.users[ userId ];
-	if ( !user.admin ) {
-		slog( 'checkIsAdmin - user is not admin', user, 3 );
-		self.sendError( 'userLimit', 'ERR_NOT_ADMIN', userId );
+	if ( !user.admin && !user.owner ) {
+		self.sendError( setting, 'ERR_NOT_ADMIN', userId );
 		return false;
 	} else
 		return true;
@@ -2933,72 +3135,52 @@ ns.Settings.prototype.checkIsAdmin = function( setting, userId ) {
 
 ns.Settings.prototype.handleUserLimit = function( value, userId ) {
 	const self = this;
-	slog( 'handleUserLimit', value );
-	self.userLimit = value;
-	self.sendSaved( 'userLimit', value, true, userId );
+	self.db.setSetting( 'userLimit', value )
+		.then( dbOk )
+		.catch( dbErr );
+		
+	function dbOk() {
+		self.set( 'userLimit', value );
+		self.emit( 'userLimit', value );
+		self.sendSaved( 'userLimit', value, true, userId );
+	}
+	
+	function dbErr( err ) {
+		sLog( 'handleUserLimit.dbErr', err );
+		self.sendError( 'userLimit', err, userId );
+	}
+}
+
+ns.Settings.prototype.handleStream = function( value, userId, isClassroom ) {
+	const self = this;
+	self.db.setSetting( 'isStream', value )
+		.then( dbOk )
+		.catch( dbErr );
+	
+	function dbOk( res ) {
+		self.set( 'isStream', value );
+		self.emit( 'isStream', value );
+		self.sendSaved( 'isStream', value, true, userId );
+		if ( isClassroom )
+			self.sendSaved( 'isClassroom', value, true, userId );
+	}
+	
+	function dbErr( err ) {
+		sLog( 'handleStream.dbErr', err );
+		self.sendError( 'isStream', err, userId );
+		if ( isClassroom )
+			self.sendError( 'isClassroom', err, userId );
+	}
+}
+
+ns.Settings.prototype.handleClassroom = function( value, userId ) {
+	const self = this;
+	self.handleStream( value, userId, 'isClassroom' ) ;
 }
 
 ns.Settings.prototype.handleWorgs = function( worg, userId ) {
 	const self = this;
-	slog( 'handleWorgs', {
-		v : worg,
-		uid : userId,
-	});
-	
-	// Run update on worgs object (workgroup)
-	self.worgs.updateAssigned( worg, userId )
-		.then( done )
-		.catch( error );
-		
-	function done( res ) {
-		slog( 'handleWorgs - success' );
-		send( true );
-	}
-	
-	function error( err ) {
-		slog( 'handleWorgs - fail', err );
-		worg.value = !worg.value;
-		send( false );
-	}
-	
-	function send( success ) {
-		self.sendSaved( 'workgroups', worg, success, userId );
-	}
-}
-
-ns.Settings.prototype.sendSaved = function( setting, value, success, userId ) {
-	const self = this;
-	slog( 'sendSaved', {
-		s : setting,
-		v : value,
-	});
-	
-	const update = {
-		type : 'update',
-		data : {
-			success : success,
-			setting : setting,
-			value   : value,
-		},
-	};
-	if ( success )
-		self.broadcast( update );
-	else
-		self.send( update, userId );
-}
-
-ns.Settings.prototype.sendError = function( setting, errMsg, userId ) {
-	const self = this;
-	const fail = {
-		type : 'update',
-		data : {
-			success : false,
-			errMsg  : errMsg,
-			setting : setting,
-			value   : null,
-		},
-	};
-	self.send( fail, userId );
+	self.emit( 'workgroups', worg, userId );
 }
 
 module.exports = ns.Room;

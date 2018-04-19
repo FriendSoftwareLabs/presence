@@ -283,11 +283,6 @@ ns.AccountDB.prototype.updateAvatar = function( clientId, avatar ) {
 
 ns.AccountDB.prototype.setSetting = function( clientId, key, value ) {
 	const self = this;
-	accLog( 'setSetting', {
-		cid   : clientId,
-		key   : key,
-		value : value,
-	});
 	return new Promise( setting );
 	function setting( resolve, reject ) {
 		resolve( value );
@@ -302,7 +297,7 @@ ns.AccountDB.prototype.setSetting = function( clientId, key, value ) {
 
 ns.AccountDB.prototype.getSettings = function( clientId ) {
 	const self = this;
-	accLog( 'getSettings', clientId );
+	accLog( 'getSettings - NYI', clientId );
 }
 
 ns.AccountDB.prototype.setActive = function( clientId, isActive ) {
@@ -324,10 +319,10 @@ ns.AccountDB.prototype.init = function() {
 // ROOM
 //
 
-ns.RoomDB = function( pool, id ) {
+ns.RoomDB = function( pool, roomId ) {
 	const self = this;
 	ns.DB.call( self, pool );
-	self.id = id;
+	self.id = roomId;
 	
 	self.init();
 }
@@ -645,7 +640,6 @@ ns.RoomDB.prototype.check = function( accountId, roomId ) {
 			.catch( reject );
 		
 		function checked( res ) {
-			roomLog( 'checked', res );
 			let rows = res.rows;
 			resolve( !!rows[ 0 ]);
 		}
@@ -661,21 +655,21 @@ ns.RoomDB.prototype.revoke = function( roomId, accountId ) {
 	return self.query( 'auth_remove', values );
 }
 
-ns.RoomDB.prototype.getSettings = function() {
+ns.RoomDB.prototype.getSettings = function( roomId ) {
 	const self = this;
-	roomLog( 'get', self.id );
+	roomId = roomId || self.id;
 	return new Promise( get );
 	function get( resolve, reject ) {
-		if ( !self.id ) {
+		if ( !roomId ) {
 			reject( 'ERR_NO_ROOMID' );
 			return;
 		}
 		
-		let values = [ self.id ];
+		let values = [ roomId ];
 		self.query( 'room_settings_get', values )
 			.then( ok )
 			.catch( reject );
-			
+		
 		function ok( res ) {
 			if ( !res || !res.rows ) {
 				reject( 'ERR_NO_ROWS' );
@@ -701,16 +695,29 @@ ns.RoomDB.prototype.getSettings = function() {
 	}
 }
 
-ns.RoomDB.prototype.setSetting = function( setting, value ) {
+ns.RoomDB.prototype.setSetting = function( key, value, roomId ) {
 	const self = this;
-	roomLog( 'setSetting', {
-		s : setting,
-		v : value,
-	});
-	return new Promise( set );
-	function set( resolve, reject ) {
-		reject( 'ERR_NYI_FUCKO' );
-	}
+	let obj = {};
+	obj[ key ] = value;
+	let jsonStr = JSON.stringify( obj );
+	roomId = roomId || self.id;
+	const values = [
+		roomId,
+		key,
+		jsonStr,
+	];
+	
+	return self.query( 'room_settings_set_key_value', values );
+}
+
+ns.RoomDB.prototype.removeSetting = function( key, roomId ) {
+	const self = this;
+	roomId = roomId || self.id;
+	const values = [
+		roomId,
+		key,
+	];
+	return self.query( 'room_settings_remove_key', values );
 }
 
 
@@ -844,12 +851,6 @@ util.inherits( ns.InviteDB, ns.DB );
 ns.InviteDB.prototype.set = function( token, singleUse, createdBy, roomId ) {
 	const self = this;
 	roomId = roomId || self.roomId;
-	invLog( 'set', {
-		token : token,
-		roomId : roomId,
-		singleUse : singleUse,
-		createdBy : createdBy,
-	});
 	singleUse = !!singleUse;
 	const values = [
 		token,
@@ -865,7 +866,6 @@ ns.InviteDB.prototype.set = function( token, singleUse, createdBy, roomId ) {
 			.catch( reject );
 		
 		function invSet( res ) {
-			invLog( 'invSet', res );
 			resolve( true );
 		}
 	}
@@ -873,13 +873,12 @@ ns.InviteDB.prototype.set = function( token, singleUse, createdBy, roomId ) {
 
 ns.InviteDB.prototype.get = function( token ) {
 	const self = this;
-	invLog( 'get', token );
+	invLog( 'get - NYI', token );
 }
 
 ns.InviteDB.prototype.getForRoom = function( roomId ) {
 	const self = this;
 	roomId = roomId || self.roomId;
-	invLog( 'getForRoom', roomId );
 	const values = [
 		roomId,
 	];
@@ -890,7 +889,6 @@ ns.InviteDB.prototype.getForRoom = function( roomId ) {
 			.catch( reject );
 			
 		function tokensBack( res ) {
-			invLog( 'tokensBack', res );
 			if ( !res || !res.rows ) {
 				reject( 'ERR_DB_INVALID_RESULT' );
 				return;
@@ -904,10 +902,6 @@ ns.InviteDB.prototype.getForRoom = function( roomId ) {
 ns.InviteDB.prototype.checkForRoom = function( token, roomId ) {
 	const self = this;
 	roomId = roomId || self.roomId;
-	invLog( 'checkForRoom', {
-		token,
-		roomId,
-	});
 	const values = [
 		token,
 		roomId,
@@ -929,7 +923,6 @@ ns.InviteDB.prototype.checkForRoom = function( token, roomId ) {
 
 ns.InviteDB.prototype.invalidate = function( token, invalidatedBy ) {
 	const self = this;
-	invLog( 'invalidate', token );
 	invalidatedBy = invalidatedBy || null;
 	const values = [
 		token,
@@ -942,7 +935,6 @@ ns.InviteDB.prototype.invalidate = function( token, invalidatedBy ) {
 			.catch( reject );
 			
 		function success( res ) {
-			invLog( 'invalidate.success', res );
 			resolve( true );
 		}
 	}
@@ -953,5 +945,6 @@ ns.InviteDB.prototype.invalidate = function( token, invalidatedBy ) {
 ns.InviteDB.prototype.init = function() {
 	const self = this;
 }
+
 
 module.exports = ns;
