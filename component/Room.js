@@ -2721,8 +2721,12 @@ ns.Workgroup.prototype.updateAssigned = function( item, userId ) {
 	
 	// Remove workgroup from room
 	function dismiss() {
+		wLog( 'dismiss', [
+			self.assigned,
+			fId
+		], 3 );
 		if ( !self.assigned[ fId ]) {
-			resolve( fId );
+			//resolve( fId );
 			return;
 		}
 		
@@ -2737,7 +2741,7 @@ ns.Workgroup.prototype.updateAssigned = function( item, userId ) {
 				fId : fId,
 				cId : cId,
 			});
-			sendOk( item, )
+			sendOk( item, userId );
 		}
 	}
 	
@@ -2873,15 +2877,15 @@ ns.Workgroup.prototype.removeDismissed = function( fId ) {
 
 ns.Workgroup.prototype.removeUsers = function() {
 	const self = this;
-	self.onlineList.forEach( checkHasAssigned );
+	let toBeRemoved = self.onlineList.filter( checkHasAssigned );
+	toBeRemoved.forEach( uid => self.removeUser( uid ));
 	function checkHasAssigned( userId ) {
 		let user = self.users[ userId ];
 		if ( user.authed )
-			return;
+			return false;
 		
 		let assForUser = self.getAssignedForUser( userId );
-		if ( !assForUser.length )
-			self.removeUser( userId );
+		return !assForUser.length;
 	}
 }
 
