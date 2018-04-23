@@ -403,7 +403,7 @@ ns.Room.prototype.setOpen = function() {
 
 ns.Room.prototype.loadUsers = function() {
 	const self = this;
-	const loading = {};
+	self.userLoads = {};
 	self.roomDb.loadAuthorizations( self.id )
 		.then( authBack )
 		.catch( loadFailed );
@@ -429,7 +429,7 @@ ns.Room.prototype.loadUsers = function() {
 		function add( dbUser, index ) {
 			const uid = dbUser.clientId;
 			self.authorized.push( uid );
-			loading[ uid ] = true;
+			self.userLoads[ uid ] = true;
 			if ( self.users[ uid ])
 				return;
 			
@@ -454,9 +454,9 @@ ns.Room.prototype.loadUsers = function() {
 	}
 	
 	function isLoaded( uid ) {
-		loading[ uid ] = false;
-		const ids = Object.keys( loading );
-		const allDone = ids.every( id => !loading[ id ] )
+		self.userLoads[ uid ] = false;
+		const ids = Object.keys( self.userLoads );
+		const allDone = ids.every( id => !self.userLoads[ id ] )
 		if ( !allDone )
 			return;
 		
@@ -504,9 +504,15 @@ ns.Room.prototype.bindUser = function( account ) {
 	const conf = self.users[ userId ];
 	if ( !conf ) {
 		log( 'bindUSer - no user for id', {
+			roomId : self.id,
 			userId : userId,
 			users  : self.users,
 		}, 4 );
+		try {
+			throw new Error( 'blah' );
+		} catch( e ) {
+			log( 'trace', e.stack || e );
+		}
 		return null;
 	}
 	

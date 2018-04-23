@@ -188,7 +188,7 @@ ns.RoomCtrl.prototype.connectWorkgroup = function( account, roomId, callback ) {
 }
 
 // go online in a room  - the room will start sending events to this client
-// only a authorized user can .connect directly
+// only an authorized user can .connect directly
 ns.RoomCtrl.prototype.connect = function( account, roomId, callback ) {
 	const self = this;
 	if ( !callback )
@@ -200,6 +200,10 @@ ns.RoomCtrl.prototype.connect = function( account, roomId, callback ) {
 	
 	function roomBack( room ) {
 		if ( !room ) {
+			log( 'connect - roomBack, no room', {
+				roomId : roomId,
+				room   : room,
+			});
 			callback( 'ERR_NO_ROOM', null );
 			return;
 		}
@@ -354,17 +358,16 @@ ns.RoomCtrl.prototype.setRoom = function( roomConf ) {
 	function openRoom( resolve, reject ) {
 		const roomId = roomConf.clientId;
 		const room = new Room( roomConf, self.dbPool );
-		self.rooms[ roomId ] = room;
-		self.roomIds = Object.keys( self.rooms );
 		
 		room.once( 'open', onOpen );
 		self.bindRoom( room );
 		
 		function onOpen() {
+			self.rooms[ roomId ] = room;
+			self.roomIds = Object.keys( self.rooms );
 			resolve( self.rooms[ roomId ]);
 		}
 	}
-	
 }
 
 ns.RoomCtrl.prototype.bindRoom = function( room ) {
@@ -406,7 +409,7 @@ ns.RoomCtrl.prototype.getRoom = function( rid ) {
 	const self = this;
 	return new Promise( getRoom );
 	function getRoom( resolve, reject ) {
-		var room = self.rooms[ rid ];
+		let room = self.rooms[ rid ];
 		if ( room ) {
 			resolve( room );
 			return;
@@ -415,24 +418,33 @@ ns.RoomCtrl.prototype.getRoom = function( rid ) {
 		let loading = self.roomLoads[ rid ];
 		if ( loading ) {
 			loading
-				.then( resolve )
-				.catch( reject );
+				.then( loadingLoaded )
+				.catch( loadingErr );
 			return;
 		}
 		
-		loading = new Promise( loadRoom )
-			.then( resolve )
-			.catch( reject );
+		loading = new Promise( loadRoom );
 		self.roomLoads[ rid ] = loading;
+		loading
+			.then( loadingLoaded )
+			.catch( loadingErr );
+			
+		function loadingLoaded( room ) {
+			resolve( room );
+		}
 		
-		function loadRoom( resolve, reject ) {
+		function loadingErr( err ) {
+			reject( err );
+		}
+		
+		function loadRoom( roomResolve, roomReject ) {
 			self.roomDb.get( rid )
 				.then( loaded )
 				.catch( loadErr );
 				
 			function loaded( roomConf ) {
 				if ( !roomConf ) {
-					resolve( null );
+					roomResolve( null );
 					return;
 				}
 				
@@ -442,8 +454,8 @@ ns.RoomCtrl.prototype.getRoom = function( rid ) {
 					.catch( loadErr );
 					
 				function roomOpen( room ) {
-					resolve( room );
-					delete self.roomLoads[ rid ];
+					delete self.roomLoads[ room.id ];
+					roomResolve( room );
 				}
 			}
 			
@@ -452,7 +464,7 @@ ns.RoomCtrl.prototype.getRoom = function( rid ) {
 					rid : rid,
 					err : err,
 				});
-				reject( err );
+				roomReject( err );
 			}
 		}
 	}
