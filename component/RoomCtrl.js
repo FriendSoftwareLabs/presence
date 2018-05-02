@@ -24,6 +24,7 @@ const uuid = require( './UuidPrefix' )( 'room' );
 const Emitter = require( './Events' ).Emitter;
 const dFace = require( './DFace' );
 const Room = require( './Room' );
+const IdCache = require( './IdentityCache' );
 
 const util = require( 'util' );
 
@@ -225,6 +226,9 @@ ns.RoomCtrl.prototype.connect = function( account, roomId, callback ) {
 // closes roomCtrl, not a room
 ns.RoomCtrl.prototype.close = function() {
 	const self = this;
+	if ( self.idCache )
+		self.idCache.close();
+		
 	if ( self.roomDb )
 		self.roomDb.close();
 	
@@ -236,6 +240,7 @@ ns.RoomCtrl.prototype.close = function() {
 	
 	// TODO : close rooms
 	
+	delete self.idCache;
 	delete self.roomDb;
 	delete self.accDb;
 	delete self.invDb;
@@ -247,14 +252,19 @@ ns.RoomCtrl.prototype.close = function() {
 ns.RoomCtrl.prototype.init = function() {
 	const self = this;
 	log( 'room ctrl init =^y^=' );
+	self.idCache = new IdCache( self.dbPool );
 	self.roomDb = new dFace.RoomDB( self.dbPool );
 	self.accDb = new dFace.AccountDB( self.dbPool );
 	self.invDb = new dFace.InviteDB( self.dbPool );
 	const tiny = require( './TinyAvatar' );
-	tiny.generateGuest( avatarBack );
-	function avatarBack( err, avatar ) {
-		self.guestAvatar = avatar;
-	}
+	tiny.generateGuest()
+		.then( res => {
+			self.guestAvatar = res
+		})
+		.catch( err => {
+			log( 'init - failed to generate guest avatar', err );
+			self.guestAvatar = null;
+		});
 }
 
 ns.RoomCtrl.prototype.createNamedRoom = function( account, conf, callback ) {
@@ -357,7 +367,7 @@ ns.RoomCtrl.prototype.setRoom = function( roomConf ) {
 	return new Promise( openRoom );
 	function openRoom( resolve, reject ) {
 		const roomId = roomConf.clientId;
-		const room = new Room( roomConf, self.dbPool );
+		const room = new Room( roomConf, self.dbPool, self.idCache );
 		
 		room.once( 'open', onOpen );
 		self.bindRoom( room );

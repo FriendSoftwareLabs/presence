@@ -213,17 +213,18 @@ ns.AccountDB.prototype.getById = function( accountId ) {
 	return new Promise( getAcc );
 	function getAcc( resolve, reject ) {
 		const values = [ accountId ];
-		self.query( 'account_read_id', values )
+		self.query( 'account_read_by_id', values )
 			.then( accBack )
 			.catch( reject );
 		
 		function accBack( res ) {
-			if ( !res || res.rows ) {
+			if ( !res || !res.rows ) {
 				reject( 'ERR_DB_INVALID_RES_WUT_???' );
 				return;
 			}
 			
-			resolve( res.rows[ 0 ]);
+			let acc = res.rows[ 0 ] || null;
+			resolve( acc );
 		}
 	}
 }

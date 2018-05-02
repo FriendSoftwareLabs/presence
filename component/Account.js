@@ -159,14 +159,11 @@ ns.Account.prototype.setIdentity = function( id ) {
 	let avatar = id.avatar || self.settings.avatar;
 	if ( !avatar ) {
 		const tinyAvatar = require( './TinyAvatar' );
-		avatar = tinyAvatar.generate( name, avatarBack );
+		avatar = tinyAvatar.generate( name )
+			.then( res => setId( res ))
+			.catch( err => setId( null ));
 	} else
 		setId( avatar );
-	
-	function avatarBack( err, avatar ) {
-		setId( avatar );
-		
-	}
 	
 	function setId( avatar ) {
 		avatar = avatar || '';

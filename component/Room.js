@@ -120,7 +120,7 @@ ns.UserSend.prototype.sendInit = function() {
 
 
 */
-ns.Room = function( conf, db ) {
+ns.Room = function( conf, db, idCache ) {
 	const self = this;
 	if ( !conf.clientId )
 		throw new Error( 'Room - clientId missing' );
@@ -131,6 +131,7 @@ ns.Room = function( conf, db ) {
 	self.persistent = conf.persistent || false;
 	self.guestAvatar = conf.guestAvatar;
 	self.dbPool = db;
+	self.idCache = idCache;
 	
 	self.open = false;
 	self.invite = null;
@@ -203,13 +204,17 @@ ns.Room.prototype.addUser = function( user, callback ) {
 	self.users[ uid ] = user;
 	
 	if ( !user.avatar && !user.guest ) {
-		const tinyAvatar = require( './TinyAvatar' );
-		tinyAvatar.generate( user.accountName, ( err, res ) => setAvatar( res ) );
+		self.idCache.get( uid )
+			.then( id => {
+				setAvatar( id.avatar );
+			}).catch( err => {
+				setAvatar( '' );
+			});
 	} else
 		announceUser( user );
 	
-	function setAvatar( png ) {
-		user.avatar = png;
+	function setAvatar( pngStr ) {
+		user.avatar = pngStr;
 		announceUser( user );
 	}
 	
@@ -310,6 +315,7 @@ ns.Room.prototype.close = function( callback ) {
 	delete self.authorized;
 	delete self.users;
 	
+	delete self.idCache;
 	delete self.dbPool;
 	delete self.onempty;
 	
@@ -353,7 +359,9 @@ ns.Room.prototype.init = function() {
 		self.log = new ns.Log(
 			self.dbPool,
 			self.id,
-			self.persistent
+			self.users,
+			self.idCache,
+			self.persistent,
 		);
 		
 		self.invite = new ns.Invite(
@@ -434,7 +442,10 @@ ns.Room.prototype.loadUsers = function() {
 				return;
 			
 			if ( !dbUser.avatar )
-				tinyAvatar.generate( dbUser.name, ( err, res ) => setUser( res ));
+				self.idCache.get( uid )
+					.then( id => {
+						setUser( id.avatar );
+					}).catch( err => setUser( null ));
 			else
 				setUser( dbUser.avatar );
 			
@@ -2319,6 +2330,7 @@ ns.Invite.prototype.revokeToken = async function( token, userId ) {
 
 ns.Invite.prototype.getInviteHost = function() {
 	const self = this;
+	iLog( 'getInviteHost', global.config.shared.wsHost );
 	return global.config.shared.wsHost;
 }
 
@@ -2358,9 +2370,11 @@ ns.Invite.prototype.send = function( event, targetId ) {
 //
 
 const llLog = require( './Log' )( 'Room > Log' );
-ns.Log = function( dbPool, roomId, persistent ) {
+ns.Log = function( dbPool, roomId, users, idCache, persistent ) {
 	const self = this;
 	self.roomId = roomId;
+	self.users = users;
+	self.idCache = idCache;
 	self.persistent = persistent;
 	
 	self.items = [];
@@ -2425,6 +2439,8 @@ ns.Log.prototype.close = function() {
 	
 	delete self.msgDb;
 	delete self.roomId;
+	delete self.users;
+	delete self.idCache;
 }
 
 // Private
@@ -2463,12 +2479,9 @@ ns.Log.prototype.load = function( conf ) {
 			.catch( loadErr );
 			
 		function loaded( items ) {
-			let events = parse( items );
-			let log = {
-				type : 'before',
-				data : events,
-			};
-			resolve( log );
+			buildLogEvent( 'before', items )
+				.then( resolve )
+				.catch( err => llLog( 'loadBefore - err', err ));
 		}
 		
 		function loadErr( e ) {
@@ -2483,12 +2496,9 @@ ns.Log.prototype.load = function( conf ) {
 			.catch( loadErr );
 			
 		function loaded( items ) {
-			let events = parse( items );
-			let log = {
-				type : 'after',
-				data : events,
-			};
-			resolve( log );
+			buildLogEvent( 'after', items )
+				.then( resolve )
+				.catch( err => llLog( 'loadAfter - err', err ));
 		}
 		
 		function loadErr( e ) {
@@ -2497,21 +2507,58 @@ ns.Log.prototype.load = function( conf ) {
 		}
 	}
 	
-	function parse( items ) {
-		if ( !items )
-			return null;
+	async function buildLogEvent( type, dbEvents ) {
+		let events = parse( dbEvents );
+		let unknownIds = await getUnknownIdentities( events );
+		let log = {
+			type : type,
+			data : {
+				events : events,
+				ids    : unknownIds,
+			},
+		};
+		return log;
 		
-		const events = items.map( extractType );
-		return events;
+		function parse( items ) {
+			if ( !items )
+				return null;
+			
+			const events = items.map( extractType );
+			return events;
+			
+			function extractType( item ) {
+				const event = {
+					type : item.type,
+					data : null,
+				};
+				delete item.type;
+				event.data = item;
+				return event;
+			}
+		}
 		
-		function extractType( item ) {
-			const event = {
-				type : item.type,
-				data : null,
+		async function getUnknownIdentities( events ) {
+			if ( !events || !events.length )
+				return null;
+			
+			let unknownIds = {};
+			for ( let event of events ) {
+				let uId = event.data.fromId;
+				if ( !uId )
+					continue;
+				
+				if ( unknownIds[ uId ])
+					continue;
+				
+				let user = self.users[ uId ]
+				if ( user )
+					continue;
+				
+				let id = await self.idCache.get( uId );
+				unknownIds[ uId ] = id;
 			};
-			delete item.type;
-			event.data = item;
-			return event;
+			
+			return unknownIds;
 		}
 	}
 }

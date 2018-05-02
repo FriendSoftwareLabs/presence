@@ -12,6 +12,7 @@ DROP PROCEDURE IF EXISTS set_last_patch_version;
 # ACCOUNT
 DROP PROCEDURE IF EXISTS account_create;
 DROP PROCEDURE IF EXISTS account_read;
+DROP PROCEDURE IF EXISTS account_read_by_id;
 DROP PROCEDURE IF EXISTS account_update;
 DROP PROCEDURE IF EXISTS account_delete;
 DROP PROCEDURE IF EXISTS account_touch;
@@ -71,7 +72,7 @@ CREATE FUNCTION fn_split_str(
 	delim CHAR(12),
 	pos INT
 )
-RETURNS VARCHAR( 255 ) DETERMINISTIC
+RETURNS VARCHAR( 191 ) DETERMINISTIC
 RETURN REPLACE(SUBSTRING(SUBSTRING_INDEX( source, delim, pos),
 		LENGTH(SUBSTRING_INDEX( source, delim, pos -1)) + 1),
 		delim, '')//
@@ -81,7 +82,7 @@ RETURN REPLACE(SUBSTRING(SUBSTRING_INDEX( source, delim, pos),
 #
 CREATE PROCEDURE set_last_patch_version(
 	IN `version` INT,
-	IN `comment` VARCHAR( 255 )
+	IN `comment` VARCHAR( 191 )
 )
 BEGIN
 	INSERT INTO `db_history` (
@@ -100,10 +101,10 @@ END//
 #
 # CREATE
 CREATE PROCEDURE account_create(
-	IN `clientId` VARCHAR( 255 ),
-	IN `login` VARCHAR( 255 ),
+	IN `clientId` VARCHAR( 191 ),
+	IN `login` VARCHAR( 191 ),
 	IN `pass` TEXT,
-	IN `name` VARCHAR( 255 ),
+	IN `name` VARCHAR( 191 ),
 	IN `settings` TEXT
 )
 BEGIN
@@ -130,11 +131,21 @@ END//
 #
 # READ
 CREATE PROCEDURE account_read(
-	IN `login` VARCHAR( 255 )
+	IN `login` VARCHAR( 191 )
 )
 BEGIN
 	SELECT * FROM account
 	WHERE account.login = `login`;
+END//
+
+#
+## READ BY ID
+CREATE PROCEDURE account_read_by_id(
+	IN `clientId` VARCHAR( 191 )
+)
+BEGIN
+SELECT * FROM account
+WHERE account.clientId = `clientId`;
 END//
 
 #
@@ -149,7 +160,7 @@ END//
 #
 # DELETE
 CREATE PROCEDURE account_delete(
-	IN `clientId` VARCHAR( 255 )
+	IN `clientId` VARCHAR( 191 )
 )
 BEGIN
 	DELETE FROM account
@@ -159,7 +170,7 @@ END//
 #
 # TOUCH
 CREATE PROCEDURE account_touch(
-	IN `clientId` VARCHAR( 255 )
+	IN `clientId` VARCHAR( 191 )
 )
 BEGIN
 	UPDATE account 
@@ -170,7 +181,7 @@ END//
 #
 # SET PASS
 CREATE PROCEDURE account_set_pass(
-	IN `clientId` VARCHAR( 255 ),
+	IN `clientId` VARCHAR( 191 ),
 	IN `pass` TEXT
 )
 BEGIN
@@ -182,8 +193,8 @@ END//
 #
 # SET NAME
 CREATE PROCEDURE account_set_name(
-	IN `clientId` VARCHAR( 255 ),
-	IN `name` VARCHAR( 255 )
+	IN `clientId` VARCHAR( 191 ),
+	IN `name` VARCHAR( 191 )
 )
 BEGIN
 	UPDATE account AS a
@@ -242,9 +253,9 @@ END//
 #
 # CREATE
 CREATE PROCEDURE room_create(
-	IN `clientId` VARCHAR( 255 ),
-	IN `name` VARCHAR( 255 ),
-	IN `ownerId` VARCHAR( 255 ),
+	IN `clientId` VARCHAR( 191 ),
+	IN `name` VARCHAR( 191 ),
+	IN `ownerId` VARCHAR( 191 ),
 	IN `settings` TEXT,
 	IN `isPrivate` BOOLEAN
 )
@@ -270,7 +281,7 @@ END//
 #
 # READ
 CREATE PROCEDURE room_read(
-	IN `clientId` VARCHAR( 255 )
+	IN `clientId` VARCHAR( 191 )
 )
 BEGIN
 	SELECT * FROM room
@@ -289,7 +300,7 @@ END//
 #
 # DELETE
 CREATE PROCEDURE room_delete(
-	IN `clientId` VARCHAR( 255 )
+	IN `clientId` VARCHAR( 191 )
 )
 BEGIN
 	DELETE FROM room
@@ -299,7 +310,7 @@ END//
 #
 # TOUCH
 CREATE PROCEDURE room_touch(
-	IN `clientId` VARCHAR( 255 )
+	IN `clientId` VARCHAR( 191 )
 )
 BEGIN
 	UPDATE room AS r
@@ -310,8 +321,8 @@ END//
 #
 # SET NAME
 CREATE PROCEDURE room_set_name(
-	IN `clientId` VARCHAR( 255 ),
-	IN `name` VARCHAR( 255 )
+	IN `clientId` VARCHAR( 191 ),
+	IN `name` VARCHAR( 191 )
 )
 BEGIN
 UPDATE room AS r
@@ -322,8 +333,8 @@ END//
 #
 # SET OWNER
 CREATE PROCEDURE room_set_owner(
-	IN `clientId` VARCHAR( 255 ),
-	IN `ownerId` VARCHAR( 255 )
+	IN `clientId` VARCHAR( 191 ),
+	IN `ownerId` VARCHAR( 191 )
 )
 BEGIN
 UPDATE room AS r
@@ -516,14 +527,14 @@ END//
 #
 # set auths for a room
 CREATE PROCEDURE auth_add(
-	IN `roomId`      VARCHAR( 255 ),
+	IN `roomId`      VARCHAR( 191 ),
 	IN `accIdsDelim` TEXT
 )
 BEGIN
 	DECLARE i INT DEFAULT 0;
-	DECLARE str VARCHAR( 255 );
+	DECLARE str VARCHAR( 191 );
 	DROP TEMPORARY TABLE IF EXISTS str_split_tmp;
-	CREATE TEMPORARY TABLE str_split_tmp( `str` VARCHAR( 255 ));
+	CREATE TEMPORARY TABLE str_split_tmp( `str` VARCHAR( 191 ));
 	loopie: LOOP
 		SET i=i+1;
 		SET str=fn_split_str( accIdsDelim, '|', i );
@@ -543,8 +554,8 @@ END//
 #
 # CHECK ACCOUNT IS AUTHED
 CREATE PROCEDURE auth_check(
-	IN `roomId`    VARCHAR( 255 ),
-	IN `accountId` VARCHAR( 255 )
+	IN `roomId`    VARCHAR( 191 ),
+	IN `accountId` VARCHAR( 191 )
 )
 BEGIN
 SELECT a.accountId FROM `authorized_for_room` AS a
@@ -555,8 +566,8 @@ END//
 #
 # REMOVE ACCOUNT FROM ROOM
 CREATE PROCEDURE auth_remove(
-	IN `roomId` VARCHAR( 255 ),
-	IN `accountId` VARCHAR( 255 )
+	IN `roomId` VARCHAR( 191 ),
+	IN `accountId` VARCHAR( 191 )
 )
 BEGIN
 DELETE afr FROM authorized_for_room AS afr

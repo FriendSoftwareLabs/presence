@@ -31,28 +31,69 @@ ns.TinyAvatar = function() {
 
 // Public
 
-ns.TinyAvatar.prototype.generate = function( string, callback ) {
+ns.TinyAvatar.prototype.generate = function( string ) {
 	const self = this;
-	if ( !string ) {
-		callback( 'ERR_EMPTY_STRING', null );
-		return;
-	}
-	
-	const source = self.getBuffer( string );
-	const color = self.getColor( source.slice( 0, 4 ));
-	const bgColor = Buffer( '444444FF', 'hex' );
-	const pattern = self.generateBlockPattern( source.slice( 4, 29 ));
-	
-	self.build( color, bgColor, pattern, callback );
+	return new Promise(( resolve, reject ) => {
+		if ( !string ) {
+			reject( 'ERR_EMPTY_STRING' );
+			return;
+		}
+		
+		const source = self.getBuffer( string );
+		const color = self.getColor( source.slice( 0, 4 ));
+		const bgColor = Buffer( '444444FF', 'hex' );
+		const pattern = self.generateBlockPattern( source.slice( 4, 29 ));
+		
+		self.build( color, bgColor, pattern, buildBack );
+		function buildBack( err, res ) {
+			if ( err )
+				reject( err );
+			else
+				resolve( res );
+		}
+	});
 }
 
-ns.TinyAvatar.prototype.generateGuest = function( callback ) {
+ns.TinyAvatar.prototype.generateGuest = function() {
 	const self = this;
-	//const color = Buffer( 'E73B2BFF', 'hex' );
-	const color = Buffer( '2B97CCFF', 'hex' );
+	return new Promise(( resolve, reject ) => {
+		//const color = Buffer( 'E73B2BFF', 'hex' );
+		const color = Buffer( '2B97CCFF', 'hex' );
+		const bgColor = Buffer( '444444FF', 'hex' );
+		// ?
+		/*
+		const pattern = [
+			0,1,1,1,0,
+			1,0,0,0,1,
+			0,0,1,1,0,
+			0,0,0,0,0,
+			0,0,1,0,0,
+		];
+		*/
+		
+		// F
+		const pattern = [
+			1,1,1,1,1,
+			1,0,0,0,0,
+			1,1,1,1,0,
+			1,0,0,0,0,
+			1,0,0,0,0,
+		];
+		
+		self.build( color, bgColor, pattern, buildBack );
+		function buildBack( err , res ) {
+			if ( err )
+				reject( err );
+			else
+				resolve( res );
+		}
+	});
+}
+
+ns.TinyAvatar.generateDefault = function( callback ) {
+	const self = this;
+	const color = Buffer( '', 'hex' );
 	const bgColor = Buffer( '444444FF', 'hex' );
-	// ?
-	/*
 	const pattern = [
 		0,1,1,1,0,
 		1,0,0,0,1,
@@ -60,18 +101,6 @@ ns.TinyAvatar.prototype.generateGuest = function( callback ) {
 		0,0,0,0,0,
 		0,0,1,0,0,
 	];
-	*/
-	
-	// F
-	const pattern = [
-		1,1,1,1,1,
-		1,0,0,0,0,
-		1,1,1,1,0,
-		1,0,0,0,0,
-		1,0,0,0,0,
-	];
-	
-	self.build( color, bgColor, pattern, callback );
 }
 
 // Private
