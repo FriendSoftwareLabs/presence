@@ -2378,6 +2378,7 @@ ns.Log = function( dbPool, roomId, users, idCache, persistent ) {
 	self.persistent = persistent;
 	
 	self.items = [];
+	self.ids = {};
 	self.msgDb = null;
 	
 	self.init( dbPool );
@@ -2403,7 +2404,10 @@ ns.Log.prototype.get = function( conf ) {
 		if ( null == conf ) {
 			let logs = {
 				type : 'before',
-				data : self.items,
+				data : {
+					events : self.items,
+					ids    : self.ids,
+				},
 			};
 			resolve( logs );
 		} else
@@ -2449,11 +2453,12 @@ ns.Log.prototype.init = function( pool ) {
 	const self = this;
 	self.msgDb = new dFace.MessageDB( pool, self.roomId );
 	self.load()
-		.then( itemsBack )
+		.then( logBack )
 		.catch( logErr );
 		
-	function itemsBack( log ) {
-		self.items = log.data;
+	function logBack( log ) {
+		self.items = log.data.events;
+		self.ids = log.data.ids;
 	}
 	
 	function logErr( err ) {
