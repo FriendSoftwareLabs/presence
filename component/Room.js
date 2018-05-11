@@ -609,8 +609,9 @@ ns.Room.prototype.initialize =  function( requestId, userId ) {
 	self.send( init, userId );
 	
 	function buildBaseUsers() {
+		const users = {};
 		const uIds = Object.keys( self.users );
-		const users = uIds.map( build );
+		uIds.forEach( build );
 		return users;
 		
 		function build( uid ) {
@@ -618,8 +619,9 @@ ns.Room.prototype.initialize =  function( requestId, userId ) {
 			if ( !user )
 				return undefined;
 			
-			return {
-				clientId   : user.accountId,
+			let aId = user.accountId;
+			users[ aId ] = {
+				clientId   : aId,
 				name       : user.accountName,
 				avatar     : user.avatar,
 				admin      : user.admin,
@@ -868,10 +870,6 @@ ns.Room.prototype.setOffline = function( userId ) {
 		data : userId,
 	};
 	self.broadcast( offline );
-	
-	function isNotUid( oid ) {
-		return oid !== userId;
-	}
 }
 
 // peer things
