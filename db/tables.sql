@@ -28,7 +28,7 @@ CREATE TABLE `room` (
 	`settings`     JSON NOT NULL,
 	`isPrivate`    BOOLEAN NOT NULL DEFAULT 1,
 	`created`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	`lastActivity` TIMESTAMP,
+	`lastActivity` TIMESTAMP NULL,
 	PRIMARY KEY( _id )
 ) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -89,7 +89,7 @@ CREATE TABLE `invite_token` (
 	`createdBy`     VARCHAR( 191 ) NOT NULL,
 	`created`       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	`invalidatedBy` VARCHAR( 191 ),
-	`invalidated`   TIMESTAMP DEFAULT NULL,
+	`invalidated`   TIMESTAMP NULL,
 	PRIMARY KEY( _id ),
 	UNIQUE KEY( token ),
 	FOREIGN KEY( roomId ) REFERENCES room( clientId )
