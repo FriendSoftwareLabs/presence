@@ -198,6 +198,7 @@ ns.Room.prototype.addUser = function( user, callback ) {
 	const uid = user.accountId;
 	if ( self.users[ uid ]) {
 		callback( null, uid );
+		return;
 	}
 	
 	self.processWorkgroups( user );
@@ -228,6 +229,7 @@ ns.Room.prototype.addUser = function( user, callback ) {
 				avatar     : user.avatar,
 				owner      : user.accountId === self.ownerId,
 				admin      : user.admin || undefined,
+				authed     : user.authed || undefined,
 				guest      : user.guest || undefined,
 				workgroups : user.workgroups || undefined,
 			},

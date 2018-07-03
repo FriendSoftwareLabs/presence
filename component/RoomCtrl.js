@@ -269,7 +269,7 @@ ns.RoomCtrl.prototype.init = function() {
 
 ns.RoomCtrl.prototype.createNamedRoom = function( account, conf, callback ) {
 	const self = this;
-	log( 'createNamedRoom', conf );
+	log( 'createNamedRoom - NYI', conf );
 }
 
 ns.RoomCtrl.prototype.createAnonRoom = function( account, callback ) {
@@ -546,6 +546,7 @@ ns.RoomCtrl.prototype.addToRoom = function( account, roomId, callback ) {
 		accountId   : account.clientId,
 		accountName : account.name,
 		admin       : account.admin,
+		authed      : account.authed,
 		guest       : account.guest,
 		workgroups  : account.workgroups,
 	};
