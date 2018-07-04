@@ -201,7 +201,7 @@ ns.Room.prototype.addUser = function( user, callback ) {
 		return;
 	}
 	
-	if ( !self.isPersistent && !user.guest )
+	if ( !self.persistent && !user.guest )
 		user.authed = true;
 	
 	self.processWorkgroups( user );
