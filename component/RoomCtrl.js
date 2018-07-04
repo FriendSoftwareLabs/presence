@@ -339,7 +339,6 @@ ns.RoomCtrl.prototype.joinWithInvite = function( account, conf, callback ) {
 	}
 	
 	function authBack( err, uid ) {
-		account.authed = true;
 		self.addToRoom( account, rid, addBack );
 	}
 	
