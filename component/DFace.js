@@ -394,10 +394,11 @@ ns.RoomDB.prototype.touch = function( clientId ) {
 	return self.query( 'room_touch', values );
 }
 
-ns.RoomDB.prototype.setName = function( clientId, name ) {
+ns.RoomDB.prototype.setName = function( name, roomId ) {
 	const self = this;
+	roomId = roomId || self.id;
 	const values = [
-		clientId,
+		roomId,
 		name,
 	];
 	return self.query( 'room_set_name', values );

@@ -341,8 +341,13 @@ ns.Room.prototype.init = function() {
 		self.id,
 		self.users,
 		self.onlineList,
+		self.persistent,
+		self.name,
 		settingsDone
 	);
+	
+	self.settings.on( 'roomName', roomName );
+	function roomName( e ) { self.handleRename( e ); }
 	
 	function settingsDone( err , res ) {
 		self.worgs = new ns.Workgroup(
@@ -563,7 +568,6 @@ ns.Room.prototype.bindUser = function( account ) {
 	// bind room events
 	user.on( 'initialize', init );
 	user.on( 'persist', persist );
-	user.on( 'rename', rename );
 	user.on( 'identity', identity );
 	user.on( 'disconnect', goOffline );
 	user.on( 'leave', leaveRoom );
@@ -573,7 +577,6 @@ ns.Room.prototype.bindUser = function( account ) {
 	let uid = userId;
 	function init( e ) { self.initialize( e, uid ); }
 	function persist( e ) { self.handlePersist( e, uid ); }
-	function rename( e ) { self.handleRename( e, uid ); }
 	function identity( e ) { self.setIdentity( e, uid ); }
 	function goOffline( e ) { self.disconnect( uid ); }
 	function leaveRoom( e ) { self.handleLeave( uid ); }
@@ -653,6 +656,7 @@ ns.Room.prototype.handlePersist = function( event, userId ) {
 		if ( !res )
 			return;
 		
+		self.settings.setPersistent( true, self.name );
 		self.log.setPersistent( true );
 		self.invite.setPersistent( true );
 		self.onlineList.forEach( update );
@@ -754,24 +758,7 @@ ns.Room.prototype.updateUserAuthorized = function( isAuthed, userId ) {
 
 ns.Room.prototype.handleRename = function( name, userId ) {
 	const self = this;
-	if ( userId !== self.ownerId ) {
-		log( 'handleRename - userId / ownerId missmatch', {
-			uid : userId,
-			oid : self.ownerId,
-		});
-		return;
-	}
-	
 	self.name = name;
-	self.roomDb.setName( self.id, name );
-	self.onlineList.forEach( update );
-	function update( uid ) {
-		const user = self.users[ uid ];
-		if ( !user || !user.setRoomPersistent )
-			return;
-		
-		user.setRoomPersistent( true, name );
-	}
 }
 
 ns.Room.prototype.setIdentity = function( id, userId ) {
@@ -2959,6 +2946,8 @@ ns.Settings = function(
 	roomId,
 	users,
 	onlineList,
+	isPersistent,
+	roomName,
 	callback
 ) {
 	const self = this;
@@ -2967,12 +2956,13 @@ ns.Settings = function(
 	self.roomId = roomId;
 	self.users = users;
 	self.onlineList = onlineList;
+	self.isPersistent = isPersistent;
 	
 	self.setting = {};
 	self.handlerMap = {};
 	self.list = [];
 	
-	self.init( dbPool, callback );
+	self.init( dbPool, roomName, callback );
 }
 
 util.inherits( ns.Settings, Emitter );
@@ -3057,6 +3047,12 @@ ns.Settings.prototype.broadcast = function( event, sourceId, wrapSource ) {
 	self.conn.broadcast( event, sourceId, wrapSource );
 }
 
+ns.Settings.prototype.setPersistent = function( isPersistent, roomName ) {
+	const self = this;
+	self.isPersistent = isPersistent;
+	self.handleRoomName( roomName );
+}
+
 ns.Settings.prototype.close = function() {
 	const self = this;
 	if ( self.conn )
@@ -3068,20 +3064,23 @@ ns.Settings.prototype.close = function() {
 	delete self.conn;
 	delete self.db;
 	delete self.roomId;
+	delete self.isPersistent;
 }
 
 // Private
 
-ns.Settings.prototype.init = function( dbPool, callback ) {
+ns.Settings.prototype.init = function( dbPool, name, callback ) {
 	const self = this;
 	self.conn = new ns.UserSend( 'settings', self.users, self.onlineList );
 	self.handlerMap = {
+		'roomName'    : roomName,
 		'userLimit'   : userLimit,
-		'isStream' : isStream,
+		'isStream'    : isStream,
 		'isClassroom' : isClassroom,
 		'workgroups'  : worgs,
 	};
 	
+	function roomName( e, uid ) { self.handleRoomName( e, uid ); }
 	function userLimit( e, uid ) { self.handleUserLimit( e, uid ); }
 	function isStream( e, uid  ) { self.handleStream( e, uid ); }
 	function isClassroom( e, uid ) { self.handleClassroom( e, uid ); }
@@ -3096,6 +3095,7 @@ ns.Settings.prototype.init = function( dbPool, callback ) {
 	
 	function settings( res ) {
 		self.setDbSettings( res );
+		self.set( 'roomName', name );
 		done();
 	}
 	
@@ -3196,6 +3196,30 @@ ns.Settings.prototype.checkIsAdmin = function( setting, userId ) {
 	} else
 		return true;
 	
+}
+
+ns.Settings.prototype.handleRoomName = function( value, userId ) {
+	const self = this;
+	self.db.setName( value )
+		.then( ok )
+		.catch( fail );
+	
+	function ok() {
+		self.set( 'roomName', value );
+		self.emit( 'roomName', value );
+		if ( !userId )
+			return;
+		
+		self.sendSaved( 'roomName', value, true, userId );
+	}
+	
+	function fail( err ) {
+		sLog( 'failed to set roomName', err );
+		if ( !userId )
+			return;
+		
+		self.sendError( 'roomName', err, userId );
+	}
 }
 
 ns.Settings.prototype.handleUserLimit = function( value, userId ) {
