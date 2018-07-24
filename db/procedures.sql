@@ -9,6 +9,7 @@ DELIMITER //
 
 #
 DROP PROCEDURE IF EXISTS set_last_patch_version;
+
 # ACCOUNT
 DROP PROCEDURE IF EXISTS account_create;
 DROP PROCEDURE IF EXISTS account_read;
@@ -22,6 +23,7 @@ DROP PROCEDURE IF EXISTS account_update_avatar;
 DROP PROCEDURE IF EXISTS account_set_settings;
 DROP PROCEDURE IF EXISTS account_get_settings;
 DROP PROCEDURE IF EXISTS account_set_active;
+
 # ROOM
 DROP PROCEDURE IF EXISTS room_create;
 DROP PROCEDURE IF EXISTS room_read;
@@ -37,6 +39,7 @@ DROP PROCEDURE IF EXISTS room_settings_remove_key;
 DROP PROCEDURE IF EXISTS room_get_assigned_workgroups;
 DROP PROCEDURE IF EXISTS room_assign_workgroup;
 DROP PROCEDURE IF EXISTS room_dismiss_workgroup;
+
 # AUTH
 DROP PROCEDURE IF EXISTS auth_get_for_room;
 DROP PROCEDURE IF EXISTS auth_get_for_account;
@@ -44,12 +47,17 @@ DROP PROCEDURE IF EXISTS auth_get_for_workgroups;
 DROP PROCEDURE IF EXISTS auth_add;
 DROP PROCEDURE IF EXISTS auth_check;
 DROP PROCEDURE IF EXISTS auth_remove;
+
 # MESSAGE
 DROP PROCEDURE IF EXISTS message_set;
+DROP PROCEDURE IF EXISTS message_get_by_id;
 DROP PROCEDURE IF EXISTS message_get_asc;
 DROP PROCEDURE IF EXISTS message_get_desc;
 DROP PROCEDURE IF EXISTS message_get_after;
 DROP PROCEDURE IF EXISTS message_get_before;
+DROP PROCEDURE IF EXISTS message_update;
+DROP PROCEDURE IF EXISTS message_update_with_history;
+
 #INVITE TOKENS
 DROP PROCEDURE IF EXISTS invite_set;
 DROP PROCEDURE IF EXISTS invite_get;
@@ -609,6 +617,23 @@ INSERT INTO `message` (
 );
 END//
 
+# messge_get_by_id
+CREATE PROCEDURE message_get_by_id(
+	IN `msgId`  VARCHAR( 191 )
+)
+BEGIN
+SELECT
+	m.msgId,
+	m.roomId,
+	m.accountId AS `fromId`,
+	m.timestamp AS `time`,
+	m.type,
+	m.name,
+	m.message
+FROM message AS m
+WHERE m.msgId = `msgId`;
+END//
+
 # message_get_desc
 CREATE PROCEDURE message_get_desc(
 	IN `roomId` VARCHAR( 191 ),
@@ -711,6 +736,33 @@ FROM (
 ORDER BY tmp._id ASC;
 END//
 
+# message_update
+CREATE PROCEDURE message_update(
+	IN `msgId` VARCHAR( 191 ),
+	IN `update` TEXT
+)
+BEGIN
+UPDATE message AS m
+SET
+	m.message = `update`
+WHERE m.msgId = `msgId`;
+
+SELECT
+	m.msgId,
+	m.roomId,
+	m.accountId AS `fromId`,
+	m.timestamp AS `time`,
+	m.type,
+	m.name,
+	m.message
+FROM message AS m
+WHERE m.msgId = `msgId`;
+
+END//
+
+# message_update_with_history
+
+#CREATE PROCEDURE message_updatE_with_history
 
 ## INVITE TOENS
 

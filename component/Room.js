@@ -1032,11 +1032,13 @@ ns.Chat.prototype.init = function() {
 	self.eventMap = {
 		'msg'   : msg,
 		'log'   : log,
+		'edit'  : edit,
 		'state' : state,
 	};
 	
 	function msg( e, uid ) { self.handleMsg( e, uid ); }
 	function log( e, uid ) { self.handleLog( e, uid ); }
+	function edit( e, uid ) { self.handleEdit( e, uid ); }
 	function state( e, uid ) { self.handleState( e, uid ); }
 }
 
@@ -1093,6 +1095,60 @@ ns.Chat.prototype.handleLog = function( event, userId ) {
 	
 	function logErr( err ) {
 		cLog( 'handleLog - log load err', err.stack || err );
+	}
+}
+
+ns.Chat.prototype.handleEdit = function( event, userId ) {
+	const self = this;
+	self.log.loadEvent( event.msgId )
+		.then( loaded )
+		.catch( error );
+	
+	function loaded( dbEvent ) {
+		if ( !dbEvent ) {
+			error( 'ERR_NOT_FOUND' );
+			return;
+		}
+		
+		checkAllowed( dbEvent, userId );
+	}
+	
+	function checkAllowed( dbEvent, userId ) {
+		let isAdmin = checkIsAdmin( userId );
+		if ( dbEvent.fromId !== userId || !isAdmin ) {
+			error( 'ERR_NOT_ALLOWED' );
+			return;
+		}
+		
+		self.log.editEvent( dbEvent.msgId, event.message, null, userId )
+			.then( updateDone )
+			.catch( error );
+	}
+	
+	function updateDone( update ) {
+		if ( !update ) {
+			error( 'ERR_DB_POOP' );
+			return;
+		}
+		
+		const uptd = {
+			type : 'update',
+			data : update,
+		};
+		self.broadcast( uptd );
+	}
+	
+	function error( err ) {
+		const errEv = {
+			type : 'error',
+			data : err,
+		};
+		self.send( errEv, userId );
+	}
+	
+	function checkIsAdmin( uId ) {
+		let user = self.users[ uId ];
+		return !!user.admin;
 	}
 }
 
@@ -2412,9 +2468,43 @@ ns.Log.prototype.get = function( conf ) {
 	}
 }
 
+ns.Log.prototype.loadEvent = function( eId ) {
+	const self = this;
+	return new Promise(( resolve, reject ) => {
+		self.msgDb.get( eId )
+			.then( eBack )
+			.catch( error );
+			
+		function eBack( event ) {
+			resolve( event );
+		}
+		
+		function error( err ) {
+			llLog( 'loadEvent - error', err );
+			resolve( null );
+		}
+	});
+}
+
 ns.Log.prototype.getLast = function( length ) {
 	const self = this;
 	return self.items.slice( -length );
+}
+
+ns.Log.prototype.editEvent = async function( eventId, msgUpdate, reason, userId ) {
+	const self = this;
+	let uptd = null;
+	try {
+		uptd = await self.msgDb.update( eventId, msgUpdate, reason, userId );
+	} catch( e ) {
+		return e;
+	}
+	
+	if ( !uptd )
+		return null;
+	
+	self.updateInLog( uptd );
+	return uptd;
 }
 
 ns.Log.prototype.setPersistent = function( isPersistent ) {
@@ -2580,6 +2670,17 @@ ns.Log.prototype.writeLogToDb = function() {
 	function store( item ) {
 		self.persist( item );
 	}
+}
+
+ns.Log.prototype.updateInLog = function( event ) {
+	const self = this;
+	self.items.some( item => {
+		if ( item.data.msgId !== event.msgId )
+			return false;
+		
+		item.data.message = event.message;
+		return true;
+	});
 }
 
 

@@ -766,6 +766,26 @@ ns.MessageDB.prototype.set = function( conf ) {
 	}
 }
 
+ns.MessageDB.prototype.get = function( eventId ) {
+	const self = this;
+	return new Promise(( resolve, reject ) => {
+		if ( !eventId || !self.roomId )
+			reject( 'ERR_INVALID_ARGS' );
+		
+		let values = [
+			eventId,
+		];
+		self.query( 'message_get_by_id', values )
+			.then( eBack )
+			.catch( reject );
+			
+		function eBack( res ) {
+			const rows = res.rows || [];
+			resolve( rows[ 0 ] || null );
+		}
+	});
+}
+
 ns.MessageDB.prototype.getBefore = function( firstId, length ) {
 	const self = this;
 	const values = [
@@ -824,6 +844,77 @@ ns.MessageDB.prototype.getAfter = function( lastId, length ) {
 			else
 				resolve( rows );
 		}
+	}
+}
+
+ns.MessageDB.prototype.update = async function(
+	eventId,
+	contentUpdate,
+	reason,
+	accountId
+) {
+	const self = this;
+	reason = reason || 'espen er kul';
+	let event = null;
+	try {
+		event = await self.get( eventId );
+	} catch( e ) {
+		return e;
+	}
+	
+	if ( !event )
+		return 'ERR_NOT_FOUND';
+	
+	let queryRes = null;
+	const isGrace = isInGracePeriod( event.time, accountId );
+	const isAuthor = event.fromId === accountId;
+	//if ( isGrace && isAuthor ) {
+	if ( 1 ) {
+		try {
+			queryRes = await update( event.msgId, contentUpdate );
+		} catch ( e ) {
+			return e;
+		}
+	}
+	/*
+	else {
+		try {
+			queryRes = await updateWithHistory(
+				event.msgId,
+				event.message,
+				contentUpdate,
+				reason,
+				accountId
+			);
+		} catch ( e ) {
+			return e;
+		}
+	}
+	*/
+	
+	const rows = queryRes.rows || [];
+	return rows[ 0 ] || null;
+	
+	function isInGracePeriod( eTime, accId ) {
+		return true;
+	}
+	
+	function update( eId, message ) {
+		let values = [
+			eId,
+			message,
+		];
+		return self.query( 'message_update', values );
+	}
+	
+	async function updateWithHistory(
+		evId,
+		original,
+		update,
+		reason,
+		accId
+	) {
+		
 	}
 }
 
