@@ -176,4 +176,75 @@ ns.Signal.prototype.emitToRoom = function( event ) {
 		log( 'emitToRoom - unknown', unknown, 4 );
 }
 
+/*
+Rooms account interface
+*/
+
+ns.AccountProxy = function( account, roomId ) {
+	const self = this;
+	self.id = account.id;
+	self.account = account;
+	self.roomId = roomId;
+	
+	self.init();
+}
+
+// Public
+
+ns.AccountProxy.prototype.close = function() {
+	const self = this;
+	delete self.id;
+	delete self.account;
+	delete self.roomId;
+}
+
+ns.AccountProxy.prototype.send = function( event ) {
+	const self = this;
+	self.account.handleRoomEvent( event, self.roomId );
+}
+
+ns.AccountProxy.prototype.isAdmin = function() {
+	const self = this;
+	return self.account.auth.admin;
+}
+
+// Private
+
+ns.AccountProxy.prototype.init = function() {
+	const self = this;
+}
+
+/*
+Accounts room interface
+*/
+
+ns.RoomProxy = function( room, accountId ) {
+	const self = this;
+	self.id = room.id;
+	self.room = room;
+	self.accId = accountId;
+	
+	self.init();
+}
+
+// Public
+
+ns.RoomProxy.prototype.close = function() {
+	const self = this;
+	delete self.id;
+	delete self.room;
+	delete self.accId;
+}
+
+ns.RoomProxy.prototype.send = function( event ) {
+	const self = this;
+	self.room.handleUserEvent( event, self.accId );
+}
+
+// Private
+
+ns.RoomProxy.prototype.init = function() {
+	const self = this;
+}
+
 module.exports = ns.Signal;

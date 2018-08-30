@@ -607,6 +607,7 @@ ns.Room.prototype.initialize =  function( requestId, userId ) {
 		identities  : self.identities,
 		peers       : self.live.peerIds,
 		workgroups  : self.worgs.getAssigned(),
+		lastMessage : self.log.getLast( 1 )[ 0 ],
 	};
 	
 	const init = {

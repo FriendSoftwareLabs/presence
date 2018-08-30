@@ -307,10 +307,10 @@ ns.Account.prototype.joinedARoomHooray = function( room, reqId  ) {
 	}
 	
 	var res = {
-		clientId   : room.roomId,
-		persistent : room.persistent,
-		name       : room.roomName,
-		req        : reqId,
+		clientId    : room.roomId,
+		persistent  : room.persistent,
+		name        : room.roomName,
+		req         : reqId,
 	};
 	var joined = {
 		type : 'join',
