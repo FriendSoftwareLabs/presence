@@ -50,3 +50,7 @@ function openComms() {
 	presence.conn = new NML( presence.db, presence.rooms, fcReq );
 }
 
+process.on( 'unhandledRejection', err => {
+	log( 'ERRPR', err, 3 );
+	//process.exit( 666 );
+});
