@@ -1,3 +1,8 @@
+# !!!
+# !!! REMEBER TO UPDATE TABLE VERSION, OR THE PATCHER WILL CRASH
+# !!!
+
+ALTER DATABASE CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
 DROP TABLE IF EXISTS `message`;
 DROP TABLE IF EXISTS `authorized_for_room`;
