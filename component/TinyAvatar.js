@@ -41,7 +41,7 @@ ns.TinyAvatar.prototype.generate = function( string ) {
 		
 		const source = self.getBuffer( string );
 		const color = self.getColor( source.slice( 0, 4 ));
-		const bgColor = Buffer( '444444FF', 'hex' );
+		const bgColor = Buffer.from( '444444FF', 'hex' );
 		const pattern = self.generateBlockPattern( source.slice( 4, 29 ));
 		
 		self.build( color, bgColor, pattern, buildBack );
@@ -58,8 +58,8 @@ ns.TinyAvatar.prototype.generateGuest = function() {
 	const self = this;
 	return new Promise(( resolve, reject ) => {
 		//const color = Buffer( 'E73B2BFF', 'hex' );
-		const color = Buffer( '2B97CCFF', 'hex' );
-		const bgColor = Buffer( '444444FF', 'hex' );
+		const color = Buffer.from( '2B97CCFF', 'hex' );
+		const bgColor = Buffer.from( '444444FF', 'hex' );
 		// ?
 		/*
 		const pattern = [
@@ -92,8 +92,8 @@ ns.TinyAvatar.prototype.generateGuest = function() {
 
 ns.TinyAvatar.generateDefault = function( callback ) {
 	const self = this;
-	const color = Buffer( '', 'hex' );
-	const bgColor = Buffer( '444444FF', 'hex' );
+	const color = Buffer.from( '', 'hex' );
+	const bgColor = Buffer.from( '444444FF', 'hex' );
 	const pattern = [
 		0,1,1,1,0,
 		1,0,0,0,1,
@@ -159,7 +159,7 @@ ns.TinyAvatar.prototype.getColor = function( slice ) {
 	});
 	
 	values[ 3 ] = 255; // alpha channel
-	let colorBuff = new Buffer( values );
+	let colorBuff = Buffer.from( values );
 	return colorBuff;
 }
 
@@ -263,7 +263,7 @@ ns.TinyAvatar.prototype.buildImageBuffer = function(
 	const borderTop = borderWidth * realWidth;
 	const borderLeft = borderWidth * pbd;
 	const bufferLength = pixelWidth * pixelWidth * pbd;
-	const buf = Buffer( bufferLength );
+	const buf = Buffer.alloc( bufferLength );
 	
 	// fill with bg color
 	for ( let index of buf.keys()) {
