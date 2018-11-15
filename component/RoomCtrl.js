@@ -21,26 +21,32 @@
 
 const log = require( './Log')( 'RoomCtrl' );
 const uuid = require( './UuidPrefix' )( 'room' );
+const ContactRoom = require( './RoomContact' );
 const Emitter = require( './Events' ).Emitter;
 const dFace = require( './DFace' );
 const Room = require( './Room' );
-const IdCache = require( './IdentityCache' );
 
 const util = require( 'util' );
 
 var ns = {};
-ns.RoomCtrl = function( dbPool ) {
+ns.RoomCtrl = function( dbPool, idCache, worgs ) {
 	const self = this;
 	
 	Emitter.call( self );
 	
 	self.dbPool = dbPool;
+	self.idCache = idCache;
+	self.worgs = worgs;
 	self.roomDb = null;
 	self.accDb = null;
 	
 	self.rooms = {};
 	self.roomIds = [];
 	self.roomLoads = {};
+	
+	self.relations = {};
+	self.relationIds = [];
+	self.relationLoads = {};
 	
 	self.init();
 }
@@ -49,186 +55,150 @@ util.inherits( ns.RoomCtrl, Emitter );
 
 // Public
 
-ns.RoomCtrl.prototype.createRoom = function( account, conf, callback ) {
+ns.RoomCtrl.prototype.checkActive = function( roomId ) {
 	const self = this;
-	if ( !account || !account.clientId || !account.name )
-		throw new Error( 'RoomCtrl.joinRoom - invalid account' );
+	return !!self.rooms[ roomId ];
+}
+
+ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
+	const self = this;
+	if ( accId === contactId )
+		return null;
 	
+	let room = null;
+	try {
+		room = await self.getContactRoom( accId, contactId );
+	} catch( e ) {
+		return null;
+	}
+	
+	if ( !room )
+		return null;
+	
+	const user = await room.connect( accId );
+	if ( !user )
+		return null;
+	
+	const join = {
+		type : 'contact-join',
+		data : null,
+	};
+	self.emit( contactId, join, accId );
+	return user;
+}
+
+ns.RoomCtrl.prototype.createRoom = async function( accountId, conf ) {
+	const self = this;
 	conf = conf || {};
 	if ( null == conf.name )
-		self.createAnonRoom( account, callback );
+		return await self.createAnonRoom( accountId );
 	else
-		self.createNamedRoom( account, conf, callback );
+		return await self.createNamedRoom( accountId, conf );
 }
 
-ns.RoomCtrl.prototype.joinRoom = function( account, conf, callback ) {
+ns.RoomCtrl.prototype.joinRoom = async function( accountId, conf ) {
 	const self = this;
-	if ( !account || !account.clientId || !account.name )
-		throw new Error( 'RoomCtrl.joinRoom - invalid account' );
-	
 	if ( conf.token )
-		self.joinWithInvite( account, conf, callback );
+		return await self.joinWithInvite( accountId, conf );
 	else
-		self.joinWithAuth( account, conf, callback );
+		return await self.joinWithAuth( accountId, conf );
 }
 
-ns.RoomCtrl.prototype.authorizeGuestInvite = function( bundle, callback ) {
+ns.RoomCtrl.prototype.authorizeGuestInvite = async function( bundle ) {
 	const self = this;
 	const token = bundle.token;
 	const roomId = bundle.roomId;
 	const room = self.rooms[ roomId ];
 	if ( room )
-		authWithRoom( token, room, callback );
+		return await authWithRoom( token, room );
 	else
-		authWithDb( token, roomId, callback );
+		return await authWithDb( token, roomId );
 	
-	function authWithDb( token, roomId, callback ) {
-		self.invDb.checkForRoom( token, roomId )
-			.then( checkBack )
-			.catch( invErr );
-		
-		function checkBack( dbToken ) {
-			if ( !dbToken || !dbToken.isValid ) {
-				callback( false );
-				return;
-			}
+	async function authWithDb( token, roomId ) {
+		const dbToken = await self.invDb.checkForRoom( token, roomId );
+		if ( !dbToken || !dbToken.isValid )
+			return false;
 			
-			if ( !!dbToken.singleUse )
-				self.invDb.invalidate( token )
-					.then( () => {})
-					.catch( () => log( 'invalidate fail', token ));
-			
-			callback( roomId );
-		}
+		if ( !!dbToken.singleUse )
+			await self.invDb.invalidate( token );
 		
-		function invErr( e ) {
-			log( 'authorizeGuestInvite - invErr', e );
-			callback( false );
-		}
+		return roomId;
 	}
 	
-	function authWithRoom( token, room, callback ) {
-		room.authenticateInvite( token )
-			.then( checkBack );
-			
-		function checkBack( isValid ) {
-			if ( isValid )
-				callback( roomId );
-			else
-				callback( false );
-		}
+	async function authWithRoom( token, room ) {
+		const isValid = await room.authenticateInvite( token )
+		if ( isValid )
+			return roomId;
+		else
+			return false;
 	}
 }
 
-ns.RoomCtrl.prototype.guestJoinRoom = function( account, roomId, callback ) {
+ns.RoomCtrl.prototype.guestJoinRoom = async function( accountId, roomId ) {
 	const self = this;
-	if ( !callback )
-		return false;
+	let acc = await self.idCache.get( accountId );
+	if ( !acc )
+		return null;
 	
 	let room = null;
-	self.getRoom( roomId )
-		.then( roomBack )
-		.catch( roomErr );
-	
-	function roomBack( res ) {
-		if ( !res ) {
-			callback( 'ERR_NO_ROOM', null );
-			return;
-		}
-		
-		room = res;
-		account.guest = true;
-		self.addToRoom( account, roomId, addBack );
+	try {
+		room = await self.getRoom( roomId );
+	} catch( err ) {
+		log( 'guestJoinRoom - getRoom err', err );
+		return null;
 	}
 	
-	function addBack( err, res ) {
-		if ( err ) {
-			log( 'guestJoinRoom - addBack', err.stack || err );
-			callback( err, null );
-		}
-		
-		const user = room.connect( account );
-		callback( null, user );
-	}
+	if ( !room )
+		return null;
 	
-	function roomErr( err ) {
-		log( 'guestJoinRoom - getRoom err', err.stack || err );
-		callback( err, null );
-	}
+	let user = null;
+	user = await room.connect( accountId );
+	return user || null;
 }
 
-ns.RoomCtrl.prototype.connectWorkgroup = function( account, roomId, callback ) {
+ns.RoomCtrl.prototype.connectWorkgroup = async function( accountId, roomId ) {
 	const self = this;
-	if ( !callback )
-		return false;
-	
 	let room = null;
-	self.getRoom( roomId )
-		.then( roomBack )
-		.catch( roomErr );
-		
-	function roomErr( err ) {
+	try {
+		room = await self.getRoom( roomId );
+	} catch( err ) {
 		log( 'workgroupJoinRoom - getRoom err', err.stack || err );
-		callback( 'ERR_NO_ROOM' );
+		return null;
 	}
 	
-	function roomBack( res ) {
-		if ( !res ) {
-			callback( 'ERR_NO_ROOM' );
-			return;
-		}
-		
-		room = res;
-		self.addToRoom( account, roomId, addBack );
-	}
+	if ( !room )
+		return null;
 	
-	function addBack( err, res ) {
-		const user = room.connect( account );
-		callback( null, user );
-	}
+	let user = null;
+	user = await room.connect( accountId );
+	return user;
 }
 
 // go online in a room  - the room will start sending events to this client
 // only an authorized user can .connect directly
-ns.RoomCtrl.prototype.connect = function( account, roomId, callback ) {
+ns.RoomCtrl.prototype.connect = async function( accountId, roomId ) {
 	const self = this;
-	if ( !callback )
-		return false;
-	
-	self.getRoom( roomId )
-		.then( roomBack )
-		.catch( roomErr );
-	
-	function roomBack( room ) {
-		if ( !room ) {
-			log( 'connect - roomBack, no room', {
-				roomId : roomId,
-				room   : room,
-			});
-			callback( 'ERR_NO_ROOM', null );
-			return;
-		}
-		
-		account.authed = true;
-		const user = room.connect( account );
-		if ( !user )
-			callback( 'ERR_NOT_IN_ROOM' );
-		else
-			callback( null, user );
+	let room = null;
+	try {
+		room = await self.getRoom( roomId );
+	} catch( err ) {
+		log( 'connect - error loading room', err );
+		return null;
 	}
 	
-	function roomErr( err ) {
-		log( 'connect - getRoom err', err.stack || err );
-		callback( err, null );
-	}
+	if ( !room )
+		return null;
+	
+	const user = await room.connect( accountId );
+	if ( !user )
+		return null;
+	
+	return user;
 }
 
 // closes roomCtrl, not a room
 ns.RoomCtrl.prototype.close = function() {
 	const self = this;
-	if ( self.idCache )
-		self.idCache.close();
-		
 	if ( self.roomDb )
 		self.roomDb.close();
 	
@@ -241,6 +211,7 @@ ns.RoomCtrl.prototype.close = function() {
 	// TODO : close rooms
 	
 	delete self.idCache;
+	delete self.worgs;
 	delete self.roomDb;
 	delete self.accDb;
 	delete self.invDb;
@@ -252,7 +223,6 @@ ns.RoomCtrl.prototype.close = function() {
 ns.RoomCtrl.prototype.init = function() {
 	const self = this;
 	log( 'room ctrl init =^y^=' );
-	self.idCache = new IdCache( self.dbPool );
 	self.roomDb = new dFace.RoomDB( self.dbPool );
 	self.accDb = new dFace.AccountDB( self.dbPool );
 	self.invDb = new dFace.InviteDB( self.dbPool );
@@ -267,106 +237,91 @@ ns.RoomCtrl.prototype.init = function() {
 		});
 }
 
-ns.RoomCtrl.prototype.createNamedRoom = function( account, conf, callback ) {
+ns.RoomCtrl.prototype.createNamedRoom = function( accId, conf ) {
 	const self = this;
 	log( 'createNamedRoom - NYI', conf );
 }
 
-ns.RoomCtrl.prototype.createAnonRoom = function( account, callback ) {
+ns.RoomCtrl.prototype.createAnonRoom = async function( accId ) {
 	const self = this;
-	const ownerId = account.clientId;
+	const ownerId = accId;
 	const roomId = uuid.get();
+	const acc = await self.idCache.get( accId );
 	let room = null;
 	const roomConf = {
 		clientId   : roomId,
 		ownerId    : ownerId,
-		name       : '[ temp ] created by: ' + account.name,
+		name       : '[ temp ] created by: ' + acc.name,
 	};
-	self.setRoom( roomConf )
-		.then( roomOpen )
-		.catch( roomErr );
 	
-	function roomOpen( res ) {
-		if ( !res ) {
-			callback( 'ERR_NO_ROOM_???', null );
-			return;
-		}
-		
-		room = res;
-		self.addToRoom( account, roomId, authBack );
-	}
+	room = await self.setRoom( roomConf );
+	if ( !room )
+		return null;
 	
-	function authBack( err, uid ) {
-		const user = room.connect( account );
-		callback( null, user );
-	}
-	
-	function roomErr( err ) {
-		log( 'createAnonRoom - setRoom err', err.stack || err );
-		callback( null );
-	}
+	const user = await room.connect( accId );
+	return user;
 }
 
-ns.RoomCtrl.prototype.joinWithInvite = function( account, conf, callback ) {
+ns.RoomCtrl.prototype.joinWithInvite = async function( accountId, conf ) {
 	const self = this;
-	if ( !callback )
-		return false;
-	
 	const rid = conf.roomId;
-	let room = null;
-	self.getRoom( rid )
-		.then( roomBack )
-		.catch( roomErr );
+	const room = await self.getRoom( rid );
+	if ( !room )
+		return null;
 	
-	function roomBack( res ) {
-		if ( !res ) {
-			callback( 'ERR_NO_ROOM', null );
-			return;
-		}
-		
-		room = res;
-		room.authenticateInvite( conf.token )
-			.then( inviteBack );
-			
-		function inviteBack( isValid ) {
-			if ( !isValid ) {
-				callback( 'ERR_INVITE_INVALID', null );
-				return;
-			}
-			
-			self.authorizeForRoom( account, rid, authBack );
-		}
+	const isValid = await room.authenticateInvite( conf.token )
+	if ( !isValid ) {
+		log( 'ERR_INVITE_INVALID', conf );
+		return false;
 	}
 	
-	function authBack( err, uid ) {
-		self.addToRoom( account, rid, addBack );
-	}
-	
-	function addBack( err , uid ) {
-		const user = room.connect( account );
-		callback( null, user );
-	}
-	
-	function roomErr( err ) {
-		log( 'joinWithInvite - getRoom err', err.stack || err );
-		callback( err, null );
-	}
+	const authed = await self.authorizeForRoom( accountId, rid );
+	const user = await room.connect( accountId );
+	return user;
 }
 
-ns.RoomCtrl.prototype.joinWithAuth = function( account, conf, callback ) {
+ns.RoomCtrl.prototype.joinWithAuth = async function( accountId, conf ) {
 	const self = this;
-	callback( 'ERR_NYI_FUCKO', null );
+	log( 'joinWithauth', 'ERR_NYI_FUCKO' );
 	return false;
 }
 
 ns.RoomCtrl.prototype.setRoom = function( roomConf ) {
 	const self = this;
 	const roomId = roomConf.clientId;
-	roomConf.guestAvatar = self.guestAvatar;
-	return new Promise( openRoom );
-	function openRoom( resolve, reject ) {
+	const isContactRoom = checkIsContactRoom( roomConf.ownerId );
+	if ( isContactRoom )
+		return new Promise( openContactRoom );
+	else
+		return new Promise( openRoom );
+	
+	function openContactRoom( resolve, reject ) {
 		const roomId = roomConf.clientId;
-		const room = new Room( roomConf, self.dbPool, self.idCache );
+		const room = new ContactRoom(
+			roomConf,
+			self.dbPool,
+			self.idCache,
+		);
+		
+		room.once( 'open', onOpen );
+		self.bindContactRoom( room );
+		
+		function onOpen() {
+			self.rooms[ roomId ] = room;
+			self.roomIds = Object.keys( self.rooms );
+			resolve( self.rooms[ roomId ]);
+		}
+	}
+	
+	function openRoom( resolve, reject ) {
+		roomConf.guestAvatar = self.guestAvatar;
+		const roomId = roomConf.clientId;
+		const room = new Room(
+			roomConf,
+			self.dbPool,
+			self.idCache,
+			self.worgs
+		);
 		
 		room.once( 'open', onOpen );
 		self.bindRoom( room );
@@ -376,6 +331,10 @@ ns.RoomCtrl.prototype.setRoom = function( roomConf ) {
 			self.roomIds = Object.keys( self.rooms );
 			resolve( self.rooms[ roomId ]);
 		}
+	}
+	
+	function checkIsContactRoom( ownerId ) {
+		return !!self.relations[ ownerId ];
 	}
 }
 
@@ -391,9 +350,30 @@ ns.RoomCtrl.prototype.bindRoom = function( room ) {
 	function worgDiss( e ) {  }
 }
 
+ns.RoomCtrl.prototype.bindContactRoom = function( room ) {
+	const self = this;
+	let rId = room.id;
+	room.on( 'empty', onEmpty );
+	room.on( 'contact-event', contactEvent );
+	
+	function onEmpty( e ) { self.removeRoom( rId ); }
+	function contactEvent( e ) { self.forwardContactEvent( e, rId ); }
+}
+
 ns.RoomCtrl.prototype.handleWorkgroupAssigned = function( worg, roomId ) {
 	const self = this;
-	self.emit( 'workgroup-assigned', worg, roomId );
+	const userList = self.worgs.getUserList( worg.cId );
+	const join = {
+		type : 'workgroup-join',
+		data : null,
+	};
+	userList.forEach( accId => {
+		self.emit( accId, join, roomId );
+	});
+}
+
+ns.RoomCtrl.prototype.forwardContactEvent = function( event, roomId ) {
+	const self = this;
 }
 
 ns.RoomCtrl.prototype.persistRoom = function( room ) {
@@ -492,64 +472,147 @@ ns.RoomCtrl.prototype.removeRoom = function( rid ) {
 	}
 }
 
-// account
-
-ns.RoomCtrl.prototype.loadAccount = function( accountId, callback ) {
+ns.RoomCtrl.prototype.getContactRoom = async function( accId, contactId ) {
 	const self = this;
-	self.accDb.getById( accountId )
-		.then( loadBack )
-		.catch( fail );
-	
-	function loadBack( acc ) {
-		if ( !acc.name ) {
-			callback( 'ERR_ACCOUNT_NONAME', null );
-			return;
-		}
-		
-		callback( null, acc );
+	let room = null;
+	let relation = null;
+	let contact = await self.idCache.get( contactId );
+	if ( !contact ) {
+		log( 'getContactRoom - no identity found for', contactId );
+		return null;
 	}
 	
-	function fail( err ) {
-		callback( err, null );
+	relation = await self.getRelation( accId, contactId );
+	if ( !relation )
+		relation = await self.setRelation( accId, contactId );
+	
+	if ( !relation )
+		return null;
+	
+	if ( relation.roomId )
+		room = await loadRoom( relation.roomId );
+	else
+		room = await createRoom( relation.clientId, accId, contactId );
+	
+	return room;
+	
+	async function loadRoom( roomId ) {
+		let room = await self.getRoom( roomId );
+		if ( !room )
+			return null;
+		
+		return room;
+	}
+	
+	async function createRoom( relationId, accId, contactId ) {
+		const relation = self.relations[ relationId ];
+		let room = null;
+		let roomId = null;
+		try {
+			roomId = await self.createContactRoom( relationId );
+		} catch( e ) {
+			log( 'e', e );
+		}
+		if ( !roomId )
+			return null;
+		
+		relation.roomId = roomId;
+		room = await self.getRoom( roomId );
+		if ( !room )
+			return null;
+		
+		await room.setRelation( relation );
+		return room;
 	}
 }
+
+ns.RoomCtrl.prototype.createContactRoom = async function( relationId ) {
+	const self = this;
+	const roomId = uuid.get( 'cont' );
+	let roomConf = null;
+	try {
+		roomConf = await self.roomDb.set(
+			roomId,
+			'contact-room',
+			relationId,
+			true,
+		);
+	} catch ( e ) {
+		log( 'createContactRoom - db failed to create', e.stack || e );
+		return null;
+	}
+	
+	if ( !roomConf )
+		return null;
+	
+	try {
+		await self.roomDb.assignRelationRoom( relationId, roomId );
+	} catch( e ) {
+		log( 'createContactRoom - assignRelationRoom failed', e.stack || e );
+		// TODO : DESTROY ROOM / FLAG ?
+		return null;
+	}
+	
+	return roomConf.clientId;
+}
+
+ns.RoomCtrl.prototype.setRelation = async function( accIdA, accIdB ) {
+	const self = this;
+	let relation = null;
+	try {
+		relation = await self.roomDb.setRelation( accIdA, accIdB );
+	} catch( e ) {
+		log( 'setRelation - db err setting realtion', {
+			accA : accIdA,
+			accB : accIdB,
+			err  : e.stack || e,
+		});
+		return null;
+	}
+	
+	if ( !relation ) {
+		log( 'setRelation - failed to set realtion for', {
+			a : accIdA,
+			b : accIdB,
+		});
+		return null;
+	}
+	
+	self.relations[ relation.clientId ] = relation;
+	self.relationIds = Object.keys( self.relations );
+	return relation;
+}
+
+ns.RoomCtrl.prototype.getRelation = async function( accIdA, accIdB ) {
+	const self = this;
+	let relation;
+	try {
+		relation = await self.roomDb.getRelation( accIdA, accIdB );
+	} catch( e ) {
+		log( 'getRelation - db.getRelation failed', e.stack || e );
+		return null;
+	}
+	
+	if ( !relation )
+		return null;
+	
+	self.relations[ relation.clientId ] = relation;
+	self.relationIds = Object.keys( self.relations );
+	return relation || null;
+}
+
+// account
 
 // use for real users
 // dont use this for guests ( they dont have a real account anyway so will fail )
-ns.RoomCtrl.prototype.authorizeForRoom = function( account, roomId, callback ) {
+ns.RoomCtrl.prototype.authorizeForRoom = async function( accId, roomId ) {
 	const self = this;
 	const room = self.rooms[ roomId ];
-	if ( !room ) {
-		callback( 'ERR_NO_ROOM')
-		// TODO : check and save auth to db
-		return;
-	}
+	if ( !room )
+		return false;
 	
-	const user = {
-		accountId   : account.clientId,
-		accountName : account.name,
-	};
-	room.authorizeUser( user, callback );
-	
-}
-
-// dont use this for real accounts, the authorization wont be persisted
-ns.RoomCtrl.prototype.addToRoom = function( account, roomId, callback ) {
-	const self = this;
-	const room = self.rooms[ roomId ];
-	if ( !room ) {
-		callback( 'ERR_NO_ROOM', null );
-	}
-	
-	const user = {
-		accountId   : account.clientId,
-		accountName : account.name,
-		admin       : account.admin,
-		authed      : account.authed,
-		guest       : account.guest,
-		workgroups  : account.workgroups,
-	};
-	room.addUser( user, callback );
+	const ok = await room.authorizeUser( accId );
+	return true;
 }
 
 ns.RoomCtrl.prototype.removeFromRoom = function( accountId, roomId ) {

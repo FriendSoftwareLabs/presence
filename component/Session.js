@@ -35,9 +35,13 @@ ns.Session = function( id, accountId, onclose ) {
 	self.connections = {};
 	self.connIds = [];
 	
-	Emitter.call( self );
+	Emitter.call( self, eventSink );
 	
 	self.init();
+	
+	function eventSink() {
+		log( 'Session eventSink', arguments );
+	}
 }
 
 util.inherits( ns.Session, Emitter );
@@ -93,54 +97,15 @@ ns.Session.prototype.detach = function( cid, callback ) {
 }
 
 // account sends events to client(s), clientId is optional
-/*
-arguments:
-	( event ) OR
-	( event, clientId ) OR
-	( event, callback ) OR 
-	( event, clientId, callback )
-*/
-ns.Session.prototype.send = function() {
+ns.Session.prototype.send = async function( event, clientId ) {
 	const self = this;
-	const event = arguments[ 0 ];
-	if ( !event ) {
-		log( 'send - no event', event );
-		return;
-	}
-	
-	var clientId = undefined;
-	var callback = undefined;
-	var arg2 = arguments[ 1 ];
-	var arg3 = arguments[ 2 ];
-	var type2 = null;
-	var type3 = null;
-	if ( arg2 )
-		type2 = typeof( arg2 );
-	if ( arg3 )
-		type3 = typeof( arg3);
-	
-	if ( 2 === arguments.length ) {
-		if ( 'string' === type2 )
-			clientId = arg2;
-		if ( 'function' === type2 )
-			callback = arg2;
-	}
-	
-	if ( 3 === arguments.length ) {
-		if ( 'string' !== type2 && !( null == arg2 )) {
-			log( 'send - invalid arg2', type2 );
-			return;
-		}
-		
-		clientId = arg2;
-		if ( 'function' === type3 )
-			callback = arg3;
-	}
-	
+	let err = null;
 	if ( clientId )
-		self.sendOnConn( event, clientId, callback );
+		err = await self.sendOnConn( event, clientId );
 	else
-		self.broadcast( event, callback );
+		err = await self.broadcast( event );
+	
+	return err;
 }
 
 // closes session, either from account( logout ), from lack of client connections
@@ -181,29 +146,37 @@ ns.Session.prototype.handleEvent = function( event, clientId ) {
 	);
 }
 
-ns.Session.prototype.broadcast = function( event, callback ) {
+ns.Session.prototype.broadcast = async function( event ) {
 	const self = this;
-	const lastIndex = ( self.connIds.length -1 );
-	self.connIds.forEach( sendTo );
-	function sendTo( cid, index ) {
-		if ( index === lastIndex )
-			self.sendOnConn( event, cid,callback );
-		else
-			self.sendOnConn( event, cid );
+	let errList = await Promise.all( self.connIds.map( await sendTo ));
+	return errList;
+	
+	async function sendTo( cId ) {
+		let err = await self.sendOnConn( event, cId );
+		return err;
 	}
 }
 
-ns.Session.prototype.sendOnConn = function( event, cid, callback ) {
+ns.Session.prototype.sendOnConn = async function( event, cid ) {
 	const self = this;
 	const conn = self.connections[ cid ];
 	if ( !conn ) {
 		log( 'no conn for id', cid );
-		if ( callback )
-			callback();
-		return;
+		return 'ERR_NO_CLIENT';
 	}
 	
-	conn.send( event, callback );
+	let err = await send( event, conn );
+	return err;
+	
+	function send( event, conn ) {
+		return new Promise(( resolve, reject ) => {
+			conn.send( event, sendBack );
+			function sendBack( err ) {
+				resolve( err || null );
+			}
+		});
+	}
+	//conn.send( event, callback );
 }
 
 ns.Session.prototype.checkConns = function() {

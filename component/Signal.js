@@ -29,14 +29,15 @@ ns.Signal = function( conf ) {
 	const self = this;
 	self.roomId = conf.roomId;
 	self.roomName = conf.roomName;
+	self.isPrivate = conf.isPrivate;
 	self.persistent = conf.persistent;
-	self.accountId = conf.accountId;
-	self.accountName = conf.accountName;
+	self.clientId = conf.clientId;
+	self.name = conf.name;
 	self.avatar = conf.avatar;
-	self.owner = conf.owner;
-	self.admin = conf.admin;
-	self.authed = conf.authed;
-	self.guest = conf.guest;
+	self.isOwner = conf.isOwner;
+	self.isAdmin = conf.isAdmin;
+	self.isAuthed = conf.isAuthed;
+	self.isGuest = conf.isGuest;
 	self.workgroups = conf.workgroups;
 	
 	Emitter.call( self );
@@ -80,13 +81,13 @@ ns.Signal.prototype.setRoomPersistent = function( isPersistent, name ) {
 
 ns.Signal.prototype.setIsAuthed = function( isAuthed ) {
 	const self = this;
-	self.authed = isAuthed;
+	self.isAuthed = isAuthed;
 	const authed = {
 		type : 'authed',
 		data : {
 			userId   : self.accountId,
 			worgId   : null,
-			authed   : isAuthed,
+			isAuthed : isAuthed,
 		},
 	};
 	self.send( authed );
@@ -205,7 +206,7 @@ ns.AccountProxy.prototype.send = function( event ) {
 
 ns.AccountProxy.prototype.isAdmin = function() {
 	const self = this;
-	return self.account.auth.admin;
+	return self.account.isAdmin;
 }
 
 // Private

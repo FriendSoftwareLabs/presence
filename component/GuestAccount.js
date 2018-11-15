@@ -20,145 +20,104 @@
 'use strict';
 
 const log = require( './Log' )( 'GuestAccount' );
+const Account = require( './Account' );
+const util = require( 'util' );
 
+/*
+	GUESTACCOUNT CONSTRUCTOR RETURNS A PROMISE
+	dealwithit.jpg
+*/
 const ns = {};
-ns.GuestAccount = function( conf, session, roomCtrl ) {
+ns.GuestAccount = function(
+		session,
+		clientId,
+		roomId,
+		idCache,
+		roomCtrl
+	) {
 	const self = this;
-	self.id = conf.id;
-	self.roomId = conf.roomId;
-	self.identity = conf.identity;
-	self.session = session;
-	self.roomCtrl = roomCtrl;
-	
-	self.room = null;
-	self.initialized = false;
-	
-	self.init();
+	self.roomId = roomId;
+	return new Promise(( resolve, reject ) => {
+		Account.call( self,
+			session,
+			clientId,
+			null,
+			idCache,
+			roomCtrl,
+			null
+		)
+			.then( accReady )
+			.catch( accFail );
+		
+		function accReady( res ) {
+			resolve( self );
+		}
+		
+		function accFail( err ) {
+			console.log( 'GuestAccount - accFail', err );
+			resolve( null );
+		}
+	});
 }
+
+util.inherits( ns.GuestAccount, Account );
 
 // Public
 
+ns.GuestAccount.prototype.accClose = Account.prototype.close;
 ns.GuestAccount.prototype.close = function() {
 	const self = this;
-	self.logout();
-	
-	const session = self.session;
-	delete self.session;
-	delete self.roomId;
-	delete self.identity;
-	delete self.roomCtrl;
-	
-	if ( session && session.close )
-		session.close();
+	self.accClose();
+}
+
+ns.GuestAccount.prototype.getWorkgroups = function() {
+	const self = this;
+	return [];
 }
 
 // private
 
-ns.GuestAccount.prototype.init = function() {
+ns.GuestAccount.prototype.init = async function() {
 	const self = this;
-	self.identity.clientId = self.id;
-	self.session.on( 'initialize', init );
-	self.session.on( 'join', join );
-	function init( e, cid ) { self.handleInitialize( e, cid ); }
-	function join( e ) { self.joinRoom(); }
+	await self.setIdentity();
+	self.setLogger();
+	self.bindRoomCtrl();
+	self.bindContactEvents();
+	self.bindConn();
+	self.bindIdRequests();
+	self.setupRooms();
+	
+	return true;
 }
 
-ns.GuestAccount.prototype.handleInitialize = function( e, clientId ) {
+ns.GuestAccount.prototype.setLogger = function() {
 	const self = this;
-	const init = {
+	const logStr = 'GuestAccount-' + self.identity.name;
+	self.log = require( './Log' )( logStr );
+	self.log( 'logger set OwO' );
+}
+
+ns.GuestAccount.prototype.initializeClient = async function( event, clientId ) {
+	const self = this;
+	const state = {
 		type : 'initialize',
 		data : {
 			account  : {
+				host     : global.config.shared.wsHost,
 				clientId : self.id,
 				name     : self.identity.name,
-				avatar   : self.identity.avatar,
+				isGuest  : self.isGuest,
 			},
-			rooms    : [ self.roomId ],
+			rooms    : [],
+			contacts : {},
 		},
 	};
-	self.session.send( init, clientId );
-	
-	if ( self.initialized )
+	self.conn.send( state, clientId );
+	const room = await self.roomCtrl.guestJoinRoom( self.id, self.roomId );
+	if ( !room )
 		return;
 	
-	self.initalized = true;
-	self.joinRoom();
-}
-
-ns.GuestAccount.prototype.joinRoom = function() {
-	const self = this;
-	const guestAcc = {
-		clientId : self.id,
-		name     : self.identity.name,
-		avatar   : self.identity.avatar,
-	};
-	
-	self.roomCtrl.guestJoinRoom( guestAcc, self.roomId, roomBack );
-	function roomBack( err, room ) {
-		self.room = room;
-		if ( !self.room ) {
-			self.logout();
-			return;
-		}
-		
-		log( 'guestacc identity', self.identity );
-		self.room.setIdentity( self.identity );
-		const join = {
-			type : 'join',
-			data : {
-				clientId : self.room.roomId,
-				name     : self.room.roomName,
-			},
-		};
-		self.session.send( join, sendBack );
-		function sendBack() { self.bind(); }
-	}
-}
-
-ns.GuestAccount.prototype.bind = function() {
-	const self = this;
-	const rid = self.room.roomId;
-	self.session.on( rid, fromClientToRoom );
-	self.room.setOnclose( onClose );
-	self.room.setToAccount( fromRoom );
-	//self.room.setIdentity( self.identity );
-	function fromClientToRoom( e ) { self.handleClientEvent( e ); }
-	function fromRoom( e ) { self.handleRoomEvent( e, rid ); }
-	function onClose( e ) { self.handleRoomClosed( rid ); }
-}
-
-ns.GuestAccount.prototype.handleRoomEvent = function( event ) {
-	const self = this;
-	if ( !self.session )
-		return;
-	
-	const wrap = {
-		type : self.roomId,
-		data : event,
-	};
-	self.session.send( wrap );
-}
-
-ns.GuestAccount.prototype.handleClientEvent = function( event ) {
-	const self = this;
-	if ( !self.room )
-		return;
-	
-	self.room.toRoom( event );
-}
-
-ns.GuestAccount.prototype.handleRoomClosed = function() {
-	const self = this;
-	self.close();
-}
-
-
-ns.GuestAccount.prototype.logout = function() {
-	const self = this;
-	if ( self.room )
-		self.room.leave();
-	
-	delete self.room;
+	self.joinedARoomHooray( room );
 }
 
 module.exports = ns.GuestAccount;

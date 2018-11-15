@@ -12,8 +12,10 @@ DROP PROCEDURE IF EXISTS set_last_patch_version;
 
 # ACCOUNT
 DROP PROCEDURE IF EXISTS account_create;
-DROP PROCEDURE IF EXISTS account_read;
-DROP PROCEDURE IF EXISTS account_read_by_id;
+DROP PROCEDURE IF EXISTS account_set_fuserid;
+DROP PROCEDURE IF EXISTS account_read_id;
+DROP PROCEDURE IF EXISTS account_read_fuserid;
+DROP PROCEDURE IF EXISTS account_read_login;
 DROP PROCEDURE IF EXISTS account_update;
 DROP PROCEDURE IF EXISTS account_delete;
 DROP PROCEDURE IF EXISTS account_touch;
@@ -39,6 +41,15 @@ DROP PROCEDURE IF EXISTS room_settings_remove_key;
 DROP PROCEDURE IF EXISTS room_get_assigned_workgroups;
 DROP PROCEDURE IF EXISTS room_assign_workgroup;
 DROP PROCEDURE IF EXISTS room_dismiss_workgroup;
+
+# USER RELATION
+DROP PROCEDURE IF EXISTS user_relation_create;
+DROP PROCEDURE IF EXISTS user_relation_assign_room;
+DROP PROCEDURE IF EXISTS user_relation_read;
+DROP PROCEDURE IF EXISTS user_relation_read_all_for;
+DROP PROCEDURE IF EXISTS user_relation_state;
+DROP PROCEDURE IF EXISTS user_relation_update_last_read;
+DROP PROCEDURE IF EXISTS user_relation_update_messages;
 
 # AUTH
 DROP PROCEDURE IF EXISTS auth_get_for_room;
@@ -68,6 +79,7 @@ DROP PROCEDURE IF EXISTS invite_used;
 
 # UTIL
 DROP FUNCTION IF EXISTS fn_split_str;
+DROP FUNCTION IF EXISTS fn_get_msg_time;
 
 #
 # UTIL
@@ -85,6 +97,18 @@ RETURN REPLACE(SUBSTRING(SUBSTRING_INDEX( source, delim, pos),
 		LENGTH(SUBSTRING_INDEX( source, delim, pos -1)) + 1),
 		delim, '')//
 
+# RETURN MSG TIMESTAMP
+CREATE FUNCTION fn_get_msg_time(
+	msg_id VARCHAR( 191 )
+) RETURNS BIGINT DETERMINISTIC
+BEGIN
+DECLARE msg_time BIGINT DEFAULT 0;
+SELECT msg.timestamp INTO msg_time FROM message AS msg
+	WHERE msg.msgId = msg_id
+	LIMIT 1;
+
+RETURN msg_time;
+END//
 
 #
 #
@@ -135,25 +159,49 @@ BEGIN
 	AND a.login = `login`;
 END//
 
-
 #
-# READ
-CREATE PROCEDURE account_read(
-	IN `login` VARCHAR( 191 )
+# SET FUSERID
+CREATE PROCEDURE account_set_fuserid(
+	IN `clientId` VARCHAR( 191 ),
+	IN `fUserId`  VARCHAR( 191 )
 )
 BEGIN
-	SELECT * FROM account
-	WHERE account.login = `login`;
+UPDATE account AS a
+SET a.fUserId = `fUserId`
+WHERE a.clientId = `clientId`;
+
+SELECT * FROM account
+WHERE account.clientId = `clientId`;
 END//
 
 #
 ## READ BY ID
-CREATE PROCEDURE account_read_by_id(
+CREATE PROCEDURE account_read_id(
 	IN `clientId` VARCHAR( 191 )
 )
 BEGIN
 SELECT * FROM account
 WHERE account.clientId = `clientId`;
+END//
+
+#
+# READ BY FUSERID
+CREATE PROCEDURE account_read_fuserid(
+	IN `fUserId` VARCHAR( 191 )
+)
+BEGIN
+	SELECT * FROM account
+	WHERE account.fUserId = `fUserId`;
+END//
+
+#
+# READ BY LOGIN ( legacy )
+CREATE PROCEDURE account_read_login(
+	IN `login` VARCHAR( 191 )
+)
+BEGIN
+	SELECT * FROM account
+	WHERE account.login = `login`;
 END//
 
 #
@@ -238,7 +286,7 @@ CREATE PROCEDURE account_get_settings(
 	IN `clientId` VARCHAR( 191 )
 )
 BEGIN
-	SELECT a.settings FROM account AS a;
+SELECT a.settings FROM account AS a;
 END//
 
 #
@@ -248,9 +296,9 @@ CREATE PROCEDURE account_set_active(
 	IN `active` BOOLEAN
 )
 BEGIN
-	UPDATE account AS a
-	SET a.active = `active`
-	WHERE a.clientId = `clientId`;
+UPDATE account AS a
+SET a.active = `active`
+WHERE a.clientId = `clientId`;
 END//
 
 
@@ -268,22 +316,22 @@ CREATE PROCEDURE room_create(
 	IN `isPrivate` BOOLEAN
 )
 BEGIN
-	INSERT INTO `room` (
-		`clientId`,
-		`name`,
-		`ownerId`,
-		`settings`,
-		`isPrivate`
-	) VALUES (
-		`clientId`,
-		`name`,
-		`ownerId`,
-		`settings`,
-		`isPrivate`
-	);
-	
-	SELECT * FROM `room`
-	WHERE room.clientId = `clientId`;
+INSERT INTO `room` (
+	`clientId`,
+	`name`,
+	`ownerId`,
+	`settings`,
+	`isPrivate`
+) VALUES (
+	`clientId`,
+	`name`,
+	`ownerId`,
+	`settings`,
+	`isPrivate`
+);
+
+SELECT * FROM `room`
+WHERE room.clientId = `clientId`;
 END//
 
 #
@@ -437,7 +485,8 @@ BEGIN
 SELECT r.clientId FROM `authorized_for_room` AS auth 
 LEFT JOIN `room` AS r 
 ON auth.roomId = r.clientId 
-WHERE auth.accountId = `accountId`;
+WHERE auth.accountId = `accountId`
+AND r.isPrivate = 0;
 END//
 
 #
@@ -583,6 +632,186 @@ WHERE afr.roomId = `roomId` AND afr.accountId = `accountId`;
 END//
 
 #
+# USER RELATION
+#
+
+#
+# USER_RELATION_CREATE
+CREATE PROCEDURE user_relation_create(
+	IN `relationId` VARCHAR( 191 ),
+	IN `accountA`   VARCHAR( 191 ),
+	IN `accountB`   VARCHAR( 191 ),
+	IN `roomId`     VARCHAR( 191 )
+)
+BEGIN
+INSERT INTO `user_relation` (
+	`relationId`,
+	`userId`,
+	`contactId`,
+	`roomId`
+) VALUES (
+	`relationId`,
+	`accountA`,
+	`accountB`,
+	`roomId`
+);
+
+INSERT INTO `user_relation` (
+	`relationId`,
+	`userId`,
+	`contactId`,
+	`roomId`
+) VALUES (
+	`relationId`,
+	`accountB`,
+	`accountA`,
+	`roomId`
+);
+
+SELECT * FROM user_relation AS r
+WHERE ( r.userId = `accountA` AND r.contactId = `accountB` )
+OR ( r.userId = `accountB` AND r.contactId = `accountA` );
+END//
+
+#
+# USER_RELATION_ASSIGN_ROOM
+CREATE PROCEDURE user_relation_assign_room(
+	IN `relationId` VARCHAR( 191 ),
+	IN `roomId`     VARCHAR( 191 )
+)
+BEGIN
+UPDATE user_relation AS ur
+SET ur.roomId = `roomId`
+WHERE ur.relationId = `relationId`;
+END//
+
+#
+# USER_RELATION_GET
+CREATE PROCEDURE user_relation_read(
+	IN `accountA` VARCHAR( 191 ),
+	IN `accountB` VARCHAR( 191 )
+)
+BEGIN
+SELECT * FROM user_relation AS r
+WHERE ( r.userId = `accountA` AND r.contactId = `accountB` )
+OR ( r.userId = `accountB` AND r.contactId = `accountA` );
+END//
+
+#
+# USER_RELATION_GET_FOR_USER
+CREATE PROCEDURE user_relation_read_all_for(
+	IN `accountId` VARCHAR( 191 )
+)
+BEGIN
+SELECT
+	r.relationId,
+	r.userId,
+	r.contactId,
+	r.roomId,
+	r.created,
+	r.lastReadId,
+	r.lastMsgId
+FROM user_relation AS r
+WHERE r.userId = `accountId`;
+END//
+
+#
+# USER_RELATION_STATE
+CREATE PROCEDURE user_relation_state(
+	IN `relationId` VARCHAR( 191 ),
+	IN `contactId`  VARCHAR( 191 )
+)
+BEGIN
+DECLARE room_id VARCHAR( 191 );
+DECLARE last_read_id VARCHAR( 191 );
+
+SELECT
+	tur.roomId,
+	tur.lastReadId
+INTO
+	room_id,
+	last_read_id
+FROM user_relation AS tur
+WHERE tur.relationId = `relationId`
+AND tur.contactId = `contactId`;
+
+SELECT count(*) AS `unreadMessages` FROM message AS m
+WHERE m.roomId = room_id
+AND m.timestamp > fn_get_msg_time( last_read_id );
+
+SELECT
+	m.msgId,
+	m.roomId,
+	m.accountId AS `fromId`,
+	m.timestamp AS `time`,
+	m.type,
+	m.name,
+	m.message
+FROM message AS m
+WHERE m.msgId = (
+	SELECT ur.lastMsgId FROM user_relation AS ur
+	WHERE ur.relationId = `relationId` AND ur.contactId = `contactId`
+);
+
+END//
+
+#
+# USER RELATION UPDATE LAST READ
+CREATE PROCEDURE user_relation_update_last_read(
+	IN `relationId` VARCHAR( 191 ),
+	IN `userId`     VARCHAR( 191 ),
+	IN `lastReadId` VARCHAR( 191 )
+)
+required_label:BEGIN
+DECLARE update_msg_id VARCHAR( 191 );
+SELECT m.msgId INTO update_msg_id FROM message AS m
+WHERE m.msgId = `lastReadId`;
+
+IF ( update_msg_id IS NULL ) THEN
+	LEAVE required_label;
+END IF;
+
+UPDATE user_relation AS ur
+SET	ur.lastReadId = `lastReadId`
+WHERE
+	ur.relationId = `relationId`
+	AND ur.userId = `userId`
+	AND ( fn_get_msg_time( ur.lastReadId ) < fn_get_msg_time( update_msg_id ));
+
+END//
+
+
+# user_relation_update_messages
+CREATE PROCEDURE user_relation_update_messages(
+	IN `msgId`      VARCHAR( 191 ),
+	IN `relationId` VARCHAR( 191 ),
+	IN `accIdA`     VARCHAR( 191 ),
+	IN `accIdB`     VARCHAR( 191 )
+)
+BEGIN
+UPDATE user_relation AS ur
+SET
+	ur.lastMsgId = `msgId`
+WHERE ur.relationId = `relationId`;
+
+IF ( `accIdA` IS NOT NULL ) THEN
+	UPDATE user_relation AS ur_a
+	SET ur_a.lastReadId = `msgId`
+	WHERE ur_a.relationId = `relationId`
+	AND ur_a.userId = `accIdA`;
+END IF;
+
+IF ( `accIdB` IS NOT NULL ) THEN
+	UPDATE user_relation AS ur_b
+	SET ur_b.lastReadId = `msgId`
+	WHERE ur_b.relationId = `relationId`
+	AND ur_b.userId = `accIdB`;
+END IF;
+
+END//
+
+
+#
 # MESSAGE
 #
 
@@ -695,7 +924,7 @@ SELECT
 	tmp.name,
 	tmp.message
 FROM (
-	SELECT  * FROM message AS m
+	SELECT * FROM message AS m
 	WHERE m.roomId = `roomId`
 	AND m._id > (
 		SELECT l._id
@@ -764,12 +993,13 @@ END//
 
 #CREATE PROCEDURE message_updatE_with_history
 
+
 ## INVITE TOENS
 
 # invite_set;
 CREATE PROCEDURE invite_set(
-	IN `token` VARCHAR( 191 ),
-	IN `roomId` VARCHAR( 191 ),
+	IN `token`     VARCHAR( 191 ),
+	IN `roomId`    VARCHAR( 191 ),
 	IN `singleUse` BOOLEAN,
 	IN `createdBy` VARCHAR( 191 )
 )

@@ -4,8 +4,12 @@
 
 ALTER DATABASE CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
-DROP TABLE IF EXISTS `message`;
+DROP TABLE IF EXISTS `invite_token_used`;
+DROP TABLE IF EXISTS `invite_token`;
+DROP TABLE IF EXISTS `workgroup_rooms`;
+DROP TABLE IF EXISTS `user_relation`;
 DROP TABLE IF EXISTS `authorized_for_room`;
+DROP TABLE IF EXISTS `message`;
 DROP TABLE IF EXISTS `account`;
 DROP TABLE IF EXISTS `room`;
 DROP TABLE IF EXISTS `db_history`;
@@ -13,6 +17,7 @@ DROP TABLE IF EXISTS `db_history`;
 CREATE TABLE `account` (
 	`_id`        INT UNSIGNED NOT NULL auto_increment,
 	`clientId`   VARCHAR( 191 ) NOT NULL UNIQUE,
+	`fUserId`    VARCHAR( 191 ) NULL
 	`login`      VARCHAR( 191 ) NOT NULL UNIQUE,
 	`pass`       TEXT,
 	`name`       VARCHAR( 191 ) NOT NULL,
@@ -85,6 +90,34 @@ CREATE TABLE `message` (
 		ON UPDATE CASCADE
 ) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE `user_relation` (
+	`_id`        INT UNSIGNED NOT NULL auto_increment,
+	`relationId` VARCHAR( 191 ) NOT NULL,
+	`userId`     VARCHAR( 191 ) NOT NULL,
+	`contactId`  VARCHAR( 191 ) NOT NULL,
+	`created`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	`roomId`     VARCHAR( 191 ) NULL,
+	`lastReadId` VARCHAR( 191 ) NULL,
+	`lastMsgId`  VARCHAR( 191 ) NULL,
+	PRIMARY KEY( _id ),
+	UNIQUE KEY( userId, contactId ),
+	FOREIGN KEY( userId ) REFERENCES account( clientId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+	FOREIGN KEY( contactId ) REFERENCES account( clientId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+	FOREIGN KEY( roomId ) REFERENCES room( clientId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+	FOREIGN KEY( lastReadId ) REFERENCES message( msgId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+	FOREIGN KEY( lastMsgId ) REFERENCES message( msgId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE
+) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE `invite_token` (
 	`_id`           INT UNSIGNED NOT NULL auto_increment,
 	`token`         VARCHAR( 191 ) NOT NULL,
@@ -128,6 +161,6 @@ INSERT INTO `db_history`(
 	`version`,
 	`comment`
 ) VALUES (
-	16,
+	19,
 	'tables.sql'
 );

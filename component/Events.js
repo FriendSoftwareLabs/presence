@@ -42,15 +42,16 @@
 	.release( type ), type of event listeners to release - no return value
 		Remove all listeners registered on the object, or specify listener type
 		
-	.emit( type, ...arguments ), returns null if event was emitted,
+	.emit( type, arguments... ), returns null if event was emitted,
 		otherwise returns a object with 'type' and arguments[]
 		Arguments are applied to all registered listeners of the specified type.
 */
 
+const util = require( 'util' );
 const log = require( './Log' )( 'Emitter' );
 const uuid = require( './UuidPrefix' )( 'listener' );
 
-var ns = {};
+const ns = {};
 
 ns.Emitter = function( eventSink ) {
 	if ( !( this instanceof ns.Emitter ))
@@ -67,15 +68,15 @@ ns.Emitter = function( eventSink ) {
 // no in args, you say? its voodoo magic, aka 'arguments' object
 ns.Emitter.prototype.emit = function() {
 	const self = this;
-	var args = arguments;
-	var event = args[ 0 ]; // first arguments passed to .emit()
-	var handlerArgs = Array.prototype.slice.call( args, 1 ); // the other arguments
+	var args = self._getArgs( arguments );
+	const event = args.shift(); // first arguments passed to .emit()
+	const handlerArgs = args;
 		// as an array that will be .apply to the listener
 	
 	const listenerIds = self._emitterEvent2ListenerId[ event ];
 	if ( !listenerIds || !listenerIds.length ) {
 		if ( self._emitterEventSink )
-			self._emitterEventSink.apply( arguments );
+			self._emitterEventSink( args );
 		
 		const unknownEvent = {
 			type : event,
@@ -88,11 +89,8 @@ ns.Emitter.prototype.emit = function() {
 	return null;
 	function sendOnListener( id ) {
 		var listener = self._emitterListeners[ id ];
-		if ( !listener ) {
-			log( 'emit - getSub - no listener for id',
-				{ id: id, listener : self._emitterListeners });
+		if ( !listener )
 			return;
-		}
 		
 		listener.apply( self, handlerArgs );
 	}
@@ -127,9 +125,10 @@ ns.Emitter.prototype.off = function( removeListenerId ) {
 	const self = this;
 	var events = Object.keys( self._emitterEvent2ListenerId );
 	events.forEach( search );
+	
 	function search( event ) {
-		var listenerIdArr = self._emitterEvent2ListenerId[ event ];
-		var listenerIdIndex = listenerIdArr.indexOf( removeListenerId );
+		let listenerIdArr = self._emitterEvent2ListenerId[ event ];
+		let listenerIdIndex = listenerIdArr.indexOf( removeListenerId );
 		if ( listenerIdIndex === -1 )
 			return false;
 		
@@ -165,27 +164,216 @@ ns.Emitter.prototype.release = function( eventName ) {
 	}
 }
 
+ns.Emitter.prototype._getArgs = function( argObj ) {
+	const self = this;
+	const args = [];
+	var len = argObj.length;
+	while( len-- )
+		args[ len ] = argObj[ len ];
+	
+	return args;
+}
+
 ns.Emitter.prototype.emitterClose = function() {
 	const self = this;
 	self.release();
 	delete self._emitterEventSink;
 }
 
+/* EventNode
 
-// EventNode
-const nlog = require( './Log' )( 'EventNode' );
-ns.EventNode = function( type, conn, sink ) {
+- write things here
+- later
+
+*/
+
+const nLog = require( './Log' )( 'EventNode' );
+ns.EventNode = function( type, conn, sink, proxyType ) {
 	const self = this;
 	self._eventNodeType = type;
 	self._eventNodeConn = conn;
-	self._eventNodeSink = sink;
+	self._eventNodeProxyType = proxyType;
+	//self._eventNodeSink = sink;
+	ns.Emitter.call( self, sink );
 	
-	self.init();
+	self._eventNodeInit();
 }
 
-ns.EventNode.prototype.eventNodeInit = function() {
+util.inherits( ns.EventNode, ns.Emitter );
+
+// Public
+
+ns.EventNode.prototype.send = function( event, sourceId, altType ) {
 	const self = this;
-	nlog( 'init' );
+	var wrap = null;
+	if ( self._eventNodeProxyType )
+		wrap = event;
+	else
+		wrap = {
+		type : altType || self._eventNodeType,
+		data : event,
+	};
+	self._eventNodeConn.send( wrap, sourceId, self._eventNodeProxyType );
+}
+
+ns.EventNode.prototype.handle = function( event, sourceId ) {
+	const self = this;
+	self._handleEvent.apply( self, arguments );
+}
+
+ns.EventNode.prototype.close = function() {
+	const self = this;
+	self._eventNodeClose();
+}
+
+// Private
+
+ns.EventNode.prototype._eventNodeInit = function() {
+	const self = this;
+	self._eventNodeConn.on( self._eventNodeType, rcvEvent );
+	function rcvEvent() {
+		//const args = Array.prototype.slice.call( arguments );
+		self._handleEvent.apply( self, arguments );
+	}
+}
+
+ns.EventNode.prototype._handleEvent = function() {
+	const self = this;
+	var args = self._getArgs( arguments );
+	const event = args.shift();
+	args.unshift( event.data );
+	args.unshift( event.type );
+	self.emit.apply( self, args );
+}
+
+ns.EventNode.prototype._eventNodeClose = function() {
+	const self = this;
+	self.emitterClose();
+	self._eventNodeConn.release( self._eventNodeType );
+	delete self._eventNodeConn;
+	delete self._eventNodeType;
+}
+
+
+/* RequestNode
+
+- Write things here aswell
+- also later
+- request listeners are expected to return a Promise
+
+*/
+
+ns.RequestNode = function( conn, eventSink ) {
+	const self = this;
+	ns.EventNode.call( self,
+		'request',
+		conn,
+		eventSink,
+		null,
+	);
+	
+	self._requests = {};
+	self._requestNodeInit();
+}
+
+util.inherits( ns.RequestNode, ns.EventNode );
+
+ns.RequestNode.prototype.request = async function( type, data ) {
+	const self = this;
+	return new Promise(( resolve, reject ) => {
+		function sendRequest( type, data ) {
+			const reqId = uuid.get( 'req' );
+			self._requests[ reqId ] = handleResponse;
+			const reqWrap = {
+				requestId : reqId,
+				request   : {
+					type    : type,
+					data    : data,
+				},
+			};
+			
+			self.send( reqWrap );
+		}
+		
+		function handleResponse( error, response ) {
+			delete self._requests[ reqId ];
+			if ( error ) {
+				reject( error );
+				return;
+			} else {
+				resolve( response );
+			}
+		}
+	});
+}
+
+ns.RequestNode.prototype.close = function() {
+	const self = this;
+	self._requestNodeClose();
+}
+
+// Private
+
+ns.RequestNode.prototype._requestNodeInit = function() {
+	const self = this;
+}
+
+ns.RequestNode.prototype._handleEvent = async function( req, sourceId ) {
+	const self = this;
+	if ( 'response' === req.type ) {
+		self._handleResponse( req.data, sourceId );
+		return;
+	}
+	
+	const reqId = req.requestId;
+	const request = req.request;
+	let response = null;
+	let error = null;
+	try {
+		response = await self._callListener( request )
+	} catch( err ) {
+		error = err;
+	}
+	
+	const res = {
+		type : 'response',
+		data : {
+			requestId : reqId,
+			error     : error,
+			response  : response,
+		},
+	};
+	self.send( res, sourceId );
+}
+
+ns.RequestNode.prototype._handleResponse = function( res, sourceId ) {
+	const self = this;
+	log( '_handleResponse - NYI', res );
+}
+
+ns.RequestNode.prototype._callListener = async function( req ) {
+	const self = this;
+	const type = req.type;
+	const listeners = self._emitterEvent2ListenerId[ type ];
+	if ( !listeners )
+		throw new Error( 'ERR_NO_LISTENER' );
+	
+	if ( 1 !== listeners.length )
+		throw new Error( 'ERR_MULTIPLE_LISTENERS' );
+	
+	const lId = listeners[ 0 ];
+	const listener = self._emitterListeners[ lId ];
+	try {
+		return listener( req.data );
+	} catch( err ) {
+		throw new Error( err );
+	}
+}
+
+ns.RequestNode.prototype._requestNodeClose = function() {
+	const self = this;
+	delete self._requests;
+	self._eventNodeClose();
 }
 
 module.exports = ns;

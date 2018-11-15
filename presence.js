@@ -19,35 +19,46 @@
 
 'use strict';
 
-const log = require( './component/Log' )( 'presence' );
-//const CassPool = require( './component/Cassandra' );
+const log = require( './component/Log' )( 'main' );
 const MySQLPool = require( './component/MysqlPool' );
+const IdCache = require( './component/IdentityCache' );
+const WorgCtrl = require( './component/WorgCtrl' );
+const UserCtrl = require( './component/UserCtrl' );
 const RoomCtrl = require( './component/RoomCtrl' );
 const NML = require( './component/NoMansLand' );
-var conf = require( './component/Config' ); // not really bothering with saving the obj,
-                                            // it writes itself to global.config
+require( './component/Config' ); // writes to global.config
 
-log( 'conf', conf, 4 );
+//log( 'conf', global.config, 4 );
 
-const fcReq = require( './component/FCRequest' )( global.config.server.friendcore );
-
-var presence = {
+const presence = {
 	conn  : null,
 	db    : null,
+	idc   : null,
+	worgs : null,
+	users : null,
 	rooms : null,
 };
 
 presence.db = new MySQLPool( global.config.server.mysql, dbReady );
 function dbReady( ok ) {
 	if ( !ok )
-		throw new Error( 'db failed?' );
+		throw new Error( 'db failed! Run for the hills!' );
 	
-	presence.rooms = new RoomCtrl( presence.db );
+	presence.idc = new IdCache( presence.db );
+	presence.worgs = new WorgCtrl( presence.db );
+	presence.rooms = new RoomCtrl( presence.db, presence.idc, presence.worgs );
+	presence.users = new UserCtrl( presence.db, presence.idc, presence.worgs, presence.rooms );
 	openComms();
 }
 
 function openComms() {
-	presence.conn = new NML( presence.db, presence.rooms, fcReq );
+	const fcReq = require( './component/FCRequest' )( global.config.server.friendcore );
+	presence.conn = new NML(
+		presence.db,
+		presence.users,
+		presence.rooms,
+		fcReq
+	);
 }
 
 process.on( 'unhandledRejection', err => {

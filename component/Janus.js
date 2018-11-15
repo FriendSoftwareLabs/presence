@@ -19,7 +19,7 @@
 
 /* This is a plugin that allows to use Janus WebRTC conferencing server instead
  * of connecting every client P2P. It is used to reduce the required upload
- * speed in presentation (or classroom) mode, eg. one teacher and 30 students.
+ * speed in streaming ( aka classroom ) mode, eg. one teacher and 30 students.
  * Janus server handles the bandwidth for those 30 clients.
  *
  * This plugin processes some events from clients and sends events to child processes.
@@ -49,6 +49,7 @@ const ns = {};
 ns.Janus = function( conf ) {
 	const self = this;
 	Emitter.call( self );
+	log( 'conf', conf );
 	
 	try {
 		self.conn = child.fork( './component/Janus_child.js', [
@@ -97,6 +98,7 @@ util.inherits( ns.Janus, Emitter );
 
 ns.Janus.prototype.set_source = function( source_id ) {
 	const self = this;
+	log( 'set_source', source_id );
 	const set_source = {
 		type : 'set_source',
 		data : source_id,
@@ -106,6 +108,7 @@ ns.Janus.prototype.set_source = function( source_id ) {
 
 ns.Janus.prototype.add_user = function( user_id ){
 	const self = this;
+	log( 'add_user', user_id );
 	const add = {
 		type : 'add_user',
 		data : user_id,
@@ -124,6 +127,7 @@ ns.Janus.prototype.remove_user = function ( user_id ){
 
 ns.Janus.prototype.handle_signal = function( event, user_id ) {
 	const self = this;
+	log( 'handle_signal', event );
 	const signal = {
 		type : 'signal',
 		data : {
