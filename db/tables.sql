@@ -17,7 +17,7 @@ DROP TABLE IF EXISTS `db_history`;
 CREATE TABLE `account` (
 	`_id`        INT UNSIGNED NOT NULL auto_increment,
 	`clientId`   VARCHAR( 191 ) NOT NULL UNIQUE,
-	`fUserId`    VARCHAR( 191 ) NULL
+	`fUserId`    VARCHAR( 191 ) NULL,
 	`login`      VARCHAR( 191 ) NOT NULL UNIQUE,
 	`pass`       TEXT,
 	`name`       VARCHAR( 191 ) NOT NULL,
