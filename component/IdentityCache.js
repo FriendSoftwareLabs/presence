@@ -101,9 +101,9 @@ ns.IDC.prototype.update = async function( identity ) {
 	const cache = await self.get( cId );
 	cache.isAdmin = !!identity.isAdmin;
 	cache.isGuest = !!identity.isGuest;
-	self.checkName( identity, cache );
-	self.checkAvatar( identity, cache );
-	self.checkEmail( identity, cache );
+	await self.checkName( identity, cache );
+	await self.checkAvatar( identity, cache );
+	//self.checkEmail( identity, cache );
 	return cache;
 }
 
