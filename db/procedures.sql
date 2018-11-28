@@ -737,6 +737,7 @@ AND tur.contactId = `contactId`;
 
 SELECT count(*) AS `unreadMessages` FROM message AS m
 WHERE m.roomId = room_id
+AND m.accountId = contactId
 AND m.timestamp > fn_get_msg_time( last_read_id );
 
 SELECT

@@ -177,6 +177,7 @@ ns.Chat.prototype.init = function() {
 
 ns.Chat.prototype.handleChat = function( event, userId ) {
     const self = this;
+    cLog( 'handleChat', event, 3 );
     var handler = self.eventMap[ event.type ];
     if ( !handler ) {
         cLog( 'unknown chat event', event );
@@ -188,6 +189,9 @@ ns.Chat.prototype.handleChat = function( event, userId ) {
 
 ns.Chat.prototype.handleMsg = function( data, userId ) {
     const self = this;
+    if ( !data || !data.message )
+        return;
+    
     const user = self.users[ userId ];
     const fromId = user.isGuest ? null : userId;
     const message = data.message;

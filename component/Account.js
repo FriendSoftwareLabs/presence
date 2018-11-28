@@ -107,10 +107,10 @@ ns.Account.prototype.updateContactList = function( contactList ) {
 ns.Account.prototype.addContact = async function( clientId ) {
 	const self = this;
 	if ( clientId === self.id )
-		return;
+		return false;
 	
 	if ( self.contacts[ clientId ])
-		return;
+		return clientId;
 	
 	self.rooms.listen( clientId, contactEvent );
 	self.contacts[ clientId ] = clientId;
@@ -126,6 +126,7 @@ ns.Account.prototype.addContact = async function( clientId ) {
 		data : contact,
 	};
 	self.conn.send( cAdd );
+	return clientId;
 	
 	function contactEvent( event ) {
 		let contactId = clientId;
@@ -219,13 +220,22 @@ ns.Account.prototype.bindConn = function() {
 	self.conn.on( 'create', createRoom );
 	self.conn.on( 'contact', handleContact );
 	
-	function accEventSink() { self.log( 'accEventSink', arguments ); }
+	function accEventSink() { self.log( 'accEventSink', arguments, 3 ); }
 	function init( e, cid ) { self.initializeClient( e, cid ); }
 	function handleSettings( e, cid ) { self.handleSettings( e, cid ); }
 	function handleRoomMsg( e, cid ) { self.log( 'roomMsg', msg ); }
 	function joinRoom( e, cid ) { self.joinRoom( e, cid ); }
 	function createRoom( e, cid ) { self.createRoom( e, cid ); }
 	function handleContact( e, cid ) { self.handleContactEvent( e, cid ); }
+	
+	self.req = new events.RequestNode( self.conn, reqEventSink );
+	self.req.on( 'friend-get', fGet );
+	self.req.on( 'contact-add', addContact );
+	
+	function reqEventSink( ...args ) { self.log( 'req event sink', args, 3 ); }
+	function fGet( e ) { return self.handleFriendGet( e ); }
+	function addContact( e ) { return self.handleAddContact( e ); }
+	
 }
 
 ns.Account.prototype.setupRooms = function() {
@@ -622,6 +632,24 @@ ns.Account.prototype.someContactFnNotInUse = async function( event, clientId ) {
 	
 	await self.joinedARoomHooray( contact );
 	return contact;
+}
+
+ns.Account.prototype.handleFriendGet = async function( event ) {
+	const self = this;
+	self.log( 'handleFriendGet', event, 3 );
+	let id = await self.idCache.getByFUserId( event.friendId );
+	self.log( 'handleFriendGet - identity', id );
+	return id || null;
+}
+
+ns.Account.prototype.handleAddContact = async function( event ) {
+	const self = this;
+	self.log( 'handleAddContact', event, 3 );
+	const cId = event.clientId;
+	if ( !cId )
+		throw new Error( 'ERR_INVALID_ID' );
+	
+	return await self.addContact( event.clientId );
 }
 
 ns.Account.prototype.logout = function( callback ) {

@@ -33,6 +33,7 @@ ns.IDC = function( dbPool ) {
 	const self = this;
 	log( 'hi!' );
 	self.IDs = {};
+	self.FIDs = {};
 	self.lastAccess = {};
 	self.TIMEOUT = 1000 * 60 * 60 * 36;
 	self.accDB = null;
@@ -95,6 +96,19 @@ ns.IDC.prototype.getList = async function( idList ) {
 	}
 }
 
+ns.IDC.prototype.getByFUserId = async function( fId ) {
+	const self = this;
+	if ( !fId || 'string' !== typeof( fId ))
+		return null;
+	
+	let id = self.FIDs[ fId ];
+	if ( id )
+		return id;
+	
+	id = await self.loadFID( fId );
+	return id || null;
+}
+
 ns.IDC.prototype.update = async function( identity ) {
 	const self = this;
 	const cId = identity.clientId;
@@ -145,6 +159,10 @@ ns.IDC.prototype.trimIds = function() {
 		if ( accessTime > old )
 			return;
 		
+		let fId = self.IDs[ id ].fUserId;
+		if ( fId )
+			delete self.FIDs[ fId ];
+		
 		delete self.IDs[ id ];
 		delete self.lastAccess[ id ];
 	});
@@ -162,8 +180,33 @@ ns.IDC.prototype.load = async function( cId ) {
 	if ( !dbId )
 		return null;
 	
+	let identity = await self.setDBID( dbId );
+	return identity;
+}
+
+ns.IDC.prototype.loadFID = async function( fId ) {
+	const self = this;
+	let dbId = null;
+	try {
+		dbId = await self.accDB.getByFUserId( fId );
+	} catch ( e ) {
+		log( 'loadFID - db fail', e );
+		return null;
+	}
+	
+	if ( !dbId )
+		return null;
+	
+	let id = await self.setDBID( dbId );
+	return id;
+}
+
+ns.IDC.prototype.setDBID = async function( dbId ) {
+	const self = this;
+	let cId = dbId.clientId;
 	let identity = {
-		clientId    : dbId.clientId,
+		clientId    : cId,
+		fUserId     : dbId.fUserId,
 		name        : dbId.name,
 		avatar      : dbId.avatar,
 		isAdmin     : null,
@@ -179,6 +222,10 @@ ns.IDC.prototype.load = async function( cId ) {
 ns.IDC.prototype.add = function( id ) {
 	const self = this;
 	const cId = id.clientId;
+	const fId = id.fUserId;
+	if ( fId )
+		self.FIDs[ fId ] = id;
+	
 	self.IDs[ cId ] = id;
 	self.touch( cId );
 }

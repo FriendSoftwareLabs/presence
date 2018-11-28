@@ -320,6 +320,7 @@ ns.RequestNode.prototype._requestNodeInit = function() {
 
 ns.RequestNode.prototype._handleEvent = async function( req, sourceId ) {
 	const self = this;
+	log( '_handleEvent', req, 3 );
 	if ( 'response' === req.type ) {
 		self._handleResponse( req.data, sourceId );
 		return;
@@ -335,14 +336,21 @@ ns.RequestNode.prototype._handleEvent = async function( req, sourceId ) {
 		error = err;
 	}
 	
+	let errMsg = null;
+	if ( error ) {
+		log( 'RequestNode._handleEvent - response error', error );
+		errMsg = error.message;
+	}
+	
 	const res = {
 		type : 'response',
 		data : {
 			requestId : reqId,
-			error     : error,
+			error     : errMsg,
 			response  : response,
 		},
 	};
+	log( '_handleEvent - response', res, 3 );
 	self.send( res, sourceId );
 }
 
