@@ -28,8 +28,9 @@ const Signal = require( './Signal' );
 const dFace = require( './DFace' );
 const Janus = require( './Janus' );
 const util = require( 'util' );
+const FService = require( '../api/FService' );
 
-var ns = {};
+const ns = {};
 
 /* Room
 
@@ -234,6 +235,7 @@ ns.Room.prototype.close = function( callback ) {
 	
 	delete self.idCache;
 	delete self.dbPool;
+	delete self.service;
 	delete self.onempty;
 	
 	if ( callback )
@@ -245,6 +247,7 @@ ns.Room.prototype.close = function( callback ) {
 
 ns.Room.prototype.init = function( worgCtrl ) {
 	const self = this;
+	self.service = new FService( global.config.server.friendcore );
 	self.roomDb = new dFace.RoomDB( self.dbPool, self.id );
 	
 	self.settings = new components.Settings(
@@ -296,9 +299,11 @@ ns.Room.prototype.init = function( worgCtrl ) {
 		
 		self.chat = new components.Chat(
 			self.id,
+			self.name,
 			self.users,
 			self.onlineList,
-			self.log
+			self.log,
+			self.service
 		);
 		
 		self.live = new components.Live(
@@ -412,6 +417,7 @@ ns.Room.prototype.bindUser = function( userId ) {
 		persistent : self.persistent,
 		clientId   : cId,
 		name       : user.name,
+		fUsername  : user.fUsername,
 		avatar     : user.avatar,
 		isOwner    : cId === self.ownerId,
 		isAdmin    : user.isAdmin,

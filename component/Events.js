@@ -65,18 +65,19 @@ ns.Emitter = function( eventSink ) {
 
 // first argument must be the event type, a string,
 // send as many extra arguments as you wish, they will be passed to the handler
-// no in args, you say? its voodoo magic, aka 'arguments' object
-ns.Emitter.prototype.emit = function() {
+
+// wait, no in args, you say? its voodoo magic, aka 'arguments' object
+ns.Emitter.prototype.emit = function( event, ...handlerArgs ) {
 	const self = this;
-	var args = self._getArgs( arguments );
-	const event = args.shift(); // first arguments passed to .emit()
-	const handlerArgs = args;
+	//var args = self._getArgs( arguments );
+	//const event = args.shift(); // first arguments passed to .emit()
+	//const handlerArgs = args;
 		// as an array that will be .apply to the listener
 	
 	const listenerIds = self._emitterEvent2ListenerId[ event ];
 	if ( !listenerIds || !listenerIds.length ) {
 		if ( self._emitterEventSink )
-			self._emitterEventSink( args );
+			self._emitterEventSink([ event, ...handlerArgs ]);
 		
 		const unknownEvent = {
 			type : event,
@@ -87,6 +88,7 @@ ns.Emitter.prototype.emit = function() {
 	
 	listenerIds.forEach( sendOnListener );
 	return null;
+	
 	function sendOnListener( id ) {
 		var listener = self._emitterListeners[ id ];
 		if ( !listener )
@@ -237,9 +239,9 @@ ns.EventNode.prototype._eventNodeInit = function() {
 	}
 }
 
-ns.EventNode.prototype._handleEvent = function() {
+ns.EventNode.prototype._handleEvent = function( ...args ) {
 	const self = this;
-	var args = self._getArgs( arguments );
+	//var args = self._getArgs( arguments );
 	const event = args.shift();
 	args.unshift( event.data );
 	args.unshift( event.type );
@@ -320,7 +322,6 @@ ns.RequestNode.prototype._requestNodeInit = function() {
 
 ns.RequestNode.prototype._handleEvent = async function( req, sourceId ) {
 	const self = this;
-	log( '_handleEvent', req, 3 );
 	if ( 'response' === req.type ) {
 		self._handleResponse( req.data, sourceId );
 		return;
@@ -350,7 +351,6 @@ ns.RequestNode.prototype._handleEvent = async function( req, sourceId ) {
 			response  : response,
 		},
 	};
-	log( '_handleEvent - response', res, 3 );
 	self.send( res, sourceId );
 }
 

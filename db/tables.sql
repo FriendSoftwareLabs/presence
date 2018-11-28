@@ -18,8 +18,7 @@ CREATE TABLE `account` (
 	`_id`        INT UNSIGNED NOT NULL auto_increment,
 	`clientId`   VARCHAR( 191 ) NOT NULL UNIQUE,
 	`fUserId`    VARCHAR( 191 ) NULL,
-	`login`      VARCHAR( 191 ) NOT NULL UNIQUE,
-	`pass`       TEXT,
+	`fUsername`  VARCHAR( 191 ) NOT NULL UNIQUE,
 	`name`       VARCHAR( 191 ) NOT NULL,
 	`avatar`     TEXT,
 	`settings`   JSON NOT NULL,
@@ -161,6 +160,6 @@ INSERT INTO `db_history`(
 	`version`,
 	`comment`
 ) VALUES (
-	19,
+	21,
 	'tables.sql'
 );

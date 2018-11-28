@@ -113,6 +113,7 @@ ns.IDC.prototype.update = async function( identity ) {
 	const self = this;
 	const cId = identity.clientId;
 	const cache = await self.get( cId );
+	cache.fLogin = identity.fLogin;
 	cache.isAdmin = !!identity.isAdmin;
 	cache.isGuest = !!identity.isGuest;
 	await self.checkName( identity, cache );
@@ -207,6 +208,7 @@ ns.IDC.prototype.setDBID = async function( dbId ) {
 	let identity = {
 		clientId    : cId,
 		fUserId     : dbId.fUserId,
+		fUsername   : dbId.fUsername,
 		name        : dbId.name,
 		avatar      : dbId.avatar,
 		isAdmin     : null,

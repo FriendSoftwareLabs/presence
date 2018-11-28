@@ -28,9 +28,18 @@ const RoomCtrl = require( './component/RoomCtrl' );
 const NML = require( './component/NoMansLand' );
 require( './component/Config' ); // writes to global.config
 
+const FService = require( './api/FService' );
 //log( 'conf', global.config, 4 );
 
-const presence = {
+
+let service = null;
+if ( global.config.server.friendcore.serviceKey ) {
+	service = new FService( global.config.server.friendcore );
+}
+
+//const fcReq = require( './component/FCRequest' )( global.config.server.friendcore );
+
+var presence = {
 	conn  : null,
 	db    : null,
 	idc   : null,

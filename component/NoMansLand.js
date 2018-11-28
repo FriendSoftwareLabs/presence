@@ -235,6 +235,9 @@ ns.NoMansLand.prototype.unsetClientAccountStage = function( cid ) {
 
 ns.NoMansLand.prototype.createAccount = function( bundle, cid ) {
 	const self = this;
+	log( 'createAccount - FIX THIS', bundle );
+	return;
+	
 	const client = self.getClient( cid );
 	if ( !bundle.login
 		|| !bundle.login.length
@@ -245,7 +248,7 @@ ns.NoMansLand.prototype.createAccount = function( bundle, cid ) {
 		return;
 	}
 	
-	self.accDb.getByLogin( bundle.login )
+	self.accDb.getByFUsername( bundle.login )
 		.then( accBack )
 		.catch( accSad );
 	
@@ -271,7 +274,7 @@ ns.NoMansLand.prototype.createAccount = function( bundle, cid ) {
 	}
 	
 	function doCreate() {
-		self.accDb.set( bundle.login, bundle.pass, bundle.name )
+		self.accDb.set( bundle.userId, bundle.login, bundle.name )
 			.then( accCreated )
 			.catch( accSad );
 	}
@@ -323,8 +326,11 @@ ns.NoMansLand.prototype.clientLogin = async function( clientAuth, cid ) {
 	}
 	
 	let dbAcc = await getAccount( fData );
+	if ( !dbAcc )
+		dbAcc = await createAccount( fData, clientAuth );
+	
 	if ( !dbAcc ) {
-		sendCreate( cid );
+		log( 'clientLogin - failed to load or create account', clientAuth );
 		return null;
 	}
 	
@@ -360,35 +366,53 @@ ns.NoMansLand.prototype.clientLogin = async function( clientAuth, cid ) {
 	
 	function validateClient( cData, fData ) {
 		const fUserId = cData.fUserId;
-		const login = cData.alias;
+		const fUsername = cData.fUsername;
+		if ( !fUserId && !fUsername )
+			return false;
+		
 		let valid = false;
 		if ( fUserId )
 			valid = fUserId === fData.fUserId;
 		else
-			valid = login === fData.login;
+			valid = fUsername === fData.fUsername;
 		
 		return valid;
 	}
 	
 	async function getAccount( fData ) {
 		let fUserId = fData.fUserId;
-		let login = fData.login;
+		let fUsername = fData.fUsername;
 		let dbAcc = null;
 		if ( fUserId )
 			dbAcc = await self.accDb.getByFUserId( fUserId );
 
 		if ( !dbAcc ) {
-			dbAcc = await self.accDb.getByLogin( login );
-			if ( !dbAcc ) {
-				loginFailed( 'ERR_NO_ACCOUNT', fData );
+			dbAcc = await self.accDb.getByFUsername( fUsername );
+			if ( !dbAcc )
 				return null;
-			}
 			
 			if ( fUserId )
 				await self.accDb.setFUserId( dbAcc.clientId, fUserId );
 		}
 		
 		return dbAcc;
+	}
+	
+	async function createAccount( fData, cData ) {
+		log( 'createAccount', {
+			fData : fData,
+			cData : cData,
+		}, 3 );
+		const fId = fData.fUserId || null;
+		const fName = fData.fUsername;
+		const name = fData.name;
+		await self.accDb.set( fId, fName, name );
+		if ( fId )
+			await self.accDb.getByFUserId( fId );
+		else
+			await self.accDb.getByFUsername( fName );
+		
+		return await getAccount( fData );
 	}
 	
 	function sendCreate( cId ) {
@@ -442,7 +466,7 @@ ns.NoMansLand.prototype.validateAuthId = async function( data ) {
 		return null;
 	}
 	
-	if ( user.login !== data.login ) {
+	if ( user.fUsername !== data.login ) {
 		log( 'ERR_INVALID_LOGIN', data );
 		return null;
 	}
@@ -481,7 +505,7 @@ ns.NoMansLand.prototype.transformFUser = function( fUser ) {
 	const self = this;
 	const user = {
 		fUserId    : fUser.UniqueID || null,
-		login      : fUser.Name,
+		fUsername  : fUser.Name,
 		name       : fUser.FullName,
 		email      : fUser.Email || '',
 		avatar     : fUser.Image || '',
@@ -489,7 +513,7 @@ ns.NoMansLand.prototype.transformFUser = function( fUser ) {
 		workgroups : getWGList( fUser.Workgroup ),
 	};
 	
-	if ( !user.login )
+	if ( !user.fUsername )
 		return null;
 	
 	return user;
@@ -703,10 +727,6 @@ ns.NoMansLand.prototype.getSession = function( sessionId ) {
 	const self = this;
 	const session = self.sessions[ sessionId ];
 	if ( !session ) {
-		log( 'no session found for', {
-			sessionId : sessionId,
-			sessions  : self.sessions,
-		}, 2 );
 		return null;
 	}
 	

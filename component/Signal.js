@@ -33,6 +33,7 @@ ns.Signal = function( conf ) {
 	self.persistent = conf.persistent;
 	self.clientId = conf.clientId;
 	self.name = conf.name;
+	self.fUsername = conf.fUsername;
 	self.avatar = conf.avatar;
 	self.isOwner = conf.isOwner;
 	self.isAdmin = conf.isAdmin;

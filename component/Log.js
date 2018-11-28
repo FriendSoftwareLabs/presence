@@ -80,7 +80,7 @@ function getTimeString() {
 	var millis = now.getMilliseconds();
 	return year
 		+ '.' + pad( month )
-		+ '.' + pad ( day )
+		+ '.' + pad( day )
 		+ ' ' + pad( hours )
 		+ ':' + pad( minutes )
 		+ ':' + pad( seconds )

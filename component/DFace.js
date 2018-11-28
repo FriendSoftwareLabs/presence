@@ -150,19 +150,19 @@ util.inherits( ns.AccountDB, ns.DB );
 
 // Public
 
-ns.AccountDB.prototype.set = async function( login, pass, name ) {
+ns.AccountDB.prototype.set = async function( fUserId, fUsername, name ) {
 	const self = this;
-	if ( !login ) {
-		accLog( 'set - login is required', {
-			l : login,
-			p : pass,
+	if ( !fUsername ) {
+		accLog( 'set - fUsername is required', {
+			i : fUserId,
+			l : fUsername,
 			n : name,
 		});
 		throw new Error( 'db.account.set - missing parameters' );
 	}
 	
-	pass = pass || null;
-	name = name || null;
+	name = name || fUsername;
+	fUserId = fUserId || null;
 	var clientId = uuid.get( 'acc' );
 	var settings = null;
 	try {
@@ -173,8 +173,8 @@ ns.AccountDB.prototype.set = async function( login, pass, name ) {
 	
 	var values = [
 		clientId,
-		login,
-		pass,
+		fUserId,
+		fUsername,
 		name,
 		settings,
 	];
@@ -205,12 +205,12 @@ ns.AccountDB.prototype.setFUserId = async function( clientId, fUserId ) {
 	return true;
 }
 
-ns.AccountDB.prototype.getByLogin = async function( login ) {
+ns.AccountDB.prototype.getByFUsername = async function( fUsername ) {
 	const self = this;
-	const values = [ login ];
+	const values = [ fUsername ];
 	let res = null;
 	try {
-		res = await self.query( 'account_read_login', values );
+		res = await self.query( 'account_read_fusername', values );
 	} catch ( err ) {
 		accLog( 'get err', err );
 		return null;

@@ -120,15 +120,19 @@ ns.UserSend.prototype.sendInit = function() {
 const cLog = require( './Log' )( 'Room > Chat' );
 ns.Chat = function(
     roomId,
+    roomName,
     users,
     onlineList,
-    log
+    log,
+    service,
 ) {
     const self = this;
     self.roomId = roomId;
+    self.roomName = roomName;
     self.users = users;
     self.onlineList = onlineList;
     self.log = log;
+    self.service = service;
     
     self.init();
 }
@@ -148,9 +152,11 @@ ns.Chat.prototype.bind = function( userId ) {
 ns.Chat.prototype.close = function( callback ) {
     const self = this;
     delete self.roomId;
+    delete self.roomName;
     delete self.users;
     delete self.onlineList;
     delete self.log;
+    delete self.service;
     
     if ( callback )
         callback();
@@ -177,7 +183,6 @@ ns.Chat.prototype.init = function() {
 
 ns.Chat.prototype.handleChat = function( event, userId ) {
     const self = this;
-    cLog( 'handleChat', event, 3 );
     var handler = self.eventMap[ event.type ];
     if ( !handler ) {
         cLog( 'unknown chat event', event );
@@ -212,7 +217,30 @@ ns.Chat.prototype.handleMsg = function( data, userId ) {
     };
     
     self.log.add( event );
+    self.sendMsgNotification( message, userId );
     self.broadcast( event );
+}
+
+ns.Chat.prototype.sendMsgNotification = async function( message, fromId ) {
+    const self = this;
+    const from = self.users[ fromId ];
+    const roomName = '#' + self.roomName;
+    const notie = from.name + ': ' + message;
+    const uIds = Object.keys( self.users );
+    uIds.forEach( async toId => {
+        if ( fromId === toId )
+            return;
+        
+        const user = self.users[ toId ];
+        if ( !user || !user.fUsername )
+            return;
+        
+        try {
+            await self.service.sendNotification( user.fUsername, roomName, notie );
+        } catch ( err ) {
+            cLog( 'sendMsgNotification - err', err );
+        }
+    });
 }
 
 ns.Chat.prototype.handleLog = function( event, userId ) {
@@ -220,7 +248,7 @@ ns.Chat.prototype.handleLog = function( event, userId ) {
     self.log.get( event )
         .then( loaded )
         .catch( logErr );
-        
+    
     function loaded( items ) {
         const log = {
             type : 'log',
@@ -1666,10 +1694,12 @@ ns.Log.prototype.setPersistent = function( isPersistent ) {
 
 ns.Log.prototype.confirm = async function( msgId, userId ) {
     const self = this;
+    /*
     llLog( 'confirm - NYI ( is implemented in ContactLog )', [
         msgId,
         userId,
     ]);
+    */
 }
 
 ns.Log.prototype.close = function() {
@@ -2355,7 +2385,6 @@ ns.Settings.prototype.init = function( dbPool, name, callback ) {
     }
     
     function loadErr( err ) {
-        sLog( 'loadErr', err );
         self.setDefaults();
         done( err );
     }

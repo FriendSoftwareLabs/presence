@@ -59,12 +59,12 @@ ns.Account = function(
 			.catch( initOpps );
 		
 		function initDone() {
-			console.log( 'Account - initDone' );
 			resolve( self );
 		}
 		
 		function initOpps( err ) {
 			console.log( 'Account - initOpps', err );
+			resolve( null );
 		}
 	});
 }
@@ -220,7 +220,7 @@ ns.Account.prototype.bindConn = function() {
 	self.conn.on( 'create', createRoom );
 	self.conn.on( 'contact', handleContact );
 	
-	function accEventSink() { self.log( 'accEventSink', arguments, 3 ); }
+	function accEventSink() {} //self.log( 'accEventSink', arguments, 3 ); }
 	function init( e, cid ) { self.initializeClient( e, cid ); }
 	function handleSettings( e, cid ) { self.handleSettings( e, cid ); }
 	function handleRoomMsg( e, cid ) { self.log( 'roomMsg', msg ); }
@@ -296,7 +296,6 @@ ns.Account.prototype.openContactChat = async function( event, contactId ) {
 	
 	let room = self.rooms.get( contactId );
 	if ( room ) {
-		self.log( 'openContactChat - already in room', contactId );
 		sendOpen();
 		return room;
 	}
@@ -319,7 +318,6 @@ ns.Account.prototype.openContactChat = async function( event, contactId ) {
 			type : 'open',
 			data : true,
 		};
-		self.log( 'openContactChat - send open' );
 		room.send( open );
 	}
 }
@@ -636,15 +634,12 @@ ns.Account.prototype.someContactFnNotInUse = async function( event, clientId ) {
 
 ns.Account.prototype.handleFriendGet = async function( event ) {
 	const self = this;
-	self.log( 'handleFriendGet', event, 3 );
 	let id = await self.idCache.getByFUserId( event.friendId );
-	self.log( 'handleFriendGet - identity', id );
 	return id || null;
 }
 
 ns.Account.prototype.handleAddContact = async function( event ) {
 	const self = this;
-	self.log( 'handleAddContact', event, 3 );
 	const cId = event.clientId;
 	if ( !cId )
 		throw new Error( 'ERR_INVALID_ID' );

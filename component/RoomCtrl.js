@@ -69,6 +69,7 @@ ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
 	try {
 		room = await self.getContactRoom( accId, contactId );
 	} catch( e ) {
+		log( 'connectContact - failed to get room', e );
 		return null;
 	}
 	

@@ -20,11 +20,12 @@
 'use strict';
 
 const log = require( './Log' )( 'ContactRoom' );
-const Room = require( './Room' );
 const components = require( './RoomComponents' );
+const FService = require( '../api/FService' );
 const Signal = require( './Signal' );
 const dFace = require( './DFace' );
 const Janus = require( './Janus' );
+const Room = require( './Room' );
 const util = require( 'util' );
 
 var ns = {};
@@ -97,6 +98,7 @@ ns.ContactRoom.prototype.getOtherAccount = function( accId ) {
 
 ns.ContactRoom.prototype.init = function() {
     const self = this;
+    self.service = new FService( global.config.server.friendcore );
     self.roomDb = new dFace.RoomDB( self.dbPool, self.id );
     self.settings = new ns.ContactSettings(
         self.dbPool,
@@ -116,11 +118,12 @@ ns.ContactRoom.prototype.init = function() {
             self.ownerId
         );
         
-        self.chat = new components.Chat(
+        self.chat = new ns.ContactChat(
             self.id,
             self.users,
             self.onlineList,
-            self.log
+            self.log,
+            self.service
         );
         
         self.live = new components.Live(
@@ -150,10 +153,8 @@ ns.ContactRoom.prototype.loadUsers = async function() {
         return false;
     }
     
-    if ( !auths || 2 !== auths.length ) {
-        log( 'loadUsers - invalid number of users', auths );
+    if ( !auths || 2 !== auths.length )
         return false;
-    }
     
     try {
         await Promise.all( auths.map( await add ));
@@ -199,6 +200,7 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
         persistent : true,
         clientId   : id.clientId,
         name       : id.name,
+        fUsername  : id.fUsername,
         avatar     : id.avatar,
         isOwner    : false,
         isAuthed   : true,
@@ -370,6 +372,53 @@ ns.ContactRoom.prototype.addUser = async function( userId ) {
         self.accIdA = userId;
     
     return true;
+}
+
+/*
+    ContactChat
+*/
+
+const cLog = require( './Log')( 'ContactRoom > Chat' );
+ns.ContactChat = function(
+    roomId,
+    users,
+    onlineList,
+    log,
+    service
+) {
+    const self = this;
+    components.Chat.call( self,
+        roomId,
+        null,
+        users,
+        onlineList,
+        log,
+        service
+    );
+}
+
+util.inherits( ns.ContactChat, components.Chat );
+
+ns.ContactChat.prototype.sendMsgNotification = async function( message, fromId ) {
+    const self = this;
+    const from = self.users[ fromId ];
+    const roomName = from.name;
+    const notie = message;
+    const uIds = Object.keys( self.users );
+    uIds.forEach( async uId => {
+        if ( fromId === uId )
+            return;
+        
+        const user = self.users[ uId ];
+        if ( !user || !user.fUsername )
+            return;
+        
+        try {
+            await self.service.sendNotification( user.fUsername, roomName, notie );
+        } catch( e ) {
+            cLog( 'sendMsgNotification - err', e );
+        }
+    });
 }
 
 /*

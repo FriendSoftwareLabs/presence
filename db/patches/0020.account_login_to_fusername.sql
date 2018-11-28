@@ -1,0 +1,2 @@
+ALTER TABLE `account`
+CHANGE `login` `fUsername` VARCHAR(191) NOT NULL UNIQUE;

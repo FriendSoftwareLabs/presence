@@ -15,7 +15,7 @@ DROP PROCEDURE IF EXISTS account_create;
 DROP PROCEDURE IF EXISTS account_set_fuserid;
 DROP PROCEDURE IF EXISTS account_read_id;
 DROP PROCEDURE IF EXISTS account_read_fuserid;
-DROP PROCEDURE IF EXISTS account_read_login;
+DROP PROCEDURE IF EXISTS account_read_fusername;
 DROP PROCEDURE IF EXISTS account_update;
 DROP PROCEDURE IF EXISTS account_delete;
 DROP PROCEDURE IF EXISTS account_touch;
@@ -133,30 +133,29 @@ END//
 #
 # CREATE
 CREATE PROCEDURE account_create(
-	IN `clientId` VARCHAR( 191 ),
-	IN `login` VARCHAR( 191 ),
-	IN `pass` TEXT,
-	IN `name` VARCHAR( 191 ),
-	IN `settings` TEXT
+	IN `clientId`  VARCHAR( 191 ),
+	IN `fUserId`   VARCHAR( 191 ),
+	IN `fUsername` VARCHAR( 191 ),
+	IN `name`      VARCHAR( 191 ),
+	IN `settings`  TEXT
 )
 BEGIN
 	INSERT INTO `account` (
 		`clientId`,
-		`login`,
-		`pass`,
+		`fUserId`,
+		`fUsername`,
 		`name`,
 		`settings`
 	) VALUES (
 		`clientId`,
-		`login`,
-		`pass`,
+		`fUserId`,
+		`fUsername`,
 		`name`,
 		`settings`
 	);
 	
 	SELECT * FROM `account` AS a
-	WHERE a.clientId = `clientId`
-	AND a.login = `login`;
+	WHERE a.clientId = `clientId`;
 END//
 
 #
@@ -196,12 +195,12 @@ END//
 
 #
 # READ BY LOGIN ( legacy )
-CREATE PROCEDURE account_read_login(
-	IN `login` VARCHAR( 191 )
+CREATE PROCEDURE account_read_fusername(
+	IN `fUsername` VARCHAR( 191 )
 )
 BEGIN
 	SELECT * FROM account
-	WHERE account.login = `login`;
+	WHERE account.fUsername = `fUsername`;
 END//
 
 #
@@ -464,7 +463,8 @@ CREATE PROCEDURE auth_get_for_room(
 BEGIN
 SELECT 
 	a.clientId,
-	a.login,
+	a.fUserId,
+	a.fUsername,
 	a.name,
 	a.avatar,
 	a.active,
