@@ -72,11 +72,9 @@ ns.IDC.prototype.get = async function( id ) {
 			log( 'IDC.get - missing id', err.stack || err );
 		}
 	}
-	let identity = self.IDs[ id ];
-	if ( identity ) {
-		self.touch( id );
+	let identity = self.getSync( id );
+	if ( identity )
 		return identity;
-	}
 	
 	identity = await self.load( id );
 	return identity;
@@ -91,8 +89,35 @@ ns.IDC.prototype.getList = async function( idList ) {
 	return identities;
 	
 	async function get( id ) {
-		let identity = await self.get( id );
+		let identity = self.getSync( id );
+		if ( null != identity )
+			return identity;
+		
+		identity = await self.load( id );
 		return identity;
+	}
+}
+
+ns.IDC.prototype.getMap = async function( idList ) {
+	const self = this;
+	const ids = {};
+	const leftovers = idList.filter( trySync );
+	await Promise.all( leftovers.map( await load ));
+	return ids;
+	
+	function trySync( cId ) {
+		let id = self.getSync( cId );
+		if ( !id )
+			return true;
+		
+		ids[ cId ] = id;
+		return false;
+	}
+	
+	async function load( cId ) {
+		let id = await self.load( cId );
+		ids[ cId ] = id;
+		return true;
 	}
 }
 
@@ -167,6 +192,16 @@ ns.IDC.prototype.trimIds = function() {
 		delete self.IDs[ id ];
 		delete self.lastAccess[ id ];
 	});
+}
+
+ns.IDC.prototype.getSync = function( cId ) {
+	const self = this;
+	let identity = self.IDs[ cId ];
+	if ( !identity )
+		return null;
+	
+	self.touch( cId );
+	return identity;
 }
 
 ns.IDC.prototype.load = async function( cId ) {

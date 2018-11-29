@@ -344,17 +344,23 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 	const state = {
 		type : 'initialize',
 		data : {
-			account  : {
+			account    : {
 				host     : global.config.shared.wsHost,
 				clientId : self.id,
 				name     : self.identity.name,
 				isAdmin  : self.identity.isAdmin,
 			},
-			rooms    : self.rooms.getRooms(),
-			contacts : await getContactRelations(),
+			identities : await getIds(),
+			rooms      : self.rooms.getRooms(),
+			contacts   : await getContactRelations(),
 		},
 	};
 	self.conn.send( state, clientId );
+	
+	async function getIds() {
+		const idList = Object.keys( self.ids );
+		return await self.idCache.getMap( idList );
+	}
 	
 	async function getContactRelations() {
 		const msgDb = new dFace.MessageDB( self.dbPool );
