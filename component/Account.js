@@ -142,6 +142,7 @@ ns.Account.prototype.removeContact = function( contactId ) {
 	if ( !self.contacts[ contactId ])
 		return;
 	
+	self.rooms.remove( contactId );
 	delete self.contacts[ contactId ];
 	self.contactIds = Object.keys( self.contacts );
 	const cRemove = {
@@ -347,8 +348,7 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 			account    : {
 				host     : global.config.shared.wsHost,
 				clientId : self.id,
-				name     : self.identity.name,
-				isAdmin  : self.identity.isAdmin,
+				identity : self.identity,
 			},
 			identities : await getIds(),
 			rooms      : self.rooms.getRooms(),
@@ -475,7 +475,7 @@ ns.Account.prototype.loadRelations = async function() {
 	const contactIdList = dbRelations.map( rel => rel.contactId );
 	self.updateContactList( contactIdList );
 	try {
-		dbRelations.forEach( checkRoomAvailability );
+		Promise.all( dbRelations.map( await checkRoomAvailability ));
 	} catch ( err ) {
 		self.log( 'loadRelations - checkRoomAvailability', err );
 	}
@@ -488,7 +488,7 @@ ns.Account.prototype.loadRelations = async function() {
 		if ( !isActive )
 			return;
 		
-		self.openContactChat( null, rel.contactId );
+		await self.openContactChat( null, rel.contactId );
 	}
 }
 
@@ -686,7 +686,7 @@ ns.Account.prototype.logout = function( callback ) {
 
 // ROOMS
 
-const rlog = require( './Log' )( 'account > rooms' );
+const rLog = require( './Log' )( 'account > rooms' );
 
 ns.Rooms = function( conn ) {
 	const self = this;
@@ -726,7 +726,7 @@ ns.Rooms.prototype.add = function( room ) {
 	const self = this;
 	const rid = room.roomId;
 	if ( self.rooms[ rid ]) {
-		rlog( 'add - already added', rid );
+		rLog( 'add - already added', rid );
 		return;
 	}
 	
@@ -830,7 +830,7 @@ ns.Rooms.prototype.handleClientEvent = function( event, roomId ) {
 	const self = this;
 	const room = self.rooms[ roomId ];
 	if ( !room ) {
-		rlog( 'no room for event', {
+		rLog( 'no room for event', {
 			e : event,
 			r : roomId,
 		});

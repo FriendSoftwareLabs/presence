@@ -47,6 +47,7 @@ ns.UserSend = function( type, users, onlineList ) {
 
 ns.UserSend.prototype.send = function( event, userId, callback ) {
     const self = this;
+    self.sendLog( 'send', event, 3 );
     if ( !self.users ) {
         error( 'ERR_SEND_NO_USERS_OBJ' );
         return;

@@ -838,8 +838,10 @@ ns.Room.prototype.send = function( event, targetId ) {
 		throw new Error( 'Room.send - no event' );
 	
 	var user = self.users[ targetId ];
-	if ( !user || !user.send )
+	if ( !user || !user.send ) {
+		log( 'not a real user, no send', user );
 		return;
+	}
 	
 	user.send( event );
 }

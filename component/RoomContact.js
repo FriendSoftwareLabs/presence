@@ -172,6 +172,11 @@ ns.ContactRoom.prototype.loadUsers = async function() {
 ns.ContactRoom.prototype.bindUser = function( userId ) {
     const self = this;
     const id = self.users[ userId ];
+    if ( id.close ) {
+        log( 'bindUser - user already bound' );
+        return;
+    }
+    
     if ( !id ) {
         log( 'bindUSer - no user for id', {
             roomId : self.id,
@@ -275,6 +280,9 @@ ns.ContactRoom.prototype.setOnline = function( userId ) {
     const user = self.users[ userId ];
     if ( !user )
         return null;
+    
+    if ( -1 !== self.onlineList.indexOf( userId ))
+        return;
     
     self.onlineList.push( userId );
     
