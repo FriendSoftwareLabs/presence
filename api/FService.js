@@ -55,18 +55,20 @@ The event emitter interface is defined in the Emitter class
 
 */
 
-ns.FService = function( fcConf ) {
+ns.FService = function( fcConf, destinationApp ) {
 	const self = this;
-    if ( global.FService ) {
-        return global.FService;
-    }
-    
-    self.conn = null;
-    
-    self.init( fcConf );
-    
-    global.FService = self;
-    return global.FService;
+	if ( global.FService ) {
+		return global.FService;
+	}
+	
+	self.conn = null;
+	if ( destinationApp )
+		self.destApp = destinationApp;
+	
+	self.init( fcConf );
+	
+	global.FService = self;
+	return global.FService;
 }
 
 // Public
@@ -79,8 +81,18 @@ message : <string> - Notification message
 
 */
 
-ns.FService.prototype.sendNotification = async function( username, title, message ) {
+ns.FService.prototype.sendNotification = async function(
+		username,
+		title,
+		message,
+		channel,
+		extra,
+		destApp
+	) {
 	const self = this;
+	extra = checkExtra( extra );
+	destApp = self.checkString( destApp ) || self.destApp;
+	channel = self.checkString( channel );
 	username = self.checkString( username );
 	title = self.checkString( title );
 	message = self.checkString( message );
@@ -91,18 +103,37 @@ ns.FService.prototype.sendNotification = async function( username, title, messag
 		type : 'notification',
 		data : {
 			username          : username,
-			channel_id        : "1",
+			channel_id        : channel,
 			notification_type : 1,
 			title             : title,
 			message           : message,
+			extra             : extra,
+			application       : destApp,
 		},
 	};
-	//log( 'sendNotification', notie );
+	
 	let err = await self.send( notie );
 	if ( err )
 		throw err;
 	
 	return true;
+	
+	function checkExtra( extra ) {
+		if ( !extra )
+			return null;
+		
+		if ( 'string' === typeof( extra ))
+			return extra;
+		
+		try {
+			extra = JSON.stringify( extra );
+		} catch( e ) {
+			log( 'could not string', extra, 3 );
+			extra = null;
+		}
+		
+		return extra;
+	}
 }
 
 ns.FService.prototype.close = function() {
@@ -115,7 +146,7 @@ ns.FService.prototype.close = function() {
 
 ns.FService.prototype.init = function( fcConf ) {
 	const self = this;
-	log( 'init //:;;:\\\\', fcConf );
+	log( 'init //:;;:\\\\' );
 	self.fcc = fcConf;
 	self.connect();
 	
@@ -125,6 +156,11 @@ ns.FService.prototype.connect = function() {
 	const self = this;
 	if ( self.conn )
 		self.cleanupConn();
+	
+	if ( !self.fcc.serviceKey ) {
+		log( 'FService.connect - no service key, aborting', self.fcc );
+		return;
+	}
 	
 	self.conn = new ns.FCWS(
 		self.fcc.host,
@@ -172,6 +208,9 @@ ns.FService.prototype.cleanupConn = function() {
 
 ns.FService.prototype.send = async function( event ) {
 	const self = this;
+	if ( !self.conn )
+		return;
+	
 	const wrap = {
 		type : 'service',
 		data : event,
@@ -229,12 +268,12 @@ module.exports = ns.FService;
 
 host : <string> - domain FC can be reached on
 port : <num/string> OR <null> optional - port to connect on.
-       If proxy is defined, port will be ignored
+	   If proxy is defined, port will be ignored
 serviceToken : <string> - identifies the service to FC
 proxy : <string> OR <null> optional - connect thorugh a proxy.
-        Port will be ignored
+		Port will be ignored
 useTLS : <bool> default <true> optional - connects over
-         TLS/SSL. Will not fall back to unsecure.
+		 TLS/SSL. Will not fall back to unsecure.
 
 
 This class is an event emitter following the schema
@@ -321,7 +360,6 @@ ns.FCWS.prototype.close = function() {
 
 ns.FCWS.prototype.init = function() {
 	const self = this;
-	wsLog( 'boop' );
 	self.on( 'authenticate', onAuth );
 	self.on( 'notify', onNotify );
 	self.on( 'ping', onPing );

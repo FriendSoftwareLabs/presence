@@ -50,7 +50,7 @@ var server = {
 		host        : 'friendcore_domain',
 		port        : 6502,
 		proxy       : null,
-		wsPort      : 6500,
+		wsPort      : 6498,
 		wsProxy     : null,
 		serviceKey  : null,
 		serviceName : null,

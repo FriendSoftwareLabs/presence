@@ -194,54 +194,65 @@ ns.Chat.prototype.handleChat = function( event, userId ) {
 }
 
 ns.Chat.prototype.handleMsg = function( data, userId ) {
-	const self = this;
-	if ( !data || !data.message )
-		return;
-	
-	const user = self.users[ userId ];
-	const fromId = user.isGuest ? null : userId;
-	const message = data.message;
-	const mid = uuid.get( 'msg' );
-	const msg = {
-		msgId   : mid,
-		roomId  : self.roomId,
-		fromId  : fromId,
-		name    : user.name,
-		time    : Date.now(),
-		type    : 'msg',
-		message : message,
-	};
-	
-	const event = {
-		type : 'msg',
-		data : msg,
-	};
-	
-	self.log.add( event );
-	self.sendMsgNotification( message, userId );
-	self.broadcast( event );
+    const self = this;
+    if ( !data || !data.message )
+        return;
+    
+    const user = self.users[ userId ];
+    const fromId = user.isGuest ? null : userId;
+    const message = data.message;
+    const mid = uuid.get( 'msg' );
+    const msg = {
+        msgId   : mid,
+        roomId  : self.roomId,
+        fromId  : fromId,
+        name    : user.name,
+        time    : Date.now(),
+        type    : 'msg',
+        message : message,
+    };
+    
+    const event = {
+        type : 'msg',
+        data : msg,
+    };
+    
+    self.log.add( event );
+    self.sendMsgNotification( message, mid, userId );
+    self.broadcast( event );
 }
 
-ns.Chat.prototype.sendMsgNotification = async function( message, fromId ) {
-	const self = this;
-	const from = self.users[ fromId ];
-	const roomName = '#' + self.roomName;
-	const notie = from.name + ': ' + message;
-	const uIds = Object.keys( self.users );
-	uIds.forEach( async toId => {
-		if ( fromId === toId )
-			return;
-		
-		const user = self.users[ toId ];
-		if ( !user || !user.fUsername )
-			return;
-		
-		try {
-			await self.service.sendNotification( user.fUsername, roomName, notie );
-		} catch ( err ) {
-			cLog( 'sendMsgNotification - err', err );
-		}
-	});
+ns.Chat.prototype.sendMsgNotification = async function( message, mid, fromId ) {
+    const self = this;
+    const from = self.users[ fromId ];
+    const roomName = '#' + self.roomName;
+    const notie = from.name + ': ' + message;
+    const uIds = Object.keys( self.users );
+    const extra = {
+        roomId : self.roomId,
+        msgId : mid,
+    };
+    
+    uIds.forEach( async toId => {
+        if ( fromId === toId )
+            return;
+        
+        const user = self.users[ toId ];
+        if ( !user || !user.fUsername )
+            return;
+        
+        try {
+            await self.service.sendNotification(
+                user.fUsername,
+                roomName,
+                notie,
+                self.roomId,
+                extra
+            );
+        } catch ( err ) {
+            cLog( 'sendMsgNotification - err', err );
+        }
+    });
 }
 
 ns.Chat.prototype.handleLog = function( event, userId ) {

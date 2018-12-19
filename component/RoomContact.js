@@ -407,12 +407,18 @@ ns.ContactChat = function(
 
 util.inherits( ns.ContactChat, components.Chat );
 
-ns.ContactChat.prototype.sendMsgNotification = async function( message, fromId ) {
+ns.ContactChat.prototype.sendMsgNotification = async function( message, mid, fromId ) {
 	const self = this;
 	const from = self.users[ fromId ];
 	const roomName = from.name;
 	const notie = message;
 	const uIds = Object.keys( self.users );
+	
+	const extra = {
+		roomId : self.roomId,
+		msgId  : mid,
+	};
+	
 	uIds.forEach( async uId => {
 		if ( fromId === uId )
 			return;
@@ -422,7 +428,13 @@ ns.ContactChat.prototype.sendMsgNotification = async function( message, fromId )
 			return;
 		
 		try {
-			await self.service.sendNotification( user.fUsername, roomName, notie );
+			await self.service.sendNotification(
+				user.fUsername,
+				roomName,
+				notie,
+				self.roomId,
+				extra
+			);
 		} catch( e ) {
 			cLog( 'sendMsgNotification - err', e );
 		}

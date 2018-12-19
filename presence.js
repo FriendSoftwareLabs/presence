@@ -34,7 +34,10 @@ const FService = require( './api/FService' );
 
 let service = null;
 if ( global.config.server.friendcore.serviceKey ) {
-	service = new FService( global.config.server.friendcore );
+	service = new FService(
+		global.config.server.friendcore,
+		'FriendChat',
+	);
 }
 
 //const fcReq = require( './component/FCRequest' )( global.config.server.friendcore );
