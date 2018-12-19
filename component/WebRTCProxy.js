@@ -27,11 +27,11 @@ const util = require( 'util' );
 
 const ns = {};
 ns.WebRTCProxy = function() {
-    const self = this;
-    
-    Emitter.call( self );
-    
-    self.init();
+	const self = this;
+	
+	Emitter.call( self );
+	
+	self.init();
 }
 
 util.inherits( ns.WebRTCProxy, Emitter );
@@ -39,67 +39,67 @@ util.inherits( ns.WebRTCProxy, Emitter );
 // Public
 
 /*
-    inherits interface of Emitter
+	inherits interface of Emitter
 */
 
 ns.WebRTCProxy.prototype.send = function( event, callback ) {
-    const self = this;
-    log( 'send', event );
-    self.conn.send( event, callback );
+	const self = this;
+	log( 'send', event );
+	self.conn.send( event, callback );
 }
 
 ns.WebRTCProxy.prototype.close = function() {
-    const self = this;
-    self.emitterClose();
-    
-    if ( self.conn ) {
-        try {
-            self.conn.removeAllListeners();
-            self.conn.disconnect();
-        } catch( e ) {}
-    }
-    
-    delete self.conn;
+	const self = this;
+	self.emitterClose();
+	
+	if ( self.conn ) {
+		try {
+			self.conn.removeAllListeners();
+			self.conn.disconnect();
+		} catch( e ) {}
+	}
+	
+	delete self.conn;
 }
 
 // private
 
 ns.WebRTCProxy.prototype.init = function() {
-    const self = this;
-    log( 'WebRTCProxy.init' );
-    const conf = {
-        foo : 'bar',
-    };
-    
-    try {
-        self.conn = child.fork( './component/WebRTCProxyChild.js' );
-    } catch ( ex ) {
-        log( 'init - child ex', ex );
-    }
-    
-    self.conn.on( 'exit', onExit );
-    self.conn.on( 'error', onError );
-    self.conn.on( 'message', onMessage );
-    
-    self.send( 'hepp' );
-    
-    function onExit( e ) {
-        log( 'conn exit', e );
-        self.emit( 'exit' );
-    }
-    
-    function onError( err ) {
-        log( 'conn error', err );
-    }
-    
-    function onMessage( str ) {
-        log( 'conn message', str );
-        self.emit( 'message', )
-    }
-    
-    function stdOut( str ) {
-        log( 'child.stdOut', str );
-    }
+	const self = this;
+	log( 'WebRTCProxy.init' );
+	const conf = {
+		foo : 'bar',
+	};
+	
+	try {
+		self.conn = child.fork( './component/WebRTCProxyChild.js' );
+	} catch ( ex ) {
+		log( 'init - child ex', ex );
+	}
+	
+	self.conn.on( 'exit', onExit );
+	self.conn.on( 'error', onError );
+	self.conn.on( 'message', onMessage );
+	
+	self.send( 'hepp' );
+	
+	function onExit( e ) {
+		log( 'conn exit', e );
+		self.emit( 'exit' );
+	}
+	
+	function onError( err ) {
+		log( 'conn error', err );
+	}
+	
+	function onMessage( str ) {
+		log( 'conn message', str );
+		self.emit( 'message', )
+	}
+	
+	function stdOut( str ) {
+		log( 'child.stdOut', str );
+	}
 }
 
 

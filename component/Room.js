@@ -810,7 +810,7 @@ ns.Room.prototype.handleLeaveLive = function( event, uid ) {
 }
 
 ns.Room.prototype.handleActive = function( event, userId ) {
-    const self = this;
+	const self = this;
 }
 
 // very private
