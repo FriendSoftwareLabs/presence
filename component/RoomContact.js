@@ -407,7 +407,7 @@ ns.ContactChat = function(
 
 util.inherits( ns.ContactChat, components.Chat );
 
-ns.ContactChat.prototype.sendMsgNotification = async function( message, mid, fromId ) {
+ns.ContactChat.prototype.sendMsgNotification = async function( message, mId, fromId ) {
 	const self = this;
 	const from = self.users[ fromId ];
 	const roomName = from.name;
@@ -415,8 +415,8 @@ ns.ContactChat.prototype.sendMsgNotification = async function( message, mid, fro
 	const uIds = Object.keys( self.users );
 	
 	const extra = {
-		roomId : self.roomId,
-		msgId  : mid,
+		roomId : fromId,
+		msgId  : mId,
 	};
 	
 	uIds.forEach( async uId => {
