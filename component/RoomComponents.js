@@ -47,7 +47,6 @@ ns.UserSend = function( type, users, onlineList ) {
 
 ns.UserSend.prototype.send = function( event, userId, callback ) {
 	const self = this;
-	self.sendLog( 'send', event, 3 );
 	if ( !self.users ) {
 		error( 'ERR_SEND_NO_USERS_OBJ' );
 		return;
@@ -2462,6 +2461,9 @@ ns.Settings.prototype.handleLoad = function( event, userId ) {
 		delete values.isStream;
 	}
 	
+	if ( !self.checkIsAdmin( userId ))
+		delete values[ 'workgroups' ];
+	
 	self.send( values, userId );
 }
 
@@ -2471,8 +2473,10 @@ ns.Settings.prototype.saveSetting = function( event, userId ) {
 	if ( !user )
 		return;
 	
-	if ( !self.checkIsAdmin( event.setting, userId ))
+	if ( !self.checkIsAdminOrOwner( userId )) {
+		self.sendError( setting, 'ERR_NOT_ADMIN', userId );
 		return;
+	}
 	
 	const handler = self.handlerMap[ event.setting ];
 	if ( !handler ) {
@@ -2483,15 +2487,29 @@ ns.Settings.prototype.saveSetting = function( event, userId ) {
 	handler( event.value, userId );
 }
 
-ns.Settings.prototype.checkIsAdmin = function( setting, userId ) {
+ns.Settings.prototype.checkIsAdminOrOwner = function( userId ) {
 	const self = this;
 	const user = self.users[ userId ];
-	if ( !user.isAdmin && !user.isOwner ) {
-		self.sendError( setting, 'ERR_NOT_ADMIN', userId );
+	if ( !user )
 		return false;
-	} else
+	
+	if ( !user.isAdmin && !user.isOwner )
+		return false;
+	else
 		return true;
 	
+}
+
+ns.Settings.prototype.checkIsAdmin = function( userId ) {
+	const self = this;
+	const user = self.users[ userId ];
+	if ( !user )
+		return false;
+	
+	if ( !user.isAdmin )
+		return false;
+	else
+		return true;
 }
 
 ns.Settings.prototype.handleRoomName = function( value, userId ) {
@@ -2565,6 +2583,9 @@ ns.Settings.prototype.handleClassroom = function( value, userId ) {
 
 ns.Settings.prototype.handleWorgs = function( worg, userId ) {
 	const self = this;
+	if ( !self.checkIsAdmin( userId ))
+		return;
+	
 	self.emit( 'workgroups', worg, userId );
 }
 
