@@ -221,21 +221,19 @@ ns.RoomCtrl.prototype.close = function() {
 
 // Private
 
-ns.RoomCtrl.prototype.init = function() {
+ns.RoomCtrl.prototype.init = async function() {
 	const self = this;
 	log( 'room ctrl init =^y^=' );
 	self.roomDb = new dFace.RoomDB( self.dbPool );
 	self.accDb = new dFace.AccountDB( self.dbPool );
 	self.invDb = new dFace.InviteDB( self.dbPool );
 	const tiny = require( './TinyAvatar' );
-	tiny.generateGuest()
-		.then( res => {
-			self.guestAvatar = res
-		})
-		.catch( err => {
-			log( 'init - failed to generate guest avatar', err );
-			self.guestAvatar = null;
-		});
+	try {
+		self.guestAvatar = await tiny.generateGuest( 'roundel' );
+	} catch ( err ) {
+		self.guestAvatar = null;
+		log( 'init - failed to generate guest avatar', err );
+	}
 }
 
 ns.RoomCtrl.prototype.createNamedRoom = function( accId, conf ) {

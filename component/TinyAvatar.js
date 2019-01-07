@@ -31,65 +31,32 @@ ns.TinyAvatar = function() {
 
 // Public
 
-ns.TinyAvatar.prototype.generate = function( string ) {
+ns.TinyAvatar.prototype.generate = function( sourceString, type ) {
 	const self = this;
-	return new Promise(( resolve, reject ) => {
-		if ( !string ) {
-			reject( 'ERR_EMPTY_STRING' );
-			return;
-		}
-		
-		const source = self.getBuffer( string );
-		const color = self.getColor( source.slice( 0, 4 ));
-		const bgColor = Buffer.from( '444444FF', 'hex' );
-		const pattern = self.generateBlockPattern( source.slice( 4, 29 ));
-		
-		self.build( color, bgColor, pattern, buildBack );
-		function buildBack( err, res ) {
-			if ( err )
-				reject( err );
-			else
-				resolve( res );
-		}
-	});
+	if ( !sourceString || !sourceString.length || 'string' !== typeof( sourceString )) {
+		throw new Error( 'ERR_EMPTY_STRING' );
+		return;
+	}
+	
+	type = type || 'block';
+	if ( 'block' === type )
+		return self.generateBlock( sourceString );
+	
+	if ( 'roundel' === type )
+		return self.generateRoundel( sourceString );
 }
 
-ns.TinyAvatar.prototype.generateGuest = function() {
+ns.TinyAvatar.prototype.generateGuest = function( type ) {
 	const self = this;
-	return new Promise(( resolve, reject ) => {
-		//const color = Buffer( 'E73B2BFF', 'hex' );
-		const color = Buffer.from( '2B97CCFF', 'hex' );
-		const bgColor = Buffer.from( '444444FF', 'hex' );
-		// ?
-		/*
-		const pattern = [
-			0,1,1,1,0,
-			1,0,0,0,1,
-			0,0,1,1,0,
-			0,0,0,0,0,
-			0,0,1,0,0,
-		];
-		*/
-		
-		// F
-		const pattern = [
-			1,1,1,1,1,
-			1,0,0,0,0,
-			1,1,1,1,0,
-			1,0,0,0,0,
-			1,0,0,0,0,
-		];
-		
-		self.build( color, bgColor, pattern, buildBack );
-		function buildBack( err , res ) {
-			if ( err )
-				reject( err );
-			else
-				resolve( res );
-		}
-	});
+	type = type || 'block';
+	if ( 'block' === type )
+		return self.generateGuestBlock();
+	
+	if ( 'roundel' === type )
+		return self.generateGuestRoundel();
 }
 
+/*
 ns.TinyAvatar.generateDefault = function( callback ) {
 	const self = this;
 	const color = Buffer.from( '', 'hex' );
@@ -102,31 +69,106 @@ ns.TinyAvatar.generateDefault = function( callback ) {
 		0,0,1,0,0,
 	];
 }
+*/
 
 // Private
 
 ns.TinyAvatar.prototype.init = function() {}
 
-ns.TinyAvatar.prototype.build = function(color, bgColor, pattern, callback ) {
+ns.TinyAvatar.prototype.generateBlock = function( string ) {
 	const self = this;
-	const side = 128;
+	const source = self.getBuffer( string );
+	const color = self.getColor( source.slice( 0, 4 ));
+	const bgColor = self.getBgColor();
+	const pattern = self.generateBlockPattern( source.slice( 4, 29 ));
+	return self.buildBlock( color, bgColor, pattern );
+}
+
+ns.TinyAvatar.prototype.generateRoundel = function( string ) {
+	const self = this;
+	const source = self.getBuffer( string );
+	const color = self.getColor( source.slice( 0, 4 ));
+	const bgColor = self.getBgColor();
+	const pattern = self.generateRoundelPattern( source.slice( 4, 21 ));
+	return self.buildRoundel( color, bgColor, pattern );
+}
+
+ns.TinyAvatar.prototype.generateGuestBlock = function() {
+	const self = this;
+	const color = Buffer.from( '2B97CCFF', 'hex' );
+	const bgColor = Buffer.from( '444444FF', 'hex' );
+	// ?
+	/*
+	const pattern = [
+		0,1,1,1,0,
+		1,0,0,0,1,
+		0,0,1,1,0,
+		0,0,0,0,0,
+		0,0,1,0,0,
+	];
+	*/
+	
+	// F
+	const pattern = [
+		1,1,1,1,1,
+		1,0,0,0,0,
+		1,1,1,1,0,
+		1,0,0,0,0,
+		1,0,0,0,0,
+	];
+	
+	return self.buildBlock( color, bgColor, pattern );
+}
+
+ns.TinyAvatar.prototype.generateGuestRoundel = function() {
+	const self = this;
+	const color = Buffer.from( '2B97CCFF', 'hex' );
+	const bgColor = Buffer.from( '444444FF', 'hex' );
+	const pattern = [
+		1, 0, 1, 0, 1,
+		0, 1, 0,
+		1,
+		1, 0,
+		0, 1, 0, 1, 0,
+	];
+	return self.buildRoundel( color, bgColor, pattern );
+}
+
+ns.TinyAvatar.prototype.buildBlock = function( color, bgColor, pattern ) {
+	const self = this;
+	const imageSide = 128;
 	const border = 4;
-	const block = ( 128 - ( border * 2 )) / 5;
-	const imageBuff = self.buildImageBuffer(
-		side,
+	const pixelSize = ( imageSide - ( border * 2 )) / 5;
+	const bitmask = self.buildBlockMask(
+		imageSide,
 		border,
-		block,
+		pixelSize,
 		pattern,
 		color,
 		bgColor
 	);
 	
-	new Jimp( side, side, ( err, image ) => {
-		image.bitmap.data = imageBuff;
-		image.getBase64( Jimp.MIME_PNG, ( err, res ) => {
-			callback( err, res );
-		});
-	});
+	return self.generateBase64( imageSide, bitmask );
+}
+
+ns.TinyAvatar.prototype.buildRoundel = function( color, bgColor, pattern ) {
+	const self = this;
+	const imageWidth = 128;
+	const bitmask = self.buildRoundelMask(
+		imageWidth,
+		pattern,
+		color,
+		bgColor
+	);
+	
+	return self.generateBase64( imageWidth, bitmask );
+	
+}
+
+ns.TinyAvatar.prototype.generateBase64 = async function( sideLength, bitmask ) {
+	const image = await new Jimp( sideLength, sideLength );
+	image.bitmap.data = bitmask;
+	return image.getBase64Async( Jimp.MIME_PNG );
 }
 
 ns.TinyAvatar.prototype.getBuffer = function( string ) {
@@ -140,8 +182,8 @@ ns.TinyAvatar.prototype.getBuffer = function( string ) {
 ns.TinyAvatar.prototype.getColor = function( slice ) {
 	const self = this;
 	let cFloor = 85;
-	let color1 = slice[ 0 ] > cFloor ? slice[ 0 ] : cFloor;
-	let color2 = slice[ 1 ] > cFloor ? slice[ 1 ] : cFloor;
+	let color1 = scale( slice[ 0 ], cFloor );
+	let color2 = scale( slice[ 1 ], cFloor );
 	let stdValues = [ color1, 255 ];
 	let colorIndex = Math.floor( slice[ 2 ] / 256 * 3 ); // range 0-2
 	let stdColorIndex = Math.floor( slice[ 3 ] / 256 * 2 ); // range 0-1
@@ -161,17 +203,30 @@ ns.TinyAvatar.prototype.getColor = function( slice ) {
 	values[ 3 ] = 255; // alpha channel
 	let colorBuff = Buffer.from( values );
 	return colorBuff;
+	
+	function scale( cValue, cFloor ) {
+		let v = cValue / 256;
+		let scale = 256 - cFloor;
+		let scaled = ( v * scale ) + cFloor;
+		return scaled;
+	}
+}
+
+ns.TinyAvatar.prototype.getBgColor = function() {
+	const self = this;
+	const bgColor = Buffer.from( '444444FF', 'hex' );
+	return bgColor;
 }
 
 /*
 the block pattern is 5x5, but is verticaly mirrored, so there are 15 total blocks
 that need to be generated, 2 mirrord rows and a unique middle row.
 
-x x o x x
-x x o x x
-x x o x x
-x x o x x
-x x o x x
+x y o y x
+x y o y x
+x y o y x
+x y o y x
+x y o y x
 
 blocks that are to be filled in will have the value 1, skipped blocks value 0
 
@@ -248,32 +303,28 @@ ns.TinyAvatar.prototype.generateBlockPattern = function( source ) {
 	}
 }
 
-ns.TinyAvatar.prototype.buildImageBuffer = function(
-	pixelWidth,
+ns.TinyAvatar.prototype.buildBlockMask = function(
+	imageWidth,
 	borderWidth,
-	blockWidth,
+	blockSize,
 	blockPattern,
 	blockColor,
 	bgColor
 ) {
 	const self = this;
 	const pbd = 4; // pixel byte depth
-	const realWidth = pixelWidth * pbd;
-	const realBlockWidth = blockWidth * pbd;
+	const realWidth = imageWidth * pbd;
+	const realBlockWidth = blockSize * pbd;
 	const borderTop = borderWidth * realWidth;
 	const borderLeft = borderWidth * pbd;
-	const bufferLength = pixelWidth * pixelWidth * pbd;
+	const bufferLength = imageWidth * imageWidth * pbd;
 	const buf = Buffer.alloc( bufferLength );
 	
-	// fill with bg color
-	for ( let index of buf.keys()) {
-		let pI = index % pbd; // pixel index
-		buf[ index ] = bgColor[ pI ];
-	}
+	buf.fill( bgColor );
 	
 	/*
 	log( 'build', {
-		pw : pixelWidth,
+		pw : imageWidth,
 		rw : realWidth,
 		bo : borderTop,
 		bl : bufferLength,
@@ -290,7 +341,7 @@ ns.TinyAvatar.prototype.buildImageBuffer = function(
 		let row = Math.floor( index / 5 );
 		
 		// index offsets
-		let startOffset = borderTop + ( realWidth * ( row * blockWidth ));
+		let startOffset = borderTop + ( realWidth * ( row * blockSize ));
 		let rowOffset = borderLeft + ( col * realBlockWidth );
 		let endOffset = realBlockWidth;
 		
@@ -306,7 +357,7 @@ ns.TinyAvatar.prototype.buildImageBuffer = function(
 		*/
 		
 		let currRow = 0;
-		while ( currRow < blockWidth ) {
+		while ( currRow < blockSize ) {
 			let blockOffset = currRow * realWidth;
 			let start = startOffset + blockOffset + rowOffset;
 			let end = start + endOffset;
@@ -335,5 +386,264 @@ ns.TinyAvatar.prototype.buildImageBuffer = function(
 	}
 }
 
+/*
+
+the roundel pattern is, shockingly, round. It is built from a set of concentric rings
+split into segments. There are three rings and a middle area.
+the outer ring is 10 segments
+the inner ring is 4 segments 
+the center area is filled or not filled
+
+for a total of 15 segments
+
+the array references the layout as "vertical" slices, starting on the left, top to bottom
+5 left segments of the outer shell
+2 left segments of inner shell
+center
+2 right segments of inner shell
+5 right segments of outer shell
+
+o       o
+o i   i o
+o i c i o
+o       o
+o       o
+
+to get the buffer layout:
+	oooooiiciiooooo
+
+*/
+
+ns.TinyAvatar.prototype.generateRoundelPattern = function( source ) {
+	const self = this;
+	const max = 12;
+	const min = 9;
+	const maxTries = 5;
+	let tries = 0;
+	let limit = 127;
+	let notSatisfied = true;
+	let res = null;
+	
+	do {
+		tries++;
+		res = generate( limit, source );
+		let filled = res.filled;
+		if ( filled > max )
+			limit = limit + 10;
+		
+		if ( filled < min )
+			limit = limit - 10;
+		
+		if ( filled < max && filled > min )
+			notSatisfied = false;
+		
+	} while ( notSatisfied && ( tries < maxTries ));
+	
+	return res.pattern;
+	
+	function generate( limit, source ) {
+		let filled = 0;
+		const pattern = Array( 25 ).fill( 0 );
+		pattern.forEach(( val, index ) => {
+			let sVal = source[ index ];
+			let fill = 0;
+			if ( limit <= sVal ) {
+				filled++;
+				fill = 1;
+			}
+			
+			pattern[ index ] = fill;
+		});
+		
+		return {
+			pattern : pattern,
+			filled  : filled };
+	}
+}
+
+ns.TinyAvatar.prototype.buildRoundelMask = function(
+	imageWidth,
+	pattern,
+	color,
+	bgColor
+) {
+	const self = this;
+	const borderWidth = 4;
+	const pbd = 4; // pixel byte depth, aka one pixel is this many bytes in the buffer ( r, g, b, a )
+	const realWidth = imageWidth * pbd;
+	const lastPosition = imageWidth * imageWidth;
+	const bufferLength = imageWidth * imageWidth * pbd;
+	const buf = Buffer.alloc( bufferLength );
+	
+	buf.fill( bgColor );
+	
+	const xc = ( imageWidth / 2 ) -1;
+	const yc = ( imageWidth / 2 ) -1;
+	const r = ( imageWidth / 2 ) - borderWidth;
+	const r2 = r * r;
+	
+	//
+	
+	const checkOuterRing = createOuterRingCheck( pattern );
+	const checkMiddleRing = createMiddleRingCheck( pattern );
+	const innerCheck = createInnerRingCheck( pattern );
+	
+	//
+	let ya = 0;
+	let xa = 0;
+	while ( ya < imageWidth ) {
+		xa = 0;
+		while( xa < imageWidth ) {
+			let x = xa - xc;
+			let y = yc - ya;
+			let fill = checkFill( x, y );
+			if ( fill )
+				fillPosition( xa, ya );
+			
+			++xa;
+		}
+		
+		++ya;
+	}
+	
+	return buf;
+	
+	function checkFill( x, y ) {
+		let dist = Math.hypot( x, y );
+		let angle = Math.atan2( y, x );
+		let hPI = Math.PI * ( 1 / 2 );
+		let tq2PI = 2 * Math.PI * ( 3 / 4 );
+		
+		angle = angle + tq2PI;
+		if ( angle > ( 2 * Math.PI ))
+			angle = angle - 2 * Math.PI;
+		
+		if ( angle === ( 2 * Math.PI ))
+			angle = 0;
+		
+		if( checkOuterRing( dist, angle )) {
+			return true;
+		}
+		
+		if( checkMiddleRing( dist, angle )) {
+			return true;
+		}
+		
+		if ( innerCheck( dist, angle ))
+			return true;
+				
+		return false;
+	}
+	
+	function fillPosition( x, y ) {
+		let position = x + ( imageWidth * y );
+		const start = position * pbd;
+		const end = start + pbd;
+		const slice = buf.slice( start, end );
+		/*
+		log( 'fillPosition', {
+			pos : position,
+			slice : slice,
+			color : color,
+		});
+		*/
+		
+		slice.fill( color );
+		/*
+		let i = 0;
+		while( i < slice.length ) {
+			slice[ i ] = color[ i ];
+			++i;
+		}
+		*/
+	}
+	
+	function createOuterRingCheck( pattern ) {
+		const l = pattern.slice( 0, 5 );
+		const r = pattern.slice( 11, 16 );
+		const check = [ ...l, ...r ];
+		const ringCheck = createRingCheck( 60, 40 );
+		const segmentCheck = createSegmentCheck( check );
+		
+		return ( dist, angle ) => {
+			if ( !ringCheck( dist ))
+				return false;
+			
+			if ( !segmentCheck( angle ))
+				return false;
+			
+			return true;
+			
+			/*
+			let segRad = ( 2 * Math.PI ) / segments;
+			let segIndex = Math.floor( angle / segRad );
+			let v = check[ segIndex ];
+			log( 'segIndex', {
+				a : angle,
+				i : segIndex,
+				v : v,
+			});
+			return !!v;
+			*/
+		}
+	}
+	
+	function createMiddleRingCheck( pattern ) {
+		const l = pattern.slice( 5, 8 );
+		const r = pattern.slice( 9, 11 );
+		const check = [ ...l, ...r ];
+		const ringCheck = createRingCheck( 36, 18 );
+		const segmentCheck = createSegmentCheck( check );
+		
+		return ( dist, angle ) => {
+			if ( !ringCheck( dist ))
+				return false;
+			
+			if ( !segmentCheck( angle ))
+				return false;
+			
+			return true;
+		}
+	}
+	
+	function createInnerRingCheck( pattern ) {
+		const check = pattern.slice( 8, 9 );
+		const ringCheck = createRingCheck( 14, 0 );
+		const segmentCheck = createSegmentCheck( check );
+		
+		return ( dist, angle ) => {
+			if ( !ringCheck( dist ))
+				return false;
+			
+			if ( !segmentCheck( angle ))
+				return false;
+			
+			return true;
+		}
+	}
+	
+	function createRingCheck( outer, inner ) {
+		return function( d ) {
+			if ( d > outer )
+				return false;
+			
+			if ( d < inner )
+				return false;
+			
+			return true;
+		}
+	}
+	
+	function createSegmentCheck( values ) {
+		const segments = values.length;
+		const segRads = ( Math.PI * 2 ) / segments;
+		return function( angle ) {
+			let index = Math.floor( angle / segRads );
+			let value = values[ index ];
+			
+			return !!value;
+		}
+	}
+}
 
 module.exports = new ns.TinyAvatar();

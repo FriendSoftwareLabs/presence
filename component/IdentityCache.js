@@ -166,9 +166,11 @@ ns.IDC.prototype.addGuest = function( id ) {
 
 // Private
 
-ns.IDC.prototype.init = function( dbPool ) {
+ns.IDC.prototype.init = async function( dbPool ) {
 	const self = this;
 	self.accDB = new dFace.AccountDB( dbPool );
+	self.pixels = await tinyAvatar.generateGuest( 'roundel' );
+	
 	// trim every 24 hours
 	self.trim = setInterval( trims, self.TIMEOUT );
 	function trims() {
@@ -327,7 +329,7 @@ ns.IDC.prototype.updateAvatar = async function( clientId, avatar ) {
 ns.IDC.prototype.setPixelAvatar = async function( clientId ) {
 	const self = this;
 	const cacheId = await self.get( clientId );
-	const pixels = await tinyAvatar.generate( cacheId.name );
+	let pixels = await tinyAvatar.generate( cacheId.name, 'roundel' );
 	cacheId.avatar = pixels;
 	return pixels;
 }
