@@ -25,6 +25,7 @@ const ContactRoom = require( './RoomContact' );
 const Emitter = require( './Events' ).Emitter;
 const dFace = require( './DFace' );
 const Room = require( './Room' );
+const tiny = require( './TinyAvatar' );
 
 const util = require( 'util' );
 
@@ -227,7 +228,7 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.roomDb = new dFace.RoomDB( self.dbPool );
 	self.accDb = new dFace.AccountDB( self.dbPool );
 	self.invDb = new dFace.InviteDB( self.dbPool );
-	const tiny = require( './TinyAvatar' );
+	
 	try {
 		self.guestAvatar = await tiny.generateGuest( 'roundel' );
 	} catch ( err ) {
@@ -393,68 +394,71 @@ ns.RoomCtrl.prototype.persistRoom = function( room ) {
 	}
 }
 
-ns.RoomCtrl.prototype.getRoom = function( rid ) {
+ns.RoomCtrl.prototype.getRoom = async function( rid ) {
 	const self = this;
-	return new Promise( getRoom );
-	function getRoom( resolve, reject ) {
-		let room = self.rooms[ rid ];
-		if ( room ) {
-			resolve( room );
-			return;
-		}
-		
-		let loading = self.roomLoads[ rid ];
-		if ( loading ) {
-			loading
-				.then( loadingLoaded )
-				.catch( loadingErr );
-			return;
-		}
-		
-		loading = new Promise( loadRoom );
-		self.roomLoads[ rid ] = loading;
-		loading
+	let room = self.rooms[ rid ];
+	if ( room )
+		return room;
+	
+	let loader = self.roomLoads[ rid ];
+	if ( loader ) {
+		loader
 			.then( loadingLoaded )
 			.catch( loadingErr );
+		return;
+	}
+	
+	loader = loadRoom( rid );
+	self.roomLoads[ rid ] = loader;
+	room = await loadDone( loader );
+	return room || null;
+	
+	async function loadDone( loader ) {
+		return new Promise(( resolve, reject ) => {
+			loader
+				.then( loadingLoaded )
+				.catch( loadingErr );
 			
-		function loadingLoaded( room ) {
-			resolve( room );
-		}
-		
-		function loadingErr( err ) {
-			reject( err );
-		}
-		
-		function loadRoom( roomResolve, roomReject ) {
-			self.roomDb.get( rid )
-				.then( loaded )
-				.catch( loadErr );
-				
-			function loaded( roomConf ) {
-				if ( !roomConf ) {
-					roomResolve( null );
-					return;
-				}
-				
-				roomConf.persistent = true;
-				self.setRoom( roomConf )
-					.then( roomOpen )
-					.catch( loadErr );
-					
-				function roomOpen( room ) {
-					delete self.roomLoads[ room.id ];
-					roomResolve( room );
-				}
+			function loadingLoaded( room ) {
+				resolve( room );
 			}
 			
-			function loadErr( err ) {
-				log( 'getRoom - db err', {
-					rid : rid,
-					err : err,
-				});
-				roomReject( err );
+			function loadingErr( err ) {
+				log( 'getRoom - failed to load', err.stack || err );
+				reject( null );
 			}
+		});
+	}
+	
+	async function loadRoom( rid ) {
+		let roomConf = null;
+		try {
+			roomConf = await self.roomDb.get( rid );
+		} catch( err ) {
+			log( 'getRoom - db load err', err.stack || err );
+			return null;
 		}
+		
+		if ( !roomConf )
+			return null;
+		
+		if ( !roomConf.avatar )
+			roomConf.avatar = await tiny.generate( roomConf.name, 'block' );
+		
+		roomConf.persistent = true;
+		let room = null;
+		try {
+			room = await self.setRoom( roomConf );
+		} catch( err ) {
+			log( 'getRoom - setRoom failed', err.stack || err );
+			return null;
+		}
+		
+		delete self.roomLoads[ rid ];
+		if ( !room )
+			return null;
+		
+		return room;
 	}
 }
 

@@ -201,6 +201,7 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 	const sigConf = {
 		roomId     : otherId,
 		roomName   : otherName,
+		//roomAvatar : self.avatar,
 		isPrivate  : true,
 		persistent : true,
 		clientId   : id.clientId,

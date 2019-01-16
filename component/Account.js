@@ -557,6 +557,7 @@ ns.Account.prototype.joinedARoomHooray = async function( room, reqId  ) {
 		clientId    : room.roomId,
 		persistent  : room.persistent,
 		name        : room.roomName,
+		avatar      : room.roomAvatar,
 		isPrivate   : room.isPrivate,
 		req         : reqId,
 	};
@@ -777,6 +778,7 @@ ns.Rooms.prototype.getRooms = function() {
 			clientId   : rid,
 			persistent : room.persistent,
 			name       : room.roomName,
+			avatar     : room.roomAvatar,
 		};
 	}
 }

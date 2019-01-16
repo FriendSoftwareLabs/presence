@@ -43,6 +43,7 @@ ns.Room = function( conf, db, idCache, worgCtrl ) {
 	self.id = conf.clientId;
 	self.ownerId = conf.ownerId;
 	self.name = conf.name || null;
+	self.avatar = conf.avatar;
 	self.isPrivate = !!conf.isPrivate;
 	self.persistent = conf.persistent || false;
 	self.guestAvatar = conf.guestAvatar;
@@ -415,6 +416,7 @@ ns.Room.prototype.bindUser = function( userId ) {
 		roomName   : self.name,
 		isPrivate  : self.isPrivate,
 		persistent : self.persistent,
+		roomAvatar : self.avatar,
 		clientId   : cId,
 		name       : user.name,
 		fUsername  : user.fUsername,
@@ -622,7 +624,7 @@ ns.Room.prototype.updateUserAuthorized = function( isAuthed, userId ) {
 	user.setIsAuthed( isAuthed );
 }
 
-ns.Room.prototype.handleRename = function( name, userId ) {
+ns.Room.prototype.handleRename = async function( name, userId ) {
 	const self = this;
 	self.name = name;
 	self.onlineList.forEach( uId => {
@@ -632,6 +634,24 @@ ns.Room.prototype.handleRename = function( name, userId ) {
 		
 		user.roomName = name;
 	});
+	
+	await self.setAvatar();
+	const uptd = {
+		type : 'room-update',
+		data : {
+			clientId : self.id,
+			name     : self.name,
+			avatar   : self.avatar,
+		},
+	};
+	
+	self.broadcast( uptd );
+}
+
+ns.Room.prototype.setAvatar = async function() {
+	const self = this;
+	const tiny = require( './TinyAvatar' );
+	self.avatar = await tiny.generate( self.name, 'block' );
 }
 
 ns.Room.prototype.setIdentity = function( id, userId ) {
