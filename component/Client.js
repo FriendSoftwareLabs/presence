@@ -35,6 +35,7 @@ ns.TCPClient = function( tcpSocket ) {
 	self.id = null;
 	self.socket = tcpSocket;
 	
+	self.rcvBuffer = [];
 	self.sessionTimeout = 1000 * 60;
 	self.pingStepTimeout = 1000 * 10;
 	self.pingStep = 1000 * 2;
@@ -238,6 +239,7 @@ ns.TCPClient.prototype.handleSocketError = function( e ) {
 
 ns.TCPClient.prototype.handleSocketClose = function( e ) {
 	const self = this;
+	log( 'socketClose', e );
 	self.handleClosed();
 }
 
@@ -267,13 +269,20 @@ ns.TCPClient.prototype.kill = function() {
 
 ns.TCPClient.prototype.handleSocketData = function( str ) {
 	const self = this;
-	var event = null;
-	try {
-		event = JSON.parse( str );
-	} catch( e ) {
-		log( 'handleSocketData - invalid json', str );
-		return;
+	//log( 'handleSocketData', shtStr( str ));
+	let event = parse( str );
+	if ( event )
+		self.rcvBuffer = [];
+	else {
+		//log( 'buff part, l: ', str.length );
+		self.rcvBuffer.push( str );
 	}
+	
+	if ( 1 < self.rcvBuffer.length )
+		event = tryBuffer();
+	
+	if ( !event )
+		return;
 	
 	if ( 'msg' === event.type ) {
 		const notEmitted = self.emit( event.type, event.data );
@@ -283,6 +292,38 @@ ns.TCPClient.prototype.handleSocketData = function( str ) {
 	}
 	
 	self.handleConnMsg( event );
+	
+	function tryBuffer() {
+		//log( 'tryBuffer', self.rcvBuffer.map( str => shtStr( str )));
+		const buffStr = self.rcvBuffer.join( '' );
+		//log( 'buffStr', shtStr( buffStr ) );
+		const event = parse( buffStr );
+		if ( !event ) {
+			//log( 'tryBuffer - failed', buffStr );
+			return null;
+		}
+		
+		//log( 'tryBuffer - parsed', event );
+		self.rcvBuffer = [];
+		return event;
+	}
+	
+	function parse( str ) {
+		let event = null;
+		try {
+			event = JSON.parse( str );
+		} catch( e ) {
+			//log( 'could not parse', shtStr( str ));
+			return null;
+		}
+		
+		return event;
+	}
+	
+	function shtStr( str ) {
+		let sht = str.slice( 0, 8 ) + '...' + str.slice( -8 );
+		return sht;
+	}
 }
 
 ns.TCPClient.prototype.handleConnMsg = function( event ) {
