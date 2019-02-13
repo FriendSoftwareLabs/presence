@@ -402,10 +402,8 @@ ns.RoomCtrl.prototype.getRoom = async function( rid ) {
 	
 	let loader = self.roomLoads[ rid ];
 	if ( loader ) {
-		loader
-			.then( loadingLoaded )
-			.catch( loadingErr );
-		return;
+		room = await loadDone( loader );
+		return room || null;
 	}
 	
 	loader = loadRoom( rid );
