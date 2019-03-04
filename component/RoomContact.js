@@ -221,6 +221,7 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 	user.on( 'disconnect', goOffline );
 	user.on( 'leave', leaveRoom );
 	user.on( 'live-join', joinLive );
+	user.on( 'live-restore', restoreLive );
 	user.on( 'live-leave', leaveLive );
 	user.on( 'active', active );
 	user.on( 'open', open );
@@ -232,6 +233,7 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 	function goOffline( e ) { self.disconnect( uid ); }
 	function leaveRoom( e ) { self.handleLeave( uid ); }
 	function joinLive( e ) { self.handleJoinLive( e, uid ); }
+	function restoreLive( e ) { self.handleRestoreLive( e, uid ); }
 	function leaveLive( e ) { self.handleLeaveLive( e, uid ); }
 	function active( e ) { self.handleActive( e, uid ); }
 	function open( e ) { self.handleOpen( uid ); }
@@ -308,6 +310,7 @@ ns.ContactRoom.prototype.setOffline = function( userId ) {
 
 ns.ContactRoom.prototype.handleOpen = function( userId ) {
 	const self = this;
+	log( 'handleOpen', userId );
 	const open = {
 		type : 'open',
 		data : true,

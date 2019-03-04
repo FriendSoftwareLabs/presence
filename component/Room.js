@@ -436,6 +436,7 @@ ns.Room.prototype.bindUser = function( userId ) {
 	user.on( 'disconnect', goOffline );
 	user.on( 'leave', leaveRoom );
 	user.on( 'live-join', joinLive );
+	user.on( 'live-restore', restoreLive );
 	user.on( 'live-leave', leaveLive );
 	user.on( 'active', active );
 	
@@ -446,6 +447,7 @@ ns.Room.prototype.bindUser = function( userId ) {
 	function goOffline( e ) { self.disconnect( uid ); }
 	function leaveRoom( e ) { self.handleLeave( uid ); }
 	function joinLive( e ) { self.handleJoinLive( e, uid ); }
+	function restoreLive( e ) { self.handleRestoreLive( e, uid ); }
 	function leaveLive( e ) { self.handleLeaveLive( e, uid ); }
 	function active( e ) { self.handleActive( e, uid ); }
 	
@@ -480,7 +482,7 @@ ns.Room.prototype.initialize = function( requestId, userId ) {
 		users       : buildBaseUsers(),
 		online      : self.onlineList,
 		identities  : self.identities,
-		peers       : self.live.peerIds,
+		peers       : self.live.getPeers(),
 		workgroups  : self.worgs.get(),
 		lastMessage : self.log.getLast( 1 )[ 0 ],
 	};
@@ -822,6 +824,12 @@ ns.Room.prototype.handleJoinLive = function( event, uid ) {
 	}
 	
 	self.live.add( uid );
+}
+
+ns.Room.prototype.handleRestoreLive = function( event, uid ) {
+	const self = this;
+	log( 'handleRestoreLive', event );
+	self.live.restore( uid );
 }
 
 ns.Room.prototype.handleLeaveLive = function( event, uid ) {

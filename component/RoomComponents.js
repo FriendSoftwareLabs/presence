@@ -193,65 +193,65 @@ ns.Chat.prototype.handleChat = function( event, userId ) {
 }
 
 ns.Chat.prototype.handleMsg = function( data, userId ) {
-    const self = this;
-    if ( !data || !data.message )
-        return;
-    
-    const user = self.users[ userId ];
-    const fromId = user.isGuest ? null : userId;
-    const message = data.message;
-    const mid = uuid.get( 'msg' );
-    const msg = {
-        msgId   : mid,
-        roomId  : self.roomId,
-        fromId  : fromId,
-        name    : user.name,
-        time    : Date.now(),
-        type    : 'msg',
-        message : message,
-    };
-    
-    const event = {
-        type : 'msg',
-        data : msg,
-    };
-    
-    self.log.add( event );
-    self.sendMsgNotification( message, mid, userId );
-    self.broadcast( event );
+	const self = this;
+	if ( !data || !data.message )
+		return;
+	
+	const user = self.users[ userId ];
+	const fromId = user.isGuest ? null : userId;
+	const message = data.message;
+	const mid = uuid.get( 'msg' );
+	const msg = {
+		msgId   : mid,
+		roomId  : self.roomId,
+		fromId  : fromId,
+		name    : user.name,
+		time    : Date.now(),
+		type    : 'msg',
+		message : message,
+	};
+	
+	const event = {
+		type : 'msg',
+		data : msg,
+	};
+	
+	self.log.add( event );
+	self.sendMsgNotification( message, mid, userId );
+	self.broadcast( event );
 }
 
 ns.Chat.prototype.sendMsgNotification = async function( message, mid, fromId ) {
-    const self = this;
-    const from = self.users[ fromId ];
-    const roomName = '#' + self.roomName;
-    const notie = from.name + ': ' + message;
-    const uIds = Object.keys( self.users );
-    const extra = {
-        roomId : self.roomId,
-        msgId : mid,
-    };
-    
-    uIds.forEach( async toId => {
-        if ( fromId === toId )
-            return;
-        
-        const user = self.users[ toId ];
-        if ( !user || !user.fUsername )
-            return;
-        
-        try {
-            await self.service.sendNotification(
-                user.fUsername,
-                roomName,
-                notie,
-                self.roomId,
-                extra
-            );
-        } catch ( err ) {
-            cLog( 'sendMsgNotification - err', err );
-        }
-    });
+	const self = this;
+	const from = self.users[ fromId ];
+	const roomName = '#' + self.roomName;
+	const notie = from.name + ': ' + message;
+	const uIds = Object.keys( self.users );
+	const extra = {
+		roomId : self.roomId,
+		msgId : mid,
+	};
+	
+	uIds.forEach( async toId => {
+		if ( fromId === toId )
+			return;
+		
+		const user = self.users[ toId ];
+		if ( !user || !user.fUsername )
+			return;
+		
+		try {
+			await self.service.sendNotification(
+				user.fUsername,
+				roomName,
+				notie,
+				self.roomId,
+				extra
+			);
+		} catch ( err ) {
+			cLog( 'sendMsgNotification - err', err );
+		}
+	});
 }
 
 ns.Chat.prototype.handleLog = function( event, userId ) {
@@ -443,7 +443,7 @@ ns.Live = function(
 
 // Public
 
-ns.Live.prototype.add = function( userId ) { //adds user to existing room
+ns.Live.prototype.add = async function( userId ) { //adds user to existing room
 	const self = this;
 	const user = self.users[ userId ];
 	if ( !user )
@@ -451,7 +451,7 @@ ns.Live.prototype.add = function( userId ) { //adds user to existing room
 	
 	const pid = user.clientId;
 	if ( self.peers[ pid ]) {
-		self.reAdd( pid );
+		await self.reAdd( pid );
 		return;
 	}
 	
@@ -498,7 +498,17 @@ ns.Live.prototype.add = function( userId ) { //adds user to existing room
 	}
 }
 
-ns.Live.prototype.remove = function( peerId ) { // userId
+ns.Live.prototype.restore = async function( userId ) {
+	const self = this;
+	if ( self.peers[ userId ])
+		self.sendOpen( userId );
+	else
+		await self.add( userId );
+	
+	self.sendPeerList( userId );
+}
+
+ns.Live.prototype.remove = function( peerId, isReAdd ) { // userId
 	//peerId is the same as userId
 	const self = this;
 	if ( self.mode && self.mode.data.owner === peerId )
@@ -516,7 +526,7 @@ ns.Live.prototype.remove = function( peerId ) { // userId
 	}
 	
 	if ( self.proxy ) {
-		if ( self.proxy.remove_user( peerId ) == false ) { //room is empty
+		if ( false == self.proxy.remove_user( peerId )) { //room is empty
 			self.closeStreamProxy();
 		}
 	}
@@ -527,7 +537,6 @@ ns.Live.prototype.remove = function( peerId ) { // userId
 	
 	self.stopPing( peerId );
 	// tell the peer
-	self.sendClose( peerId, peer.liveId );
 	peer.liveId = null;
 	// tell everyone else
 	self.sendLeave( peerId );
@@ -535,7 +544,16 @@ ns.Live.prototype.remove = function( peerId ) { // userId
 	delete self.peers[ peerId ];
 	self.peerIds = Object.keys( self.peers );
 	peer.release( 'live' );
+	if ( isReAdd )
+		return;
+	
+	self.sendClose( peerId, peer.liveId );
 	self.updateQualityScale();
+}
+
+ns.Live.prototype.getPeers = function() {
+	const self = this;
+	return self.peerIds;
 }
 
 ns.Live.prototype.close = function( callback ) {
@@ -611,13 +629,14 @@ ns.Live.prototype.init = function() {
 	
 }
 
-ns.Live.prototype.reAdd = function( pid ) {
+ns.Live.prototype.reAdd = async function( pid ) {
 	const self = this;
 	if ( self.peerAddTimeouts[ pid ]){
 		return; // already being re added
 	}
 	
 	const peer = self.peers[ pid ];
+	/*
 	self.stopPing( pid );
 	self.sendClose( pid, peer.liveId );
 	peer.liveId = null;
@@ -625,10 +644,24 @@ ns.Live.prototype.reAdd = function( pid ) {
 	delete self.peers[ pid ];
 	self.peerIds = Object.keys( self.peers );
 	peer.release( 'live' );
-	self.peerAddTimeouts[ pid ] = setTimeout( add, 100 );
-	function add() {
-		delete self.peerAddTimeouts[ pid ];
-		self.add( pid );
+	*/
+	self.remove( pid, true );
+	await wait();
+	self.add( pid );
+	return true;
+	
+	function wait() {
+		return new Promise(( resolve, reject ) => {
+			self.peerAddTimeouts[ pid ] = setTimeout( teeOut, 100 );
+			function teeOut() {
+				let timeout = self.peerAddTimeouts[ pid ];
+				if ( null == timeout )
+					throw new Error( 'timeout canceled' );
+				
+				delete self.peerAddTimeouts[ pid ];
+				resolve( true );
+			}
+		});
 	}
 }
 
@@ -653,6 +686,7 @@ ns.Live.prototype.clearAddTimeouts = function() {
 
 ns.Live.prototype.startPing = function( pid ) {
 	const self = this;
+	lLog( 'startPing', pid );
 	if ( self.pingers[ pid ] )
 		self.stopPing( pid );
 	
@@ -714,6 +748,7 @@ ns.Live.prototype.stopPeerTimeout = function( pid ) {
 
 ns.Live.prototype.stopPing = function( pid ) {
 	const self = this;
+	lLog( 'stopPing', pid );
 	const pinger = self.pingers[ pid ];
 	if ( !pinger )
 		return;

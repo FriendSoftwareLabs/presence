@@ -585,6 +585,7 @@ ns.Account.prototype.handleRoomClosed = function( roomId ) {
 
 ns.Account.prototype.handleContactListen = async function( event, contactId ) {
 	const self = this;
+	self.log( 'handleContactListen', event );
 	let room = await self.openContactChat( null, contactId );
 	if ( !room ) {
 		self.log( 'handleContactListen - could not room', contactId );
