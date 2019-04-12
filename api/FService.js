@@ -61,15 +61,23 @@ ns.FService = function( fcConf, destinationApp ) {
 		return global.FService;
 	}
 	
-	self.conn = null;
-	if ( destinationApp )
-		self.destApp = destinationApp;
+	if ( !fcConf && global.FService )
+		return global.FService;
 	
-	self.init( fcConf );
+	const debug = false;
+	events.Emitter.call( self, FSink, debug );
+	self.conn = null;
+	self.init( fcConf, destinationApp );
 	
 	global.FService = self;
 	return global.FService;
+	
+	function FSink( ...args ) {
+		log( 'FSink', args, 4 );
+	}
 }
+
+util.inherits( ns.FService, events.Emitter );
 
 // Public
 
@@ -82,7 +90,7 @@ message : <string> - Notification message
 */
 
 ns.FService.prototype.sendNotification = async function(
-		username,
+		users,
 		title,
 		message,
 		channel,
@@ -93,16 +101,22 @@ ns.FService.prototype.sendNotification = async function(
 	extra = checkExtra( extra );
 	destApp = self.checkString( destApp ) || self.destApp;
 	channel = self.checkString( channel );
-	username = self.checkString( username );
 	title = self.checkString( title );
 	message = self.checkString( message );
-	if ( !username || !title || !message )
+	if (
+		!users
+		|| ( 'string' === typeof( users ))
+		|| !users.length
+		|| !title
+		|| !message
+	) {
 		throw new Error( 'ERR_INVALID_ARGUMENTS' );
+	}
 	
 	const notie = {
 		type : 'notification',
 		data : {
-			username          : username,
+			users             : users,
 			channel_id        : channel,
 			notification_type : 1,
 			title             : title,
@@ -112,6 +126,7 @@ ns.FService.prototype.sendNotification = async function(
 		},
 	};
 	
+	log( 'sendNotification', notie, 3 );
 	let err = await self.send( notie );
 	if ( err )
 		throw err;
@@ -138,14 +153,22 @@ ns.FService.prototype.sendNotification = async function(
 
 ns.FService.prototype.close = function() {
 	const self = this;
+	self.release();
 	self.cleanupConn();
 	delete self.fcc;
 }
 
 // Private
 
-ns.FService.prototype.init = function( fcConf ) {
+ns.FService.prototype.init = function( fcConf, destApp ) {
 	const self = this;
+	log( 'init', fcConf );
+	if ( !fcConf )
+		return;
+	
+	if ( destApp )
+		self.destApp = destApp;
+	
 	log( 'init //:;;:\\\\' );
 	self.fcc = fcConf;
 	self.connect();
@@ -174,12 +197,17 @@ ns.FService.prototype.connect = function() {
 	self.conn.on( 'open', onOpen );
 	self.conn.on( 'error', onError );
 	self.conn.on( 'closed', onClosed );
-	self.conn.on( 'service', onService );
+	self.conn.on( 'service', e => self.handleService( e ));
 	
 	function onOpen( e ) { self.handleConnOpen(); }
 	function onError( e ) { self.handleConnError( e ); }
 	function onClosed( e ) { self.handleConnClosed( e ); }
-	function onService( e ) {} // log( 'service event', e, 4 ); }
+}
+
+ns.FService.prototype.handleService = function( event ) {
+	const self = this;
+	//log( 'handleService', event );
+	self.emit( event.type, event.data );
 }
 
 ns.FService.prototype.handleConnOpen = function( e ) {
@@ -224,6 +252,10 @@ ns.FService.prototype.checkString = function( str ) {
 		return null;
 	
 	return str.toString();
+}
+
+ns.FService.prototype.checkArray = function( list ) {
+	
 }
 
 /*
@@ -308,6 +340,10 @@ ns.FCWS = function(
 	self.useTLS = useTLS;
 	
 	self.reconnectTimeout = 1000 * 10;
+	self.pinger = null;
+	self.pingMap = {};
+	self.pingRate = 1000 * 10;
+	self.pingTimeout = 1000 * 5;
 	
 	self.state = 'new';
 	self.init();
@@ -345,6 +381,7 @@ ns.FCWS.prototype.reconnect = function() {
 // Immediatly destroy everything, unsent messages are not sent
 ns.FCWS.prototype.close = function() {
 	const self = this;
+	self.stopPing();
 	self.release();
 	self.cleanupWS();
 	
@@ -374,7 +411,7 @@ ns.FCWS.prototype.init = function() {
 
 ns.FCWS.prototype.handleAuth = function( res ) {
 	const self = this;
-	//wsLog( 'handleAuth', res );
+	wsLog( 'handleAuth', res );
 	if ( 0 !== res.status ) {
 		//wsLog( 'FCWS.handleAuthenticate - error state', res );
 		self.state = 'error';
@@ -384,7 +421,7 @@ ns.FCWS.prototype.handleAuth = function( res ) {
 	
 	self.state = 'open';
 	self.emitState();
-	self.sendPing();
+	self.startPing();
 }
 
 ns.FCWS.prototype.handleNotify = function( event ) {
@@ -392,13 +429,33 @@ ns.FCWS.prototype.handleNotify = function( event ) {
 	wsLog( 'handleNotify - you are doing it wrong', event );
 }
 
+ns.FCWS.prototype.startPing = function() {
+	const self = this;
+	self.pinger = setInterval( send, self.pingRate );
+	function send() {
+		if ( null == self.pinger )
+			return;
+		
+		self.sendPing();
+	}
+}
+
 ns.FCWS.prototype.sendPing = function() {
 	const self = this;
+	const time = String( Date.now());
 	const ping = {
 		type : 'ping',
-		data : Date.now(),
+		data : time,
 	};
 	self.send( ping );
+	self.pingMap[ time ] = setTimeout( timeout, self.pingTimeout );
+	
+	function timeout() {
+		wsLog( 'ping timeout hit', time );
+		self.stopPing();
+		self.state = 'error';
+		self.tryReconnect();
+	}
 }
 
 ns.FCWS.prototype.handlePing = function( timestamp ) {
@@ -412,16 +469,47 @@ ns.FCWS.prototype.handlePing = function( timestamp ) {
 
 ns.FCWS.prototype.handlePong = function( timestamp ) {
 	const self = this;
-	//wsLog( 'handlePong - NYI', timestamp );
+	const timer = self.pingMap[ timestamp ];
+	if ( null == timer ) {
+		wsLog( 'handlePong - no timer for', {
+			ts  : timestamp,
+			map : self.pingMap,
+		}, 3 );
+		return;
+	}
+	
+	clearTimeout( timer );
+	delete self.pingMap[ timestamp ];
+}
+
+ns.FCWS.prototype.stopPing = function() {
+	const self = this;
+	wsLog( 'stopPing' );
+	const pings = Object.keys( self.pingMap );
+	pings.forEach( ping => {
+		const timer = self.pingMap[ ping ];
+		delete self.pingMap[ ping ];
+		if ( timer == null )
+			return;
+		
+		clearTimeout( timer );
+	});
+	
+	if ( null == self.pinger )
+		return;
+	
+	clearInterval( self.pinger );
+	delete self.pinger;
 }
 
 ns.FCWS.prototype.connect = function() {
 	const self = this;
+	wsLog( 'connect', self );
 	if ( self.ws )
 		self.cleanupWS();
 	
 	self.state = 'connecting';
-	const subProto = ['FriendService-v1'];
+	const subProto = [ 'FriendService-v1' ];
 	const opts = {
 		rejectUnauthorized : false,
 	};
@@ -451,6 +539,7 @@ ns.FCWS.prototype.releaseWS = function() {
 
 ns.FCWS.prototype.handleOpen = async function() {
 	const self = this;
+	wsLog( 'handleOpen' );
 	self.state = 'authenticating';
 	const auth = {
 		type : 'authenticate',
@@ -471,6 +560,7 @@ ns.FCWS.prototype.handleOpen = async function() {
 ns.FCWS.prototype.handleClose = function( code ) {
 	const self = this;
 	//wsLog( 'FCWS.handleClose', code );
+	self.stopPing();
 	if ( 'closed' === self.state )
 		return;
 	
@@ -489,14 +579,14 @@ ns.FCWS.prototype.handleError = function( e ) {
 
 ns.FCWS.prototype.tryReconnect = function() {
 	const self = this;
-	//wsLog( 'tryReconnect', self.state );
-	if ( 'error' !== self.state ) {
-		wsLog( 'tryReconnect - state not error, noop', self.state );
+	wsLog( 'tryReconnect', self.state );
+	if ( 'connect-wait' === self.state || 'connecting' === self.state ) {
+		wsLog( 'tryReconnect - connecting things already happening, noop' );
 		return;
 	}
 	
-	if ( 'connect-wait' === self.state || 'connecting' === self.state ) {
-		wsLog( 'tryReconnect - connecting things already happening, noop' );
+	if ( 'error' !== self.state ) {
+		wsLog( 'tryReconnect - state not error, noop', self.state );
 		return;
 	}
 	
@@ -516,7 +606,7 @@ ns.FCWS.prototype.tryReconnect = function() {
 
 ns.FCWS.prototype.handleFCEvent = function( msgStr ) {
 	const self = this;
-	//wsLog( 'handleFCEvent - str', msgStr );
+	wsLog( 'handleFCEvent - str', msgStr );
 	let event = null;
 	try {
 		event = JSON.parse( msgStr );

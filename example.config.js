@@ -17,8 +17,9 @@
 *                                                                              *
 *****************************************************************************©*/
 
-// Do not edit example.config.js! It is overwritten.
-// Make changes to config.js, it is created by the installer.
+// DO NOT EDIT example.config.js! Changes will be overwritten.
+// Override defaults by adding them to config.js. 
+// config.js is created by the installer.
 
 var server = {
 	mysql : {
@@ -28,6 +29,7 @@ var server = {
 		pass : 'presence_database_password',
 		name : 'presence_database_name',
 	},
+	
 	tls : {
 		keyPath  : 'path_to_key.pem',
 		certPath : 'path_to_cert.pem',
@@ -36,15 +38,18 @@ var server = {
 	},
 	// failure to provide this means invites wont work
 	domain : 'presence_domain',
+	
 	tcp : {
 		port  : 27960,
 		proxy : null,
 	},
+	
 	ws : {
 		port : 27970,
 		proxy : null,
 		// proxy : '/presence/guest/',
 	},
+	
 	friendcore : {
 		useTLS      : true,
 		host        : 'friendcore_domain',
@@ -55,14 +60,23 @@ var server = {
 		serviceKey  : null,
 		serviceName : null,
 	},
+	
 	account : {
 		settings : {
 		},
 	},
+	
 	room : {
 		settings : {
 		},
 	},
+	
+	workroom : {
+		subsHaveSuperView : true,
+		supersHaveSubRoom : true,
+		supersSubHideSuper : true,
+	},
+	
 	streamProxy    : null,
 	classroomProxy : null,
 	janus : {

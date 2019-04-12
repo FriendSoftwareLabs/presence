@@ -253,25 +253,33 @@ ns.AccountDB.prototype.getByFUserId = async function( fUserId ) {
 	return acc;
 }
 
-ns.AccountDB.prototype.getById = function( accountId ) {
+ns.AccountDB.prototype.getById = async function( accountId ) {
 	const self = this;
-	return new Promise( getAcc );
-	function getAcc( resolve, reject ) {
-		const values = [ accountId ];
-		self.query( 'account_read_id', values )
-			.then( accBack )
-			.catch( reject );
-		
-		function accBack( res ) {
-			if ( !res ) {
-				reject( 'ERR_DB_INVALID_RES_WUT_???' );
-				return;
-			}
-			
-			let acc = res[ 0 ] || null;
-			resolve( acc );
-		}
+	if ( 'string' != typeof( accountId ))
+		throw new Error( 'rabble rabble rabble' );
+	
+	const values = [ accountId ];
+	let res = null;
+	try {
+		res = await self.query( 'account_read_id', values );
+	} catch( e ) {
+		accLog( 'getById - query fail', {
+			e : e,
+			v : values,
+		}, 4 );
+		return null;
 	}
+	
+	if ( !res || !res[ 0 ]) {
+		accLog( 'getById - no id for', {
+			accId : accountId,
+			res   : res,
+		}, 3 );
+		return null;
+	}
+	
+	let acc = res[ 0 ];
+	return acc;
 }
 
 ns.AccountDB.prototype.remove = function( clientId ) {
@@ -378,7 +386,12 @@ util.inherits( ns.RoomDB, ns.DB );
 
 // Public
 
-ns.RoomDB.prototype.set = function( clientId, name, ownerId, isPrivate ) {
+ns.RoomDB.prototype.set = function(
+	clientId,
+	name,
+	ownerId,
+	isPrivate
+) {
 	const self = this;
 	if ( !name || !ownerId )
 		throw new Error( 'Room.db.set - invalid params' );
@@ -591,57 +604,81 @@ ns.RoomDB.prototype.getAssignedWorkgroups = async function( roomId ) {
 	return worgs;
 }
 
-ns.RoomDB.prototype.assignWorkgroup = function( fWgId, setById, roomId ) {
+ns.RoomDB.prototype.assignWorkgroup = async function( fWgId, setById, roomId ) {
 	const self = this;
-	return new Promise( assign );
-	function assign( resolve, reject ) {
-		roomId = roomId || self.id;
-		if ( !roomId || !fWgId || !setById ) {
-			roomLog( 'assingWorkgroup - invalid args', {
-				rid   : roomId,
-				fWgId : fWgId,
-				sid   : setById,
-			});
-			reject( 'ERR_INVALID_ARGS' );
-			return;
-		}
-		
-		const values = [
-			roomId,
-			fWgId,
-			setById,
-		];
-		self.query( 'room_assign_workgroup', values )
-			.then( done )
-			.catch( reject );
-			
-		function done( rows ) {
-			resolve( rows[ 0 ] );
-		}
+	roomId = roomId || self.id;
+	if ( !roomId || !fWgId || !setById ) {
+		roomLog( 'assingWorkgroup - invalid args', {
+			rid   : roomId,
+			fWgId : fWgId,
+			sid   : setById,
+		});
+		return null;
 	}
+	
+	const values = [
+		roomId,
+		fWgId,
+		setById,
+	];
+	let res = null;
+	try {
+		res = await self.query( 'room_assign_workgroup', values );
+	} catch( e ) {
+		roomLog( 'assignWorkgroup - query err', e );
+		return null;
+	}
+	
+	if ( !res )
+		return null;
+	
+	return res[ 0 ];
 }
 
-ns.RoomDB.prototype.dismissWorkgroup = function( fWgId, roomId ) {
+ns.RoomDB.prototype.dismissWorkgroup = async function( fWgId, roomId ) {
 	const self = this;
-	return new Promise( dismiss );
-	function dismiss( resolve, reject ) {
-		roomId = roomId || self.id;
-		if ( !fWgId || !roomId ) {
-			reject( 'ERR_INVALID_ARGS' );
-			return;
-		}
-		const values = [
-			roomId,
-			fWgId,
-		];
-		self.query( 'room_dismiss_workgroup', values )
-			.then( done )
-			.catch( reject );
-		
-		function done( rows) {
-			resolve( rows[ 0 ]);
-		}
+	roomId = roomId || self.id;
+	if ( !fWgId || !roomId ) {
+		roomLog( 'dismissWorkgroup - invalid args', {
+			roomId : roomId,
+			fWgId  : fWgId,
+		});
+		return null;
 	}
+	
+	const values = [
+		roomId,
+		fWgId,
+	];
+	let res = null;
+	try {
+		res = await self.query( 'room_dismiss_workgroup', values )
+	} catch( e ) {
+		roomLog( 'dismissWorkgroup - query err', e );
+		return null;
+	}
+	
+	if ( !res )
+		return null;
+	
+	return res[ 0 ];
+}
+
+ns.RoomDB.prototype.getAssignedTo = async function( worgId ) {
+	const self = this;
+	const values = [ worgId ];
+	let res = null;
+	try {
+		res = await self.query( 'room_get_assigned_to', values );
+	} catch( err ) {
+		roomLog( 'getAssignedTo - query err', err );
+		return null;
+	}
+	
+	if ( !res || !res.length )
+		return [];
+	
+	return res.map( row => row.roomId );
 }
 
 ns.RoomDB.prototype.setRelation = async function( accIdA, accIdB ) {
@@ -752,24 +789,23 @@ ns.RoomDB.prototype.authorize = async function( roomId, accountIds ) {
 	return true;
 }
 
-ns.RoomDB.prototype.check = function( accountId, roomId ) {
+ns.RoomDB.prototype.check = async function( accountId, roomId ) {
 	const self = this;
 	roomId = roomId || self.id;
-	return new Promise( checkAuth );
-	function checkAuth( resolve, reject ) {
-		let values = [
-			roomId,
-			accountId,
-		];
-		
-		self.query( 'auth_check', values )
-			.then( checked )
-			.catch( reject );
-		
-		function checked( rows ) {
-			resolve( !!rows[ 0 ]);
-		}
+	let values = [
+		roomId,
+		accountId,
+	];
+	
+	let res = null;
+	try {
+		res = await self.query( 'auth_check', values );
+	} catch ( e ) {
+		roomLog( 'check - qery err' );
+		return null;
 	}
+	
+	return true;
 }
 
 ns.RoomDB.prototype.revoke = function( roomId, accountId ) {
@@ -779,6 +815,47 @@ ns.RoomDB.prototype.revoke = function( roomId, accountId ) {
 		accountId,
 	];
 	return self.query( 'auth_remove', values );
+}
+
+
+ns.RoomDB.prototype.setForWorkgroup = async function(
+	worgId,
+	worgName,
+	settings,
+) {
+	const self = this;
+	const clientId = uuid.get( 'worg' );
+	settings = settings || '{}';
+	const values = [
+		clientId,
+		worgId,
+		worgName,
+		'system',
+		settings,
+	];
+	let res = null;
+	try {
+		res = await self.query( 'room_create_for_workgroup', values );
+	} catch( err ) {
+		roomLog( 'setForWorkgroup - query err', err );
+		return null;
+	}
+	
+	return res[ 0 ] || null;
+}
+
+ns.RoomDB.prototype.getForWorkgroup = async function( worgId ) {
+	const self = this;
+	const values = [ worgId ];
+	let res = null;
+	try {
+		res = await self.query( 'room_get_for_workgroup', values );
+	} catch( err ) {
+		roomLog( 'getForWorkgroup - query err', err );
+		return null;
+	}
+	
+	return res[ 0 ] || null;
 }
 
 ns.RoomDB.prototype.getSettings = function( roomId ) {
@@ -900,7 +977,78 @@ ns.MessageDB.prototype.set = async function( conf ) {
 		conf.message,
 	];
 	
-	await self.query( 'message_set', values );
+	let res = null;
+	try {
+		await self.query( 'message_set', values );
+	} catch( e ) {
+		msgLog( 'set - query boop', e );
+		return null;
+	}
+	
+	return conf.msgId;
+}
+
+ns.MessageDB.prototype.setWork = async function( conf ) {
+	const self = this;
+	let msgId = null;
+	try {
+		msgId = await self.set( conf );
+	} catch( err ) {
+		msgLog( 'setWork - set msg failed', err );
+		return null;
+	}
+	
+	if ( !msgId ) {
+		msgLog( 'setWork - msg did not return a msgId', msgId );
+		return null;
+	}
+	
+	const targets = conf.targets;
+	const source = conf.source;
+	const tIds = Object.keys( targets );
+	const rows = [];
+	tIds.forEach( addRows );
+	await Promise.all( rows.map( setTarget ));
+	
+	return msgId;
+	
+	function addRows( tId ) {
+		const wT = targets[ tId ];
+		if ( null == wT.length ) {
+			// set room target
+			const room = [
+				msgId,
+				source,
+				tId,
+				null,
+			];
+			rows.push( room );
+		}
+		else {
+			// set room user targets
+			wT.forEach( t => {
+				const member = [
+					msgId,
+					source,
+					tId,
+					t,
+				];
+				rows.push( member );
+			});
+		}
+	}
+	
+	async function setTarget( values ) {
+		try {
+			await self.query( 'message_set_work_target', values );
+		} catch( err ) {
+			msgLog( 'setTarget - failed', {
+				row : values,
+				err : err,
+			});
+		}
+	}
+	
 }
 
 ns.MessageDB.prototype.setForRelation = async function( msg, relationId, activeList ) {
@@ -949,7 +1097,7 @@ ns.MessageDB.prototype.getRelationState = async function( relationId, contactId 
 	let lastMessageRes = self.parseItems( res[ 1 ]);
 	return {
 		unreadMessages : unreadRes[ 0 ].unreadMessages,
-		lastMessage    : lastMessageRes[ 0 ],
+		lastMessage    : lastMessageRes ? lastMessageRes[ 0 ] : null,
 	};
 }
 
@@ -970,9 +1118,123 @@ ns.MessageDB.prototype.updateUserLastRead = async function( relationId, userId, 
 	return true;
 }
 
+ns.MessageDB.prototype.setRoomUserMessages = async function( userId, roomId ) {
+	const self = this;
+	roomId = roomId || self.roomId;
+	const values = [
+		roomId,
+		userId,
+	];
+	let res = null;
+	try {
+		res = await self.query( 'room_user_messages_set', values );
+	} catch( e ) {
+		msgLog( 'setRoomUserMessages - query err', e );
+		return null;
+	}
+	
+	return res[ 0 ];
+}
+
+ns.MessageDB.prototype.loadRoomUserMessages = async function( roomId ) {
+	const self = this;
+	roomId = roomId || self.roomId;
+	const values = [
+		roomId,
+	];
+	let res = null;
+	try {
+		res = await self.query( 'room_user_messages_load', values );
+	} catch( e ) {
+		msgLog( 'loadRoomUserMessages - query fail', {
+			values : values,
+			e      : e,
+		}, 3 );
+		return null;
+	}
+	
+	return res;
+}
+
+ns.MessageDB.prototype.updateRoomUserMessages = async function( msgId, userList, roomId ) {
+	const self = this;
+	roomId = roomId || self.roomId;
+	const usersStr = userList.join( '|' );
+	const values = [
+		roomId,
+		usersStr,
+		msgId,
+	];
+	let res = null;
+	try {
+		res = await self.query( 'room_user_messages_update', values );
+	} catch( e ) {
+		msgLog( 'updateRoomUserMessages - query boop', e );
+		return false;
+	}
+	
+	return true;
+}
+
+ns.MessageDB.prototype.getRoomUserMessagesUnread = async function( userId, roomId ) {
+	const self = this;
+	roomId = roomId || self.roomId;
+	const values = [
+		roomId,
+		userId,
+	];
+	
+	let res = null;
+	try {
+		res = await self.query( 'room_user_messages_count_unread', values );
+	} catch( e ) {
+		msgLog( 'getRoomUserMessagesUnread - query fail', e );
+		return false;
+	}
+	
+	const row = res[ 0 ];
+	if ( !row )
+		return null;
+	
+	return row.unread;
+}
+
+// worgId is optional, enables counting messages to/from work rooms
+ns.MessageDB.prototype.getRoomUserMessagesUnreadWorg = async function(
+	userId,
+	worgId,
+	noPrivate,
+	userIsViewer,
+	roomId
+) {
+	const self = this;
+	roomId = roomId || self.roomId;
+	const values = [
+		roomId,
+		userId,
+		worgId,
+		noPrivate,
+		userIsViewer,
+	];
+	
+	let res = null;
+	try {
+		res = await self.query( 'room_user_messages_count_unread_worg', values );
+	} catch( e ) {
+		msgLog( 'getRoomUserMessagesUnreadWorg - query fail', e );
+		return false;
+	}
+	
+	const row = res[ 0 ];
+	if ( !row )
+		return null;
+	
+	return row.unread;
+}
+
 ns.MessageDB.prototype.get = async function( eventId ) {
 	const self = this;
-	if ( !eventId || !self.roomId )
+	if ( !eventId )
 		throw new Error( 'ERR_INVALID_ARGS' );
 		
 	const values = [
@@ -980,123 +1242,332 @@ ns.MessageDB.prototype.get = async function( eventId ) {
 	];
 	const rows = await self.query( 'message_get_by_id', values );
 	const events = self.parseItems( rows );
-	return events;
+	return events[ 0 ];
 }
 
-ns.MessageDB.prototype.getBefore = async function( firstId, length ) {
+ns.MessageDB.prototype.getBefore = async function( beforeTime, length, workgroup ) {
 	const self = this;
-	const values = [
-		self.roomId
-	];
-	
-	if ( firstId )
-		values.push( firstId );
-	
-	values.push( length || 50 );
-	
-	let queryFn = 'message_get_desc';
-	if ( firstId )
-		queryFn = 'message_get_before';
-	
-	const rows = await self.query( queryFn, values );
-	if ( firstId && !rows.length ) // end of log
-		return null;
-	else
-		return self.parseItems( rows );
-}
-
-ns.MessageDB.prototype.getAfter = async function( lastId, length ) {
-	const self = this;
+	beforeTime = beforeTime || Date.now();
+	length = length || 30;
 	const values = [
 		self.roomId,
+		beforeTime,
+		length,
 	];
 	
-	if ( lastId )
-		values.push( lastId );
+	const queryFn = 'message_get_before';
+	let msgRows = await self.query( queryFn, values );
+	let workMessages = null;
+	if ( workgroup ) {
+		if ( 1 )
+			workMessages = await self.getWorkMessagesBefore(
+				workgroup,
+				beforeTime,
+				( length - msgRows.length )
+			);
+		else {
+			const first = msgRows[ 0 ];
+			const last = msgRows[ msgRows.length -1 ];
+			workMessages = await self.getWorkMessagesBetween( workgroup, first.time, last.time );
+		}
+		
+		msgRows = self.replaceWithWork( msgRows, workMessages );
+	}
 	
-	values.push( length || 50 );
-	let queryFn = 'message_get_asc';
-	if ( lastId )
-		queryFn = 'message_get_after';
+	return self.parseItems( msgRows );
+}
+
+ns.MessageDB.prototype.getAfter = async function( afterTime, length, workgroup ) {
+	const self = this;
+	afterTime = afterTime || Date.now();
+	length = length || 30;
+	const values = [
+		self.roomId,
+		afterTime,
+		length,
+	];
 	
-	const rows = await self.query( queryFn, values );
-	if ( lastId && !rows.length ) // end of log
+	const queryFn = 'message_get_after';
+	let msgRows = await self.query( queryFn, values );
+	let workMessages = null;
+	if ( workgroup ) {
+		if ( 1 )
+			workMessages = await self.getWorkMessagesAfter(
+				workgroup,
+				afterTime,
+				( length - msgRows.length )
+			);
+		else {
+			const first = msgRows[ 0 ];
+			const last = msgRows[ msgRows.length -1 ];
+			workMessages = await self.getWorkMessagesBetween( workgroup, first.time, last.time );
+		}
+		
+		msgRows = self.replaceWithWork( msgRows, workMessages );
+	}
+	
+	return self.parseItems( msgRows );
+}
+
+ns.MessageDB.prototype.getForView = async function(
+	worgId,
+	userId,
+	beforeTime,
+	afterTime,
+	length
+) {
+	const self = this;
+	length = length || 30;
+	const values = [
+		worgId,
+		userId,
+		beforeTime || null,
+		afterTime || null,
+		length,
+	];
+	msgLog( 'getForView - values', values );
+	let res = null;
+	res = await self.query( 'message_get_for_view', values );
+	if ( !res )
 		return null;
-	else
-		return self.parseItems( rows );
+	
+	const msgRows = res[ 0 ];
+	const targetRows = res[ 1 ];
+	if ( !msgRows || !targetRows ) {
+		msgLog( 'getForView - missing rows', {
+			msgRows    : msgRows,
+			targetRows : targetRows,
+		}, 3 );
+		return null;
+	}
+	
+	const items = self.rebuildWorkMsgTargets( msgRows, targetRows );
+	msgLog( 'getForView - items', items, 3 );
+	return self.parseItems( items );
+}
+
+ns.MessageDB.prototype.getAfterView = async function(
+	afterTime,
+	length,
+	worgId,
+	userId
+) {
+	const self = this;
+	return null;
+}
+
+ns.MessageDB.prototype.getWithTargets = async function( eventId ) {
+	const self = this;
+	if ( !eventId )
+		return;
+	
+	const values = [
+		eventId,
+	];
+	
+	let res = null;
+	try {
+		res = await self.query( 'message_get_with_work_targets', values );
+	} catch( e ) {
+		msgLog( 'getWithTargets - query ex', {
+			e : e,
+			values : values,
+		}, 3 );
+		return null;
+	}
+	
+	if ( !res || !res.length )
+		return null;
+	
+	const msgs = res[ 0 ];
+	if ( !msgs || !msgs.length )
+		return null;
+	
+	let msg = msgs[ 0 ];
+	const targets = res[ 1 ];
+	if ( !targets || !targets.length ) {
+		const items = self.parseItems([ msg ]);
+		return items[ 0 ];
+	}
+	
+	msg.targets = {};
+	targets.forEach( t => {
+		const tId = t.target;
+		msg.source = t.source;
+		if ( !msg.targets[ tId ])
+			msg.targets[ tId ] = true;
+		
+		if ( !t.memberId )
+			return;
+		
+		let target = msg.targets[ tId ];
+		if ( null == target.length )
+			target = [];
+		
+		target.push( t.memberId );
+		msg.targets[ tId ] = target;
+	});
+	
+	const items = self.parseItems([ msg ]);
+	return items[ 0 ];
+}
+
+ns.MessageDB.prototype.getWorkMessagesBefore = function( workgroup, before, length ) {
+	const self = this;
+	const query = 'message_get_work_targets_before';
+	const values = [
+		workgroup,
+		before,
+		length || 30,
+	];
+	return self.getWorkMessages( query, values );
+}
+
+ns.MessageDB.prototype.getWorkMessagesAfter = function( workgroup, after, length ) {
+	const self = this;
+	const query = 'message_get_work_targets_after';
+	const values = [
+		workgroup,
+		after,
+		length || 30,
+	];
+	return self.getWorkMessages( query, values );
+}
+
+ns.MessageDB.prototype.getWorkMessagesBetween = function( workgroup, from, to ) {
+	const self = this;
+	const query = 'message_get_work_targets_between';
+	const values = [
+		workgroup,
+		from,
+		to,
+	];
+	return self.getWorkMessages( query, values );
+}
+
+ns.MessageDB.prototype.getWorkMessages = async function( query, values ) {
+	const self = this;
+	let rows = null;
+	try {
+		rows = await self.query( query, values );
+	} catch( err ) {
+		msgLog( 'getWorkMessageTargets - query fail', {
+			query  : query,
+			values : values,
+			err    : err,
+		}, 3 );
+		return null;
+	}
+	
+	const messages = rows[ 0 ];
+	const targets = rows[ 1 ];
+	
+	const items = self.rebuildWorkMsgTargets( messages, targets );
+	return items;
+}
+
+ns.MessageDB.prototype.rebuildWorkMsgTargets = function( msgRows, targetRows ) {
+	const self = this;
+	const msgTargetMap = buildTargets( targetRows );
+	msgRows.forEach( msg => {
+		let mId = msg.msgId;
+		let targets = msgTargetMap[ mId ];
+		if ( !targets )
+			return;
+		
+		msg.source = targets.source;
+		msg.targets = targets;
+		delete targets.source;
+	});
+	
+	return msgRows;
+	
+	function buildTargets( targets ) {
+		const msgTargetMap = {};
+		targets.forEach( tRow => {
+			const mId = tRow.msgId;
+			const source = tRow.source;
+			if ( !msgTargetMap[ mId ]) {
+				msgTargetMap[ mId ] = {};
+				msgTargetMap[ mId ].source = source;
+			}
+			
+			const mTargets = msgTargetMap[ mId ];
+			if ( !tRow.memberId )
+				setRoomTarget( mTargets, tRow );
+			else
+				setMemberTarget( mTargets, tRow );
+		});
+		
+		return msgTargetMap;
+		
+		function setRoomTarget( msgTargets, tRow ) {
+			let tWG = tRow.target;
+			msgTargets[ tWG ] = true;
+		}
+		
+		function setMemberTarget( msgTargets, tRow ) {
+			let tWG = tRow.target;
+			let tArr = msgTargets[ tWG ] || []; // array of member targets
+			tArr.push( tRow.memberId );
+			msgTargets[ tWG ] = tArr;
+		}
+	}
 }
 
 ns.MessageDB.prototype.update = async function(
 	eventId,
-	contentUpdate,
-	reason,
-	editerId
+	message,
 ) {
 	const self = this;
-	reason = reason || 'espen er kul';
-	let events = null;
+	const values = [
+		eventId,
+		message,
+	];
+	let res = null;
 	try {
-		events = await self.get( eventId );
-	} catch( e ) {
+		res = await self.query( 'message_update', values );
+	} catch ( e ) {
+		msgLog( 'err', e );
 		return e;
 	}
 	
-	if ( !events )
-		return 'ERR_NOT_FOUND';
+	if ( !res || !res.length )
+		return null;
 	
-	const dbMsg = events[ 0 ].data;
-	let queryRes = null;
-	const isGrace = isInGracePeriod( dbMsg.time, editerId );
-	const isAuthor = dbMsg.fromId === editerId;
-	//if ( isGrace && isAuthor ) {
-	if ( 1 ) {
-		try {
-			queryRes = await update( dbMsg.msgId, contentUpdate );
-		} catch ( e ) {
-			msgLog( 'err', e );
-			return e;
-		}
-	}
-	/*
-	else {
-		try {
-			queryRes = await updateWithHistory(
-				dbMsg.msgId,
-				dbMsg.message,
-				contentUpdate,
-				reason,
-				editerId
-			);
-		} catch ( e ) {
-			return e;
-		}
-	}
-	*/
-	
-	const rows = queryRes || [];
-	return rows[ 0 ] || null;
-	
-	function isInGracePeriod( eTime, accId ) {
-		return true;
-	}
-	
-	async function update( eId, message ) {
-		let values = [
-			eId,
-			message,
-		];
-		return self.query( 'message_update', values );
-	}
-	
-	async function updateWithHistory(
-		evId,
-		original,
-		update,
+	return res[ 0 ] || null;
+}
+
+ns.MessageDB.prototype.setEdit = async function(
+	msgId,
+	editBy,
+	reason,
+	message,
+) {
+	const self = this;
+	const editTime = Date.now();
+	const clientId = uuid.get( 'edit' );
+	const values = [
+		clientId,
+		msgId,
+		editBy,
+		editTime,
 		reason,
-		accId
-	) {
-		
+		message,
+	];
+	let res = null;
+	try {
+		res = await self.query( 'message_set_edit', values );
+	} catch( e ) {
+		msgLog( 'setEdit - query err', e.stack || e );
+		msgLog( 'setEdit - values', values );
+		return null;
 	}
+	
+	if ( !res )
+		return null;
+	
+	return res[ 0 ];
 }
 
 // Private
@@ -1108,7 +1579,7 @@ ns.MessageDB.prototype.init = function() {
 
 ns.MessageDB.prototype.parseItems = function( items ) {
 	const self = this;
-	if ( !items || ( null == items.length ))
+	if ( !items || !items.length )
 		return null;
 	
 	const events = items.map( toTypeData );
@@ -1120,10 +1591,30 @@ ns.MessageDB.prototype.parseItems = function( items ) {
 			data : null,
 		};
 		
-		delete item.type;
 		event.data = item;
 		return event;
 	}
+}
+
+ns.MessageDB.prototype.replaceWithWork = function( msgRows, workRows ) {
+	const self = this;
+	if ( !workRows || !workRows.length )
+		return msgRows;
+	
+	msgRows = msgRows.filter( item => {
+		const mId = item.msgId;
+		return !workRows.some( workItem => workItem.msgId === mId );
+	});
+	
+	let log = [ ...msgRows, ...workRows ];
+	log.sort(( a, b ) => {
+		if ( a.time < b.time )
+			return -1
+		else
+			return 1;
+	});
+	
+	return log;
 }
 
 

@@ -86,7 +86,7 @@ ns.IDC.prototype.getList = async function( idList ) {
 	if ( !identities || !identities.length )
 		return [];
 	
-	return identities;
+	return identities.filter( id => id != null );
 	
 	async function get( id ) {
 		let identity = self.getSync( id );
@@ -94,6 +94,9 @@ ns.IDC.prototype.getList = async function( idList ) {
 			return identity;
 		
 		identity = await self.load( id );
+		if ( !identity )
+			return null;
+		
 		return identity;
 	}
 }
@@ -116,6 +119,9 @@ ns.IDC.prototype.getMap = async function( idList ) {
 	
 	async function load( cId ) {
 		let id = await self.load( cId );
+		if ( !id )
+			return false;
+		
 		ids[ cId ] = id;
 		return true;
 	}
@@ -154,6 +160,15 @@ ns.IDC.prototype.setOnline = function( clientId, isOnline ) {
 		return;
 	
 	id.isOnline = isOnline;
+}
+
+ns.IDC.prototype.checkOnline = function( clientId ) {
+	const self = this;
+	const id = self.IDs[ clientId ];
+	if ( !id )
+		return false;
+	
+	return id.isOnline;
 }
 
 ns.IDC.prototype.addGuest = function( id ) {

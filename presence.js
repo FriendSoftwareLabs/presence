@@ -33,11 +33,20 @@ const FService = require( './api/FService' );
 
 
 let service = null;
+let worgList = null;
 if ( global.config.server.friendcore.serviceKey ) {
 	service = new FService(
 		global.config.server.friendcore,
 		'FriendChat',
 	);
+	
+	let gId = service.on( 'group', e => {
+		if ( 'list' !== e.type )
+			return;
+		
+		worgList = e.data;
+		service.off( gId );
+	});
 }
 
 //const fcReq = require( './component/FCRequest' )( global.config.server.friendcore );
@@ -57,9 +66,12 @@ function dbReady( ok ) {
 		throw new Error( 'db failed! Run for the hills!' );
 	
 	presence.idc = new IdCache( presence.db );
-	presence.worgs = new WorgCtrl( presence.db );
+	presence.worgs = new WorgCtrl( presence.db, presence.idc );
 	presence.rooms = new RoomCtrl( presence.db, presence.idc, presence.worgs );
 	presence.users = new UserCtrl( presence.db, presence.idc, presence.worgs, presence.rooms );
+	if ( worgList )
+		presence.worgs.update( worgList );
+	
 	openComms();
 }
 
@@ -74,6 +86,6 @@ function openComms() {
 }
 
 process.on( 'unhandledRejection', err => {
-	log( 'ERRPR', err, 3 );
+	log( 'unhandled promise rejection - ERRPR', err, 3 );
 	//process.exit( 666 );
 });

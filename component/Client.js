@@ -239,7 +239,6 @@ ns.TCPClient.prototype.handleSocketError = function( e ) {
 
 ns.TCPClient.prototype.handleSocketClose = function( e ) {
 	const self = this;
-	log( 'socketClose', e );
 	self.handleClosed();
 }
 
@@ -373,7 +372,10 @@ ns.TCPClient.prototype.sendOnSocket = function( msg, callback ) {
 	try {
 		str = JSON.stringify( msg );
 	} catch( e ) {
-		log( 'sendOnSocket - failed to string', msg );
+		log( 'sendOnSocket - failed to string', {
+			e   : e,
+			msg : msg,
+		}, 12 );
 		return;
 	}
 	

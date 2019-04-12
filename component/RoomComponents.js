@@ -20,7 +20,7 @@
 'use strict';
 
 const uuid = require( './UuidPrefix' )( 'msg' );
-const Emitter = require( './Events' ).Emitter;
+const events = require( './Events' );
 const WebRTCProxy = require( './WebRTCProxy' );
 const dFace = require( './DFace' );
 const Janus = require( './Janus' );
@@ -28,91 +28,660 @@ const util = require( 'util' );
 
 var ns = {};
 
-/* Send
-	Default implementation of 
-		.send()
-		.broadcast()
-	
-*/
-ns.UserSend = function( type, users, onlineList ) {
+const uLog = require( './Log' )( 'Room > Users' );
+ns.Users = function(
+	dbPool,
+	roomId,
+	isPersistent,
+	workroomId
+) {
 	const self = this;
-	self.type = type;
-	self.users = users;
-	self.onlineList = onlineList;
+	events.Emitter.call( self );
 	
-	self.sendInit();
+	self.isPersistent = isPersistent;
+	self.roomId = roomId;
+	self.workId = workroomId;
+	self.superId = null;
+	
+	self.everyone = {};
+	self.everyId = [];
+	self.notPersisted = [];
+	self.online = [];
+	self.active = [];
+	self.authorized = [];
+	self.guests = [];
+	self.worgs = {};
+	self.wIds = [];
+	self.subs = {};
+	self.subIds = [];
+	self.viewGroups = [];
+	self.viewers = {};
+	self.viewerIds = [];
+	self.lastRead = {};
+	
+	self.init( dbPool );
 }
 
-// 'Public'
+util.inherits( ns.Users, events.Emitter );
 
-ns.UserSend.prototype.send = function( event, userId, callback ) {
+ns.Users.prototype.initialize = async function() {
 	const self = this;
-	if ( !self.users ) {
-		error( 'ERR_SEND_NO_USERS_OBJ' );
+	let users = null;
+	try {
+		users = await self.msgDb.loadRoomUserMessages();
+	} catch( e ) {
+		uLog( 'loadUserLastRead - db err', e );
 		return;
 	}
 	
-	const user = self.users[ userId ];
-	if ( !user ) {
-		self.sendLog( 'no such user', userId );
-		error( 'ERR_SEND_NO_USER');
+	if ( !users || !users.length ) {
 		return;
 	}
 	
-	if ( !user.send ) {
-		self.sendLog( 'user has no .send() - not online', user, 3 );
-		error( 'ERR_SEND_NOT_ONLINE' );
-		return;
+	users.forEach( user => {
+		const uId = user.userId;
+		self.lastRead[ uId ] = true;
+	});
+}
+
+// Public
+
+ns.Users.prototype.set = async function( user ) {
+	const self = this;
+	const cId = user.clientId;
+	if ( !cId ) {
+		try {
+			throw new Error( 'not a real user' );
+		} catch ( e ) {
+			uLog( 'set - not a real user', e.stack || e );
+		}
+		return false;
+	}
+		
+	if ( !self.exists( cId )) {
+		let isRegged = self.checkIsRegistered( cId );
+		if ( !isRegged && self.isPersistent ) {
+			deny( user );
+			return false;
+		}
 	}
 	
-	if ( self.type )
-		event = {
-			type : self.type,
-			data : event,
-		};
+	self.everyone[ cId ] = user;
+	await self.addLastRead( cId );
+	const uIdx = self.everyId.indexOf( cId );
+	if ( -1 === uIdx )
+		self.everyId.push( cId );
 	
-	user.send( event, callback );
+	return true;
 	
-	function error( err ) {
-		if ( callback )
-			callback( err );
+	function deny( user ) {
+		uLog( 'set - user not set', {
+			r     : self.workId,
+			user  : user,
+			users : self.everyId,
+			auth  : self.authorized,
+			worgs : self.worgs,
+		}, 4 );
+		try {
+			throw new Error( 'Users.set - not set' );
+		} catch ( e ) {
+			uLog( 'set - deny', e.stack || e );
+		}
 	}
 }
 
-ns.UserSend.prototype.broadcast = function( event, sourceId, wrapSource ) {
+ns.Users.prototype.exists = function( userId ) {
 	const self = this;
-	if ( !self.onlineList )
+	return !!self.everyone[ userId ];
+}
+
+ns.Users.prototype.get = function( userId ) {
+	const self = this;
+	return self.everyone[ userId ];
+}
+
+ns.Users.prototype.getList = function( workgroupId ) {
+	const self = this;
+	if ( workgroupId )
+		return self.getListForWorg( workgroupId );
+	
+	return self.everyId;
+}
+
+ns.Users.prototype.remove = function( userId ) {
+	const self = this;
+	const user = self.everyone[ userId ];
+	if ( !user )
 		return;
 	
-	if ( wrapSource )
-		event = {
-			type : sourceId,
-			data : event,
-		};
+	self.setActive( false, userId );
+	self.setOffline( userId );
+	delete self.everyone[ userId ];
+	const uIdx = self.everyId.indexOf( userId );
+	if ( -1 !== uIdx )
+		self.everyId.splice( uIdx, 1 );
 	
-	self.onlineList.forEach( sendIfNotSource );
-	function sendIfNotSource( userId ) {
-		if ( userId === sourceId )
+	const aIdx = self.authorized.indexOf( userId );
+	if ( -1 !== aIdx ) {
+		self.authorized.splice( aIdx, 1 );
+		return user;
+	}
+	
+	const gIdx = self.guests.indexOf( userId );
+	if ( -1 !== gIdx ) {
+		self.guests.splice( gIdx, 1 );
+		return user;
+	}
+	
+	const removedFromWorg = self.wIds.some( wId => {
+		const worg = self.worgs[ wId ];
+		const uIdx = worg.indexOf( userId );
+		if ( -1 === uIdx )
+			return false;
+		
+		worg.splice( uIdx, 1 );
+		return true;
+	});
+	
+	if ( removedFromWorg ) {
+		self.updateViewMembers();
+		return user;
+	}
+	
+	uLog( 'remove - not found in things', userId );
+	return null;
+}
+
+ns.Users.prototype.setActive = function( isActive, userId ) {
+	const self = this;
+	if ( !self.everyone[ userId ])
+		return;
+	
+	const uIdx = self.active.indexOf( userId );
+	if ( isActive )
+		set( userId, uIdx );
+	else
+		unset( userId, uIdx );
+	
+	function set( uId, uIdx ) {
+		if ( -1 !== uIdx )
 			return;
 		
-		self.send( event, userId );
+		self.active.push( uId );
+	}
+	
+	function unset( uId, uIdx ) {
+		if ( -1 === uIdx )
+			return;
+		
+		self.active.splice( uIdx, 1 );
 	}
 }
 
-ns.UserSend.prototype.close = function() {
+ns.Users.prototype.getActive = function() {
 	const self = this;
-	delete self.onlineList;
-	delete self.users;
-	delete self.type;
+	return self.active;
 }
 
-// priv
-
-ns.UserSend.prototype.sendInit = function() {
+ns.Users.prototype.setOnline = function( userId ) {
 	const self = this;
-	self.sendLog = require( './Log' )( 'Room > ' + self.type );
+	const user = self.get( userId );
+	if ( !user || !user.close ) {
+		uLog( 'setOnline - no user or not real', userId );
+		return null;
+	}
+	
+	if ( self.online.some( oId => oId === userId ))
+		return user;
+	
+	self.online.push( userId );
+	return user;
 }
 
+ns.Users.prototype.setOffline = function( userId ) {
+	const self = this;
+	const userIndex = self.online.indexOf( userId );
+	if ( -1 === userIndex )
+		return;
+	
+	self.online.splice( userIndex, 1 );
+}
+
+ns.Users.prototype.getOnline = function() {
+	const self = this;
+	return self.online;
+}
+
+ns.Users.prototype.addAuthorized = function( userId ) {
+	const self = this;
+	if ( self.checkIsAuthed( userId )) {
+		uLog( 'addAuthorized - already', userId );
+		throw new Error( 'Users.addAuthorized - already authed' );
+	}
+	
+	self.authorized.push( userId );
+}
+
+ns.Users.prototype.checkIsAuthed = function( userId ) {
+	const self = this;
+	return self.authorized.some( uId => uId === userId );
+}
+
+ns.Users.prototype.removeAuth = function( userId ) {
+	const self = this;
+	const aIdx = self.authorized.indexOf( userId );
+	if ( -1 === aIdx )
+		return;
+	
+	self.authorized.splice( aIdx, 1 );
+}
+
+ns.Users.prototype.addForWorkgroup = function( worgId, userId ) {
+	const self = this;
+	if ( !self.worgs[ worgId ]) {
+		self.worgs[ worgId ] = [];
+		self.wIds.push( worgId );
+	}
+	
+	const worg = self.worgs[ worgId ];
+	const uIdx = worg.indexOf( userId );
+	if ( -1 !== uIdx )
+		return;
+	
+	worg.push( userId );
+	self.updateViewMembers();
+}
+
+ns.Users.prototype.getWorgsFor = function( userId ) {
+	const self = this;
+	const memberOf = [];
+	self.wIds.forEach( worgId => {
+		const worg = self.worgs[ worgId ];
+		if ( !worg.some( uId => uId === userId ))
+			return;
+		
+		memberOf.push( worgId );
+	});
+	
+	return memberOf;
+}
+
+ns.Users.prototype.getListForWorg = function( worgId ) {
+	const self = this;
+	return self.worgs[ worgId ] || [];
+}
+
+ns.Users.prototype.checkIsMemberOf = function( userId, worgId ) {
+	const self = this;
+	const members = self.worgs[ worgId ];
+	if ( !members || !members.length )
+		return false;
+	
+	return members.some( mId => mId === userId );
+}
+
+ns.Users.prototype.removeFromWorg = function( worgId, userId ) {
+	const self = this;
+	const worg = self.worgs[ worgId ];
+	if ( !worg || !worg.length )
+		return;
+	
+	const uIdx = worg.indexOf( userId );
+	if ( -1 === uIdx )
+		return;
+	
+	worg.splice( uIdx, 1 );
+	self.updateViewMembers();
+}
+
+ns.Users.prototype.removeWorg = function( worgId ) {
+	const self = this;
+	delete self.worgs[ worgId ];
+	self.wIds = Object.keys( self.worgs );
+	self.updateViewMembers();
+}
+
+ns.Users.prototype.addGuest = function( userId ) {
+	const self = this;
+	if ( self.checkIsRegistered( userId )) {
+		uLog( 'addGuest - already', userId );
+		throw new Error( 'Users.addGuest - already registered' );
+	}
+	
+	self.guests.push( userId );
+}
+
+ns.Users.prototype.setSuper = function( roomInfo ) {
+	const self = this;
+	self.super = roomInfo;
+}
+
+ns.Users.prototype.getSuper = function() {
+	const self = this;
+	if ( !self.super )
+		return null;
+	
+	return self.super.workId || null;
+}
+
+ns.Users.prototype.getSuperRoom = function() {
+	const self = this;
+	return self.super.clientId;
+}
+
+ns.Users.prototype.addSub = function( worgId ) {
+	const self = this;
+	if ( self.subs[ worgId ])
+		return;
+	
+	self.subs[ worgId ] = true;
+	self.subIds.push( worgId );
+}
+
+ns.Users.prototype.getSubs = function() {
+	const self = this;
+	return self.subIds || [];
+}
+
+ns.Users.prototype.getSubsFor = function( userId ) {
+	const self = this;
+	const wgs = self.getWorgsFor( userId );
+	if ( !wgs || !wgs.length )
+		return [];
+	
+	const sgs = wgs.filter( wId => {
+		return !!self.subs[ wId ];
+	});
+	return sgs;
+}
+
+ns.Users.prototype.removeSub = function( worgId ) {
+	const self = this;
+	const sIdx = self.subIds.indexOf( worgId );
+	if ( -1 === sIdx )
+		return;
+	
+	delete self.subs[ worgId ];
+	self.subIds.splice( sIdx, 1 );
+}
+
+ns.Users.prototype.addViewGroup = function( worgId ) {
+	const self = this;
+	if ( self.viewGroups.some( vId => vId === worgId ))
+		return;
+	
+	self.viewGroups.push( worgId );
+	self.updateViewMembers();
+}
+
+ns.Users.prototype.checkIsViewer = function( userId ) {
+	const self = this;
+	return !!self.viewers[ userId ];
+}
+
+ns.Users.prototype.getViewer = function( userId ) {
+	const self = this;
+	if ( !self.viewers[ userId ])
+		return null;
+	
+	return self.everyone[ userId ] || null;
+}
+
+ns.Users.prototype.getViewerList = function() {
+	const self = this;
+	return self.viewerIds;
+}
+
+ns.Users.prototype.removeViewGroup = function( worgId ) {
+	const self = this;
+	wIndex = self.viewGroups.indexOf( worgId );
+	if ( -1 === wIndex )
+		return;
+	
+	self.viewGroups.splice( wIndex, 1 );
+	self.updateViewMembers();
+}
+
+ns.Users.prototype.setPersistent = function( isPersistent ) {
+	const self = this;
+	self.isPersistent = !!isPersistent;
+}
+
+ns.Users.prototype.send = function( targetId, event ) {
+	const self = this;
+	self._send( targetId, event );
+}
+
+ns.Users.prototype.broadcast = function( targets, event, source, wrapInSource ) {
+	const self = this;
+	if ( !targets ) {
+		self._broadcast( self.online, event, source, wrapInSource );
+		return;
+	}
+	
+	self._broadcast( targets, event, source, wrapInSource );
+}
+
+ns.Users.prototype.sendChat = function( targetId, event ) {
+	const self = this;
+	const chat = {
+		type : 'chat',
+		data : event,
+	};
+	self._send( targetId, chat );
+}
+
+ns.Users.prototype.broadcastChat = function( targetList, event, sourceId, wrapInSource ) {
+	const self = this;
+	const chat = {
+		type : 'chat',
+		data : event,
+	};
+	self._broadcast( targetList, chat, sourceId, wrapInSource );
+}
+
+ns.Users.prototype.sendLive = function( targetId, event ) {
+	const self = this;
+	const live = {
+		type : 'live',
+		data : event,
+	};
+	self._send( targetId, live );
+}
+
+ns.Users.prototype.broadcastLive = function( targetList, event, sourceId, wrapInSource ) {
+	const self = this;
+	const live = {
+		type : 'live',
+		data : event,
+	};
+	self._broadcast( targetList, live, sourceId, wrapInSource );
+}
+
+ns.Users.prototype.sendInvite = function( targetId, event ) {
+	const self = this;
+	const invite = {
+		type : 'invite',
+		data : event,
+	};
+	self._send( targetId, invite );
+}
+
+ns.Users.prototype.broadcastInvite = function( targetList, event, sourceId, wrapInSource ) {
+	const self = this;
+	const invite = {
+		type : 'invite',
+		data : event,
+	};
+	self._broadcast( targetList, invite, sourceId, wrapInSource );
+}
+
+ns.Users.prototype.sendWorg = function( targetId, event ) {
+	const self = this;
+	const worg = {
+		type : 'workgroup',
+		data : event,
+	};
+	self._send( targetId, worg );
+}
+
+ns.Users.prototype.broadcastWorg = function( targetList, event, sourceId, wrapInSource ) {
+	const self = this;
+	const worg = {
+		type : 'workgroup',
+		data : event,
+	};
+	self._broadcast( targetList, worg, sourceId, wrapInSource );
+}
+
+ns.Users.prototype.sendSettings = function( targetId, event ) {
+	const self = this;
+	const sett = {
+		type : 'settings',
+		data : event,
+	};
+	self._send( targetId, sett );
+}
+
+ns.Users.prototype.broadcastSettings = function( targetList, event, sourceId, wrapInSource ) {
+	const self = this;
+	const sett = {
+		type : 'settings',
+		data : event,
+	};
+	self._broadcast( targetList, sett, sourceId, wrapInSource );
+}
+
+ns.Users.prototype.close = function() {
+	const self = this;
+	self.everyId.forEach( uId => {
+		const user = self.everyone[ uId ];
+		delete self.everyone[ uId ];
+		if ( !user || !user.close )
+			return;
+		
+		user.close();
+	});
+	
+	self.viewerIds.forEach( vId => {
+		const viewer = self.everyone[ vId ];
+		delete self.everyone[ vId ];
+		if ( !user || !user.close )
+			return;
+		
+		user.close();
+	});
+	
+	if ( self.msgDb )
+		self.msgDb.close();
+	
+	delete self.msgDb;
+	delete self.lastRead;
+}
+
+// Private
+
+ns.Users.prototype.init = function( dbPool ) {
+	const self = this;
+	self.msgDb = new dFace.MessageDB( dbPool, self.roomId );
+}
+
+ns.Users.prototype.addLastRead = async function( userId ) {
+	const self = this;
+	if ( undefined !== self.lastRead[ userId ]) {
+		return;
+	}
+	
+	self.lastRead[ userId ] = null;
+	const res = await self.msgDb.setRoomUserMessages( userId );
+}
+
+ns.Users.prototype._send = function( targetId, event ) {
+	const self = this;
+	const user = self.get( targetId );
+	if ( !user || !user.send ) {
+		uLog( 'could not send to', {
+			r : self.workId,
+			t : targetId,
+			e : event,
+		}, 3 );
+		return;
+	}
+	
+	user.send( event );
+}
+
+ns.Users.prototype._broadcast = function( targetList, event, source, wrapInSource ) {
+	const self = this;
+	if ( !targetList )
+		targetList = self.online;
+	
+	if ( !source ) {
+		targetList.forEach( tId => self._send( tId, event ));
+		return;
+	}
+	
+	if ( wrapInSource )
+		event = {
+			type : source,
+			data : event,
+		};
+	
+	targetList.forEach( tId => {
+		if ( tId === source )
+			return;
+		
+		self._send( tId, event );
+	});
+}
+
+ns.Users.prototype.checkIsRegistered = function( cId ) {
+	const self = this;
+	if ( self.authorized.some( aId => aId === cId ))
+		return true;
+	if ( self.guests.some( gId => gId === cId ))
+		return true;
+	if ( isInWorg( cId ))
+		return true;
+	
+	return false;
+	
+	function isInWorg( cId ) {
+		const worgs = self.getWorgsFor( cId );
+		return !!worgs.length;
+	}
+}
+
+ns.Users.prototype.updateViewMembers = function() {
+	const self = this;
+	if ( !global.config.server.workroom.subsHaveSuperView )
+		return;
+	
+	if ( self.updateViewTimeout )
+		clearTimeout( self.updateViewTimeout );
+	
+	self.updateViewTimeout = setTimeout( update, 20 );
+	
+	function update() {
+		const viewers = {};
+		self.viewGroups.forEach( wId => {
+			const worg = self.worgs[ wId ];
+			if ( !worg || !worg.length )
+				return;
+			
+			worg.forEach( uId => {
+				if ( viewers[ uId ])
+					return;
+				
+				viewers[ uId ] = uId;
+			});
+		});
+		
+		self.viewers = viewers;
+		self.viewerIds = Object.keys( viewers );
+		self.emit( 'viewers-updated', self.viewerIds );
+	}
+}
 
 
 // CHAT
@@ -122,26 +691,28 @@ ns.Chat = function(
 	roomId,
 	roomName,
 	users,
-	onlineList,
 	log,
 	service,
 ) {
 	const self = this;
+	events.Emitter.call( self );
+	
 	self.roomId = roomId;
 	self.roomName = roomName;
 	self.users = users;
-	self.onlineList = onlineList;
 	self.log = log;
 	self.service = service;
 	
 	self.init();
 }
 
+util.inherits( ns.Chat, events.Emitter );
+
 // Public
 
 ns.Chat.prototype.bind = function( userId ) {
 	const self = this;
-	const user = self.users[ userId ];
+	const user = self.users.get( userId );
 	if ( !user || !user.on ) // no .on() means its an offline user
 		return;
 	
@@ -154,7 +725,6 @@ ns.Chat.prototype.close = function( callback ) {
 	delete self.roomId;
 	delete self.roomName;
 	delete self.users;
-	delete self.onlineList;
 	delete self.log;
 	delete self.service;
 	
@@ -169,14 +739,13 @@ ns.Chat.prototype.init = function() {
 	self.eventMap = {
 		'msg'     : msg,
 		'log'     : log,
-		'edit'    : edit,
 		'state'   : state,
 		'confirm' : confirm,
+		'request' : ( e, uid ) => self.handleRequest( e, uid ),
 	};
 	
-	function msg( e, uid ) { self.handleMsg( e, uid ); }
+	function msg( e, uid ) { self.createMsg( e, uid ); }
 	function log( e, uid ) { self.handleLog( e, uid ); }
-	function edit( e, uid ) { self.handleEdit( e, uid ); }
 	function state( e, uid ) { self.handleState( e, uid ); }
 	function confirm( e, uid ) { self.handleConfirm( e, uid ); }
 }
@@ -192,22 +761,71 @@ ns.Chat.prototype.handleChat = function( event, userId ) {
 	handler( event.data, userId );
 }
 
-ns.Chat.prototype.handleMsg = function( data, userId ) {
+ns.Chat.prototype.handleRequest = async function( event, userId ) {
 	const self = this;
-	if ( !data || !data.message )
+	const reqId = event.requestId;
+	const req = event.request;
+	let res = null;
+	let err = null;
+	try {
+		if ( 'edit-get' === req.type )
+			res = await self.handleEditGet( req.data, userId );
+		
+		if ( 'edit-save' === req.type )
+			res = await self.handleEditSave( req.data, userId );
+		
+	} catch( err ) {
+		cLog( 'handleRequest - err', err );
+	}
+	
+	self.returnRequest( err, res, reqId, userId );
+}
+
+ns.Chat.prototype.handleEditGet = async function( event, userId ) {
+	const self = this;
+	const msgId = event.msgId;
+	const msg = await self.log.getEvent( msgId );
+	return msg;
+}
+
+ns.Chat.prototype.returnRequest = function( err, res, reqId, userId ) {
+	const self = this;
+	const response = {
+		type : 'request',
+		data : {
+			type : 'response',
+			data : {
+				requestId : reqId,
+				error     : err,
+				response  : res,
+			},
+		},
+	};
+	self.send( response, userId );
+}
+
+ns.Chat.prototype.createMsg = function( input, userId ) {
+	const self = this;
+	if ( !input || !input.message )
 		return;
 	
-	const user = self.users[ userId ];
+	const user = self.users.get( userId );
 	const fromId = user.isGuest ? null : userId;
-	const message = data.message;
-	const mid = uuid.get( 'msg' );
+	let message = input.message;
+	if ( 'string' !== typeof( input.message ))
+		return;
+	
+	if ( !message || !message.length )
+		return;
+	
+	const mId = uuid.get( 'msg' );
 	const msg = {
-		msgId   : mid,
+		type    : 'msg',
+		msgId   : mId,
 		roomId  : self.roomId,
 		fromId  : fromId,
 		name    : user.name,
 		time    : Date.now(),
-		type    : 'msg',
 		message : message,
 	};
 	
@@ -217,102 +835,124 @@ ns.Chat.prototype.handleMsg = function( data, userId ) {
 	};
 	
 	self.log.add( event );
-	self.sendMsgNotification( message, mid, userId );
+	self.sendMsgNotification( message, mId, userId );
 	self.broadcast( event );
 }
 
-ns.Chat.prototype.sendMsgNotification = async function( message, mid, fromId ) {
+ns.Chat.prototype.sendMsgNotification = async function( message, mId, fromId ) {
 	const self = this;
-	const from = self.users[ fromId ];
+	const from = self.users.get( fromId );
 	const roomName = '#' + self.roomName;
 	const notie = from.name + ': ' + message;
-	const uIds = Object.keys( self.users );
+	const uIds = self.users.getList( self.workgroupId );
 	const extra = {
 		roomId : self.roomId,
-		msgId : mid,
+		msgId  : mId,
 	};
 	
-	uIds.forEach( async toId => {
+	const userList = [];
+	uIds.forEach( toId => {
 		if ( fromId === toId )
 			return;
 		
-		const user = self.users[ toId ];
+		const user = self.users.get( toId );
 		if ( !user || !user.fUsername )
 			return;
 		
-		try {
-			await self.service.sendNotification(
-				user.fUsername,
-				roomName,
-				notie,
-				self.roomId,
-				extra
-			);
-		} catch ( err ) {
-			cLog( 'sendMsgNotification - err', err );
-		}
+		userList.push( user.fUsername );
 	});
-}
-
-ns.Chat.prototype.handleLog = function( event, userId ) {
-	const self = this;
-	self.log.get( event )
-		.then( loaded )
-		.catch( logErr );
 	
-	function loaded( items ) {
-		const log = {
-			type : 'log',
-			data : items,
-		};
-		
-		self.send( log, userId );
-	}
+	if ( !userList.length )
+		return;
 	
-	function logErr( err ) {
-		cLog( 'handleLog - log load err', err.stack || err );
+	try {
+		await self.service.sendNotification(
+			userList,
+			roomName,
+			notie,
+			self.roomId,
+			extra
+		);
+	} catch ( err ) {
+		cLog( 'sendMsgNotification - err', err );
 	}
 }
 
-ns.Chat.prototype.handleEdit = function( event, userId ) {
+ns.Chat.prototype.handleLog = async function( event, userId ) {
 	const self = this;
-	self.log.loadEvent( event.msgId )
-		.then( loaded )
-		.catch( error );
+	const res = await self.log.get( event );
+	const log = {
+		type : 'log',
+		data : res,
+	};
 	
-	function loaded( dbEvents ) {
-		if ( !dbEvents ) {
-			error( 'ERR_NOT_FOUND' );
-			return;
-		}
+	self.send( log, userId );
+}
+
+ns.Chat.prototype.handleEditSave = async function( event, userId ) {
+	const self = this;
+	const mId = event.msgId;
+	const msg = event.message;
+	const reason = event.reason;
+	let dbMsg = await self.log.getEvent( mId );
+	if ( !dbMsg )
+		return error( 'ERR_EVENT_NOT_FOUND' );
+	
+	dbMsg = dbMsg.data;
+	const isAuthor = dbMsg.fromId === userId;
+	const isGracePeriod = checkIsGrace( dbMsg.time );
+	const isAdmin = checkIsAdmin( userId );
+	
+	let result = null;
+	if ( isAuthor && isGracePeriod )
+		result = await updateMessage( dbMsg.msgId, msg );
+	else {
+		if ( !isAuthor && !isAdmin )
+			return error( 'ERR_EDIT_NOT_ALLOWED' );
 		
-		checkAllowed( dbEvents[ 0 ], userId );
+		if ( !reason || !reason.length || !( 'string' === typeof( reason )) )
+			return error( 'ERR_EDIT_NO_REASON' );
+		
+		result = await editMessage(
+			dbMsg.msgId,
+			userId,
+			reason,
+			msg,
+		);
 	}
 	
-	function checkAllowed( dbEvent, userId ) {
-		const isAdmin = checkIsAdmin( userId );
-		const dbMsg = dbEvent.data;
-		if ( dbMsg.fromId !== userId && !isAdmin ) {
-			error( 'ERR_NOT_ALLOWED' );
-			return;
-		}
-		
-		self.log.editEvent( dbMsg.msgId, event.message, null, userId )
-			.then( updateDone )
-			.catch( error );
+	if ( 'error' !== result.type ) {
+		await self.broadcastEdit( result.type, mId, userId );
 	}
 	
-	function updateDone( update ) {
-		if ( !update ) {
-			error( 'ERR_DB_POOP' );
-			return;
-		}
+	return result;
+	
+	//
+	async function updateMessage( mId, message ) {
+		let event = await self.log.updateEvent( mId, message );
+		if ( !event )
+			return error( 'ERR_UPDATE_FAILED' );
 		
-		const uptd = {
+		return {
 			type : 'update',
-			data : update,
+			data : event,
 		};
-		self.broadcast( uptd );
+	}
+	
+	async function editMessage( mId, editBy, reason, message ) {
+		let event = await self.log.editEvent(
+			mId,
+			editBy,
+			reason,
+			message
+		);
+		if ( !event )
+			return error( 'ERR_EDIT_FAILED' );
+		
+		return {
+			type : 'edit',
+			data : event,
+		};
 	}
 	
 	function error( err ) {
@@ -320,13 +960,32 @@ ns.Chat.prototype.handleEdit = function( event, userId ) {
 			type : 'error',
 			data : err,
 		};
-		self.send( errEv, userId );
+		return errEv;
+	}
+	
+	function checkIsGrace( msgTime ) {
+		const now = Date.now();
+		const grace = 1000 * 60 * 5;
+		return !!( now < ( msgTime + grace));
 	}
 	
 	function checkIsAdmin( uId ) {
-		let user = self.users[ uId ];
+		let user = self.users.get( uId );
+		if ( !user )
+			return false;
+		
 		return !!user.isAdmin;
 	}
+}
+
+ns.Chat.prototype.broadcastEdit = async function( type, eventId, editerId ) {
+	const self = this;
+	const editedEvent = await self.log.getEvent( eventId );
+	const update = {
+		type : type,
+		data : editedEvent,
+	};
+	self.broadcast( update );
 }
 
 ns.Chat.prototype.handleState = function( state, userId ) {
@@ -352,8 +1011,20 @@ ns.Chat.prototype.handleConfirm = function( event, userId ) {
 	
 }
 
+ns.Chat.prototype.relay = function( event, targetId, sourceId ) {
+	const self = this;
+	cLog( 'relay NYI', {
+		e : event,
+		t : targetId,
+		s : sourceId,
+	});
+}
+
 ns.Chat.prototype.broadcast = function( event, sourceId, wrapSource ) {
 	const self = this;
+	self.users.broadcastChat( null, event, sourceId, wrapSource );
+	
+	/*
 	if ( wrapSource )
 		event = {
 			type : sourceId,
@@ -367,19 +1038,13 @@ ns.Chat.prototype.broadcast = function( event, sourceId, wrapSource ) {
 		
 		self.send( event, userId );
 	}
-}
-
-ns.Chat.prototype.relay = function( event, targetId, sourceId ) {
-	const self = this;
-	cLog( 'relay wahtnow?', {
-		e : event,
-		t : targetId,
-		s : sourceId,
-	});
+	*/
 }
 
 ns.Chat.prototype.send = function( event, userId ) {
 	const self = this;
+	self.users.sendChat( userId, event );
+	/*
 	const user = self.users[ userId ];
 	if ( !user ) {
 		cLog( 'send - no user for userId', {
@@ -397,22 +1062,20 @@ ns.Chat.prototype.send = function( event, userId ) {
 		data : event,
 	};
 	user.send( chat );
+	*/
 }
-
 
 // LIVE - collection of users in a live session
 
 var lLog = require( './Log' )( 'Room > Live' );
 ns.Live = function(
 	users,
-	onlineList,
 	log,
 	workgroups,
 	settings,
 ) {
 	const self = this;
 	self.users = users;
-	self.onlineList = onlineList;
 	self.worgs = workgroups;
 	self.settings = settings;
 	self.log = log;
@@ -445,7 +1108,7 @@ ns.Live = function(
 
 ns.Live.prototype.add = async function( userId ) { //adds user to existing room
 	const self = this;
-	const user = self.users[ userId ];
+	const user = self.users.get( userId );
 	if ( !user )
 		return;
 	
@@ -578,7 +1241,6 @@ ns.Live.prototype.close = function( callback ) {
 	
 	delete self.isStream;
 	delete self.users;
-	delete self.onlineList;
 	delete self.log;
 	delete self.worgs;
 	delete self.settings;
@@ -686,7 +1348,6 @@ ns.Live.prototype.clearAddTimeouts = function() {
 
 ns.Live.prototype.startPing = function( pid ) {
 	const self = this;
-	lLog( 'startPing', pid );
 	if ( self.pingers[ pid ] )
 		self.stopPing( pid );
 	
@@ -748,7 +1409,6 @@ ns.Live.prototype.stopPeerTimeout = function( pid ) {
 
 ns.Live.prototype.stopPing = function( pid ) {
 	const self = this;
-	lLog( 'stopPing', pid );
 	const pinger = self.pingers[ pid ];
 	if ( !pinger )
 		return;
@@ -1160,7 +1820,7 @@ ns.Live.prototype.sendClose = function( peerId, liveId ) {
 
 ns.Live.prototype.getPeer = function( peerId ) {
 	const self = this;
-	var peer = self.peers[ peerId ] || self.users[ peerId ] || null;
+	var peer = self.peers[ peerId ] || self.users.get( peerId ) || null;
 	if ( !peer ) {
 		lLog( 'no peer found for', {
 			pid   : peerId,
@@ -1174,6 +1834,8 @@ ns.Live.prototype.getPeer = function( peerId ) {
 
 ns.Live.prototype.broadcast = function( data, sourceId, wrapSource ) {
 	const self = this;
+	self.users.broadcastLive( self.peerIds, data, sourceId, wrapSource );
+	/*
 	if ( wrapSource )
 		data = {
 			type : sourceId,
@@ -1187,10 +1849,15 @@ ns.Live.prototype.broadcast = function( data, sourceId, wrapSource ) {
 		
 		self.send( data, pid );
 	}
+	*/
 }
 
 ns.Live.prototype.broadcastOnline = function( data, sourceId, wrapSource ) {
 	const self = this;
+	let online = self.users.getOnline();
+	self.users.broadcastLive( online, data, sourceId, wrapSource );
+	
+	/*
 	if ( wrapSource )
 		data = {
 			type : sourceId,
@@ -1205,10 +1872,13 @@ ns.Live.prototype.broadcastOnline = function( data, sourceId, wrapSource ) {
 		
 		self.send( data, pid );
 	}
+	*/
 }
 
 ns.Live.prototype.send = function( event, targetId, callback ) {
 	const self = this;
+	self.users.sendLive( targetId, event );
+	/*
 	const target = self.getPeer( targetId );
 	if ( !target ) {
 		lLog( 'send - no peer for id', targetId );
@@ -1228,6 +1898,7 @@ ns.Live.prototype.send = function( event, targetId, callback ) {
 	};
 	
 	target.send( wrap, callback );
+	*/
 }
 
 //
@@ -1244,7 +1915,6 @@ ns.Invite = function(
 	const self = this;
 	self.roomId = roomId;
 	self.users = users;
-	self.onlineList = online;
 	self.isPersistent = isPersistent;
 	
 	self.publicToken = null;
@@ -1259,8 +1929,8 @@ ns.Invite = function(
 
 ns.Invite.prototype.bind = function( userId ) {
 	const self = this;
-	const user = self.users[ userId ];
-	if ( !user )
+	const user = self.users.get( userId );
+	if ( !user || !user.on )
 		return;
 	
 	user.on( 'invite', invite );
@@ -1269,8 +1939,8 @@ ns.Invite.prototype.bind = function( userId ) {
 
 ns.Invite.prototype.release = function( userId ) {
 	const self = this;
-	const user = self.users[ userId ];
-	if ( !user )
+	const user = self.users.get( userId );
+	if ( !user || !user.release )
 		return;
 	
 	user.release( 'invite' );
@@ -1322,7 +1992,6 @@ ns.Invite.prototype.close = function( callback ) {
 	
 	delete self.db;
 	delete self.users;
-	delete self.onlineList;
 	delete self.isPersistent;
 	delete self.publicToken;
 	delete self.tokens;
@@ -1604,6 +2273,10 @@ ns.Invite.prototype.getInviteHost = function() {
 
 ns.Invite.prototype.broadcast = function( event, sourceId ) {
 	const self = this;
+	const online = self.users.getOnline();
+	self.users.broadcastInvite( online, event, sourceId );
+	
+	/*
 	self.onlineList
 		.forEach( sendTo );
 		
@@ -1612,11 +2285,14 @@ ns.Invite.prototype.broadcast = function( event, sourceId ) {
 			return;
 		
 		self.send( event, uid );
-	}
+	}*/
 }
 
 ns.Invite.prototype.send = function( event, targetId ) {
 	const self = this;
+	self.users.sendInvite( targetId, event );
+	
+	/*
 	const user = self.users[ targetId ];
 	if ( !user )
 		return;
@@ -1631,6 +2307,7 @@ ns.Invite.prototype.send = function( event, targetId ) {
 		data : event,
 	};
 	user.send( inv );
+	*/
 }
 
 //
@@ -1652,17 +2329,37 @@ ns.Log = function( dbPool, roomId, users, idCache, persistent ) {
 	self.init( dbPool );
 }
 
+ns.Log.prototype.initialize = async function() {
+	const self = this;
+	let log = null;
+	try {
+		log = await self.load();
+	} catch( e ) {
+		llLog( 'Log.initialize - load err', e );
+		return false;
+	}
+	
+	if ( !log || !log.data )
+		return true;
+	
+	self.items = log.data.events || [];
+	self.ids = log.data.ids;
+	
+	return true;
+}
+
 // Public
 
-ns.Log.prototype.add = function( msg ) {
+ns.Log.prototype.add = async function( msg ) {
 	const self = this;
 	self.items.push( msg );
 	if ( 100 < self.items.length )
 		self.items = self.items.slice( -50 );
 	
-	if ( self.persistent )
-		self.persist( msg );
+	if ( !self.persistent )
+		return;
 	
+	const msgId = await self.persist( msg );
 }
 
 ns.Log.prototype.get = function( conf ) {
@@ -1690,7 +2387,7 @@ ns.Log.prototype.get = function( conf ) {
 	}
 }
 
-ns.Log.prototype.loadEvent = function( eId ) {
+ns.Log.prototype.getEvent = function( eId ) {
 	const self = this;
 	return new Promise(( resolve, reject ) => {
 		self.msgDb.get( eId )
@@ -1702,7 +2399,7 @@ ns.Log.prototype.loadEvent = function( eId ) {
 		}
 		
 		function error( err ) {
-			llLog( 'loadEvent - error', err );
+			llLog( 'getEvent - error', err );
 			resolve( null );
 		}
 	});
@@ -1710,23 +2407,57 @@ ns.Log.prototype.loadEvent = function( eId ) {
 
 ns.Log.prototype.getLast = function( length ) {
 	const self = this;
+	if ( !self.items || !self.items.length )
+		return [];
+	
 	return self.items.slice( -length );
 }
 
-ns.Log.prototype.editEvent = async function( eventId, msgUpdate, reason, userId ) {
+ns.Log.prototype.updateEvent = async function(
+	eventId,
+	message
+) {
 	const self = this;
 	let uptd = null;
 	try {
-		uptd = await self.msgDb.update( eventId, msgUpdate, reason, userId );
+		uptd = await self.msgDb.update( eventId, message );
 	} catch( e ) {
-		return e;
+		llLog( 'updateEvent - db err', e );
+		return null;
 	}
 	
 	if ( !uptd )
 		return null;
 	
-	self.updateInLog( uptd );
-	return uptd;
+	const event = await self.updateCache( eventId );
+	return event;
+}
+
+ns.Log.prototype.editEvent = async function(
+	eventId,
+	editBy,
+	reason,
+	message
+) {
+	const self = this;
+	let uptd = null;
+	try {
+		uptd = await self.msgDb.setEdit(
+			eventId,
+			editBy,
+			reason,
+			message,
+		);
+	} catch ( e ) {
+		llLog( 'editEvent - db err', e );
+		return null;
+	}
+	
+	if ( !uptd )
+		return null;
+	
+	const event = self.updateCache( eventId );
+	return event;
 }
 
 ns.Log.prototype.setPersistent = function( isPersistent ) {
@@ -1738,14 +2469,15 @@ ns.Log.prototype.setPersistent = function( isPersistent ) {
 	self.writeLogToDb();
 }
 
+ns.Log.prototype.getUnreadForUser = async function( userId ) {
+	const self = this;
+	const unread = await self.msgDb.getRoomUserMessagesUnread( userId );
+	return unread;
+}
+
 ns.Log.prototype.confirm = async function( msgId, userId ) {
 	const self = this;
-	/*
-	llLog( 'confirm - NYI ( is implemented in ContactLog )', [
-		msgId,
-		userId,
-	]);
-	*/
+	await self.msgDb.updateRoomUserMessages( msgId, [ userId ]);
 }
 
 ns.Log.prototype.close = function() {
@@ -1764,136 +2496,129 @@ ns.Log.prototype.close = function() {
 ns.Log.prototype.init = function( pool ) {
 	const self = this;
 	self.msgDb = new dFace.MessageDB( pool, self.roomId );
-	self.load()
-		.then( logBack )
-		.catch( logErr );
-		
-	function logBack( log ) {
-		self.items = log.data.events;
-		self.ids = log.data.ids;
-	}
-	
-	function logErr( err ) {
-		llLog( 'init load err', err.stack || err );
-	}
 }
 
 ns.Log.prototype.load = function( conf ) {
 	const self = this;
 	if ( !conf ) {
 		conf = {};
-		return new Promise( loadBefore );
+		return self.loadBefore( conf );
 	}
 	
-	if ( conf.lastId )
-		return new Promise( loadAfter );
+	if ( conf.lastTime )
+		return self.loadAfter( conf );
 	else
-		return new Promise( loadBefore );
-	
-	function loadBefore( resolve, reject ) {
-		self.msgDb.getBefore( conf.firstId, conf.length )
-			.then( loaded )
-			.catch( loadErr );
-			
-		function loaded( items ) {
-			buildLogEvent( 'before', items )
-				.then( resolve )
-				.catch( err => llLog( 'loadBefore - err', err ));
-		}
-		
-		function loadErr( e ) {
-			llLog( 'loadErr', e );
-			reject( e );
-		}
+		return self.loadBefore( conf );
+}
+
+ns.Log.prototype.loadBefore = async function( conf, worg ) {
+	const self = this;
+	let items = null;
+	try {
+	 	items = await self.msgDb.getBefore( conf.firstTime, conf.length, worg );
+	} catch( err ) {
+		llLog( 'loadBefore - err', err );
+		return null;
 	}
 	
-	function loadAfter( resolve, reject ) {
-		self.msgDb.getAfter( conf.lastId, conf.length )
-			.then( loaded )
-			.catch( loadErr );
-			
-		function loaded( items ) {
-			buildLogEvent( 'after', items )
-				.then( resolve )
-				.catch( err => llLog( 'loadAfter - err', err ));
-		}
-		
-		function loadErr( e ) {
-			llLog( 'loadErr', e );
-			reject( e );
-		}
+	return await self.buildLogEvent( 'before', items );
+}
+
+ns.Log.prototype.loadAfter = async function( conf, worg ) {
+	const self = this;
+	let items = null;
+	try {
+		items = await self.msgDb.getAfter( conf.lastTime, conf.length, worg );
+	} catch( err ) {
+		llLog( 'loadAfter - err', err );
+		return null;
 	}
 	
-	async function buildLogEvent( type, events ) {
-		//let events = parse( dbEvents );
-		let unknownIds = await getUnknownIdentities( events );
-		let log = {
-			type : type,
-			data : {
-				events : events,
-				ids    : unknownIds,
-			},
+	return await self.buildLogEvent( 'after', items );
+}
+
+ns.Log.prototype.buildLogEvent = async function( type, events ) {
+	const self = this;
+	let unknownIds = await getUnknownIdentities( events );
+	let log = {
+		type : type,
+		data : {
+			events : events,
+			ids    : unknownIds,
+		},
+	};
+	return log;
+	
+	async function getUnknownIdentities( events ) {
+		if ( !events || !events.length )
+			return null;
+		
+		let unknownIds = {};
+		for ( let event of events ) {
+			let uId = event.data.fromId;
+			if ( !uId )
+				continue;
+			
+			if ( unknownIds[ uId ])
+				continue;
+			
+			let user = self.users.get( uId );
+			if ( user )
+				continue;
+			
+			let id = await self.idCache.get( uId );
+			unknownIds[ uId ] = id;
 		};
-		return log;
 		
-		function parse( items ) {
-			if ( !items )
-				return null;
-			
-			const events = items.map( extractType );
-			return events;
-			
-			function extractType( item ) {
-				const event = {
-					type : item.type,
-					data : null,
-				};
-				delete item.type;
-				event.data = item;
-				return event;
-			}
-		}
-		
-		async function getUnknownIdentities( events ) {
-			if ( !events || !events.length )
-				return null;
-			
-			let unknownIds = {};
-			for ( let event of events ) {
-				let uId = event.data.fromId;
-				if ( !uId )
-					continue;
-				
-				if ( unknownIds[ uId ])
-					continue;
-				
-				let user = self.users[ uId ]
-				if ( user )
-					continue;
-				
-				let id = await self.idCache.get( uId );
-				unknownIds[ uId ] = id;
-			};
-			
-			return unknownIds;
-		}
+		return unknownIds;
 	}
 }
 
-ns.Log.prototype.persist = function( event ) {
+ns.Log.prototype.persist = async function( event ) {
 	const self = this;
 	let item = event.data;
 	item.type = event.type;
+	let msgId = null;
+	if ( 'msg' === item.type )
+		msgId = await self.setMsg( item );
 	
-	self.msgDb.set( item )
-		.then( ok )
-		.catch( err );
-		
-		function ok( res ) {}
-		
-		function err( err ) {
-			llLog( 'write err', err.stack || err );
-		}
+	if ( 'work-msg' === item.type )
+		msgId = await self.setWorkMsg( item );
+	
+	await self.setLastRead( msgId );
+	return msgId;
+}
+
+ns.Log.prototype.setMsg = async function( item ) {
+	const self = this;
+	let msgId = null;
+	try {
+		msgId = await self.msgDb.set( item );
+	} catch( err ) {
+		llLog( 'setMsg - err', err.stack || err );
+		return null;
+	}
+	
+	return msgId;
+}
+
+ns.Log.prototype.setWorkMsg = async function( item ) {
+	const self = this;
+	let msgId = null;
+	try {
+		msgId = await self.msgDb.setWork( item );
+	} catch( err ) {
+		llLog( 'setWorkMsg - err', err.stack || err );
+		return null;
+	}
+	
+	return msgId;
+}
+
+ns.Log.prototype.setLastRead = async function( msgId ) {
+	const self = this;
+	const active = self.users.getActive();
+	await self.msgDb.updateRoomUserMessages( msgId, active );
 }
 
 ns.Log.prototype.writeLogToDb = function() {
@@ -1904,19 +2629,62 @@ ns.Log.prototype.writeLogToDb = function() {
 	}
 }
 
-ns.Log.prototype.updateInLog = function( event ) {
+ns.Log.prototype.updateCache = async function( msgId ) {
 	const self = this;
-	self.items.some( item => {
-		if ( item.data.msgId !== event.msgId )
-			return false;
+	const mIdx = self.items.findIndex( item => {
+		if ( item.data.msgId === msgId )
+			return true;
 		
-		item.data.message = event.message;
-		return true;
+		return false;
 	});
+	
+	const event = await self.getEvent( msgId );
+	if ( -1 === mIdx )
+		add( msgId, event );
+	else 
+		update( mIdx, event );
+	
+	return event;
+	
+	function add( msgId, event ) {
+		const eventTime = event.data.time;
+		const currentLast = self.items[ self.items.length -1 ];
+		if ( !currentLast ) {
+			self.items.push( event );
+			return;
+		}
+		
+		const currentLastTime = currentLast.data.time;
+		if ( currentLastTime < eventTime ) {
+			self.items.push( event );
+			return;
+		}
+		
+		let insertIndex = null;
+		self.items.some(( item, index ) => {
+			const itemTime = item.data.time;
+			if ( itemTime < eventTime )
+				return false;
+			
+			insertIndex = index;
+			return true;
+		});
+		
+		if ( null == insertIndex ) {
+			self.items.push( event );
+			return;
+		}
+		
+		self.items.splice( insertIndex, 0, event );
+		return true;
+	}
+	
+	function update( mIndex, event ) {
+		self.items.splice( mIndex, 1, event );
+	}
 }
 
-
-// Workgroup - always connected to a Room
+// Workgroup - must be .initialize()'d after instanciation
 
 let wLog = require( './Log' )( 'Room > Workgroup' );
 ns.Workgroup = function(
@@ -1924,27 +2692,32 @@ ns.Workgroup = function(
 	dbPool,
 	roomId,
 	users,
-	onlineList,
-	settings,
+	settings
  ) {
 	const self = this;
-	Emitter.call( self );
+	events.Emitter.call( self );
+	
+	self.dbPool = dbPool;
 	
 	self.worgCtrl = worgCtrl;
 	self.roomId = roomId;
 	self.users = users;
-	self.onlineList = onlineList;
 	self.settings = settings;
 	
 	self.db = null;
 	self.fIds = [];
 	self.cIds = [];
 	self.assigned = {};
-	
-	self.init( dbPool );
 }
 
-util.inherits( ns.Workgroup, Emitter );
+util.inherits( ns.Workgroup, events.Emitter );
+
+ns.Workgroup.prototype.initialize = async function() {
+	const self = this;
+	const dbPool = self.dbPool;
+	delete self.dbPool;
+	await self.init( dbPool );
+}
 
 // 
 
@@ -1955,6 +2728,26 @@ ns.Workgroup.prototype.get = function() {
 		assigned : self.getAssigned(),
 	};
 	return all;
+}
+
+ns.Workgroup.prototype.getUserList = function() {
+	const self = this;
+	if ( !self.cIds || !self.cIds.length )
+		return [];
+	
+	const uIdMap = {};
+	self.cIds.forEach( wId => {
+		const uList = self.worgCtrl.getUserList( wId );
+		if ( !uList || !uList.length )
+			return;
+		
+		uList.forEach( uId => {
+			uIdMap[ uId ] = true;
+		});
+	});
+	
+	const uIds = Object.keys( uIdMap );
+	return uIds || [];
 }
 
 ns.Workgroup.prototype.getUserWorkgroupList = function( userId ) {
@@ -1996,6 +2789,15 @@ ns.Workgroup.prototype.getAssignedClientIds = function() {
 	return self.cIds;
 }
 
+ns.Workgroup.prototype.checkHasWorkgroup = function( userId ) {
+	const self = this;
+	const ass = self.getAssignedForUser( userId );
+	if ( !ass || !ass.length )
+		return false;
+	
+	return true;
+}
+
 ns.Workgroup.prototype.getAssignedForUser = function( userId ) {
 	const self = this;
 	const uwgs = self.worgCtrl.getMemberOf( userId );
@@ -2011,7 +2813,7 @@ ns.Workgroup.prototype.getAssignedForUser = function( userId ) {
 	}
 }
 
-ns.Workgroup.prototype.updateAssigned = function( item, userId ) {
+ns.Workgroup.prototype.updateAssigned = async function( item, userId ) {
 	const self = this;
 	if ( !item || !item.clientId ) {
 		sendErr( 'ERR_NO_CLIENTID', userId );
@@ -2025,58 +2827,16 @@ ns.Workgroup.prototype.updateAssigned = function( item, userId ) {
 		return;
 	}
 	
-	const fId = worg.fId;
+	let res = null;
 	if ( true === item.value )
-		assign();
+		res = await self.assign( worg, userId );
 	else
-		dismiss();
+		res = await self.dismiss( worg );
 	
-	// Assign workgroup to room
-	function assign() {
-		if ( self.assigned[ fId ]) {
-			sendOk( item, userId );
-			return;
-		}
-		
-		self.db.assignWorkgroup( fId, userId )
-			.then( assigned )
-			.catch( dbErr );
-		
-		function assigned( dbWorg ) {
-			self.addAssigned( dbWorg );
-			self.emit( 'assigned', {
-				fId : fId,
-				cId : cId,
-			});
-			sendOk( item, userId );
-		}
-	}
-	
-	// Remove workgroup from room
-	function dismiss() {
-		if ( !self.assigned[ fId ]) {
-			//resolve( fId );
-			return;
-		}
-		
-		self.db.dismissWorkgroup( fId )
-			.then( dismissed )
-			.catch( dbErr );
-		
-		function dismissed( res ) {
-			self.removeDismissed( fId );
-			self.removeUsers();
-			self.emit( 'dismissed', {
-				fId : fId,
-				cId : cId,
-			});
-			sendOk( item, userId );
-		}
-	}
-	
-	function dbErr( err ) {
-		wLog( 'dbErr', err );
-	}
+	if ( !res )
+		sendErr( 'ERR_DISMISS_FAILED', userId );
+	else
+		sendOk( item, userId );
 	
 	function sendOk( item, userId ) {
 		self.settings.sendSaved( 'workgroups', item, true, userId );
@@ -2088,31 +2848,60 @@ ns.Workgroup.prototype.updateAssigned = function( item, userId ) {
 	}
 }
 
+	// Assign workgroup to room
+ns.Workgroup.prototype.assign = async function( worg, userId ) {
+	const self = this;
+	const fId = worg.fId;
+	if ( self.assigned[ fId ])
+		return fId;
+	
+	const dbWorg = await self.db.assignWorkgroup( fId, userId );
+	if ( !dbWorg )
+		return null;
+	
+	self.addAssigned( dbWorg );
+	self.emit( 'assigned', {
+		fId : fId,
+		cId : worg.clientId,
+	});
+	return fId;
+}
+
+	// Remove workgroup from room
+ns.Workgroup.prototype.dismiss = async function( worg ) {
+	const self = this;
+	const fId = worg.fId;
+	if ( !self.assigned[ fId ])
+		return true;
+	
+	const res = await self.db.dismissWorkgroup( fId )
+	if ( !res )
+		return null;
+	
+	self.removeDismissed( fId );
+	self.users.removeWorg( worg.clientId );
+	self.removeUsers();
+	self.emit( 'dismissed', {
+		fId : fId,
+		cId : worg.clientId,
+	});
+	
+	return true;
+}
+
 ns.Workgroup.prototype.send = function( event, userId, callback ) {
 	const self = this;
-	if ( !self.conn ) {
-		callback( 'ERR_NO_CONN', null );
-		return;
-	}
-	
-	self.conn.send( event, userId, callback );
+	self.users.sendWorg( userId, event );
 }
 
 ns.Workgroup.prototype.broadcast = function( event, sourceId, wrapSource ) {
 	const self = this;
-	if ( !self.conn )
-		return;
-	
-	self.conn.broadcast( event, sourceId, wrapSource );
+	self.users.broadcastWorg( null, event, sourceId, wrapSource );
 }
 
 ns.Workgroup.prototype.close = function() {
 	const self = this;
 	self.emitterClose();
-	
-	if ( self.conn )
-		self.conn.close();
-	
 	if ( self.db )
 		self.db.close();
 	
@@ -2127,14 +2916,17 @@ ns.Workgroup.prototype.close = function() {
 			self.worgCtrl.off( self.onWorgRemoveId );
 			self.onWorgRemoveId = null;
 		}
+		
+		if ( self.onWorgUsersRemovedId ) {
+			self.worgCtrl.off( self.onWorgUsersRemovedId );
+			self.onWorgUsersRemovedId = null;
+		}
 	}
 	
 	delete self.worgCtrl;
 	delete self.roomId;
-	delete self.conn;
 	delete self.db;
 	delete self.users;
-	delete self.onlineList;
 	delete self.settings;
 	delete self.groups;
 	delete self.fIds;
@@ -2148,18 +2940,18 @@ ns.Workgroup.prototype.close = function() {
 ns.Workgroup.prototype.init = async function( dbPool ) {
 	const self = this;
 	self.db = new dFace.RoomDB( dbPool, self.roomId );
-	self.conn = new ns.UserSend( 'workgroup', self.users, self.onlineList );
 	
 	self.settings.on( 'workgroups', handleWorgUpdate );
 	function handleWorgUpdate( item, userId ) {
 		self.updateAssigned( item, userId );
 	}
 	
-	self.onWorgAddId = self.worgCtrl.on( 'available', worgAvailable );
-	self.onWorgRemoveId = self.worgCtrl.on( 'removed', worgRemoved );
-	
-	function worgAvailable( e ) { self.handleWorgAvailable( e ); }
-	function worgRemoved( e ) { self.handleWorgRemoved( e ); }
+	self.onWorgAddId = self.worgCtrl.on( 'added', worg =>
+		self.handleWorgAdded( worg ));
+	self.onWorgRemoveId = self.worgCtrl.on( 'removed', worg =>
+		self.handleWorgRemoved( worg ));
+	self.onWorgUsersRemovedId = self.worgCtrl.on( 'users-removed', ( worgId, removed ) =>
+		self.handleUsersRemoved( worgId, removed ));
 	
 	const assigned = await self.worgCtrl.getAssignedForRoom( self.roomId );
 	self.setAssigned( assigned );
@@ -2180,28 +2972,57 @@ ns.Workgroup.prototype.setAssigned = function( assigned ) {
 	self.cIds = available.filter( id => !!id );
 	
 	function add( wg ) {
+		const wId = wg.clientId;
 		self.assigned[ wg.fId ] = wg;
+		const uList = self.worgCtrl.getUserList( wId );
+		uList.forEach( uId => {
+			self.users.addForWorkgroup( wId, uId );
+		});
 	}
 }
 
-ns.Workgroup.prototype.handleWorgAvailable = function( worg ) {
+ns.Workgroup.prototype.handleWorgAdded = function( w ) {
 	const self = this;
-	self.sendAvailable( worg.clientId );
-	let fId = worg.friendId;
+	const worg = self.worgCtrl.get( w.clientId );
+	const added = {
+		type : 'added',
+		data : worg,
+	};
+	self.broadcast( added );
+	
+	const fId = worg.fId;
 	if ( !self.assigned[ fId ])
 		return;
 	
-	if ( self.cIds.some( cId => cId === fId ))
+	const wId = worg.clientId;
+	if ( self.cIds.some( cId => cId === wId ))
 		return;
 	
-	let cId = worg.clientId;
-	self.cIds.push( cId );
+	self.cIds.push( wId );
 	self.updateSettings();
 }
 
 ns.Workgroup.prototype.handleWorgRemoved = function( worg ) {
 	const self = this;
-	wLog( 'handleWorgRemoved - NYI', worg );
+	const removed = {
+		type : 'removed',
+		data : worg.clientId,
+	};
+	self.broadcast( removed );
+	const fId = worg.fId;
+	if ( !self.assigned[ fId ])
+		return;
+	
+	self.dismiss( worg );
+}
+
+ns.Workgroup.prototype.handleUsersRemoved = function( worgId, removed ) {
+	const self = this;
+	//const fId = self.worgCtrl.cIdToFid( worgId );
+	removed.forEach( uId => {
+		self.users.removeFromWorg( worgId, uId );
+	});
+	self.removeUsers();
 }
 
 ns.Workgroup.prototype.updateSettings = function() {
@@ -2226,43 +3047,38 @@ ns.Workgroup.prototype.addAssigned = function( dbWorg ) {
 	self.broadcast( update );
 }
 
-ns.Workgroup.prototype.sendAvailable = function( cId ) {
-	const self = this;
-	const worg = self.worgCtrl.get( cId );
-	const available = {
-		type : 'available',
-		data : worg,
-	};
-	self.broadcast( available );
-}
-
 ns.Workgroup.prototype.removeDismissed = function( fId ) {
 	const self = this;
 	delete self.assigned[ fId ];
 	self.fIds = Object.keys( self.assigned );
 	self.cIds = self.fIds.map( fId => {
 		let worg = self.worgCtrl.getByFId( fId );
+		if ( !worg )
+			return;
+		
 		return worg.clientId;
-	});
+	}).filter( cId => !!cId );
 }
 
 ns.Workgroup.prototype.removeUsers = function() {
 	const self = this;
-	let toBeRemoved = self.onlineList.filter( checkHasAssigned );
+	const all = self.users.getList();
+	let toBeRemoved = all.filter( checkNoAssigned );
 	toBeRemoved.forEach( uid => self.emit( 'remove-user', uid ));
 	
-	function checkHasAssigned( userId ) {
-		let user = self.users[ userId ];
-		if ( user.isAuthed )
-			return false;
+	function checkNoAssigned( userId ) {
+		const wIds = self.users.getWorgsFor( userId );
+		wLog( 'checkNoAssigned - users worgs', [ userId, wIds ]);
+		if ( !wIds || !wIds.length )
+			return true;
 		
-		let assForUser = self.getAssignedForUser( userId );
-		return !assForUser.length;
+		return false;
+		//return !assForUser.length;
 	}
 }
 
 
-// Settings
+// Settings - must be .initialize()'d after instanciation
 
 const sLog = require( './Log' )( 'Room > Settings' );
 ns.Settings = function(
@@ -2270,34 +3086,41 @@ ns.Settings = function(
 	worgCtrl,
 	roomId,
 	users,
-	onlineList,
 	isPersistent,
 	roomName,
-	callback
 ) {
 	const self = this;
-	Emitter.call( self );
+	events.Emitter.call( self );
+	
+	self.dbPool = dbPool;
+	self.roomName = roomName;
 	
 	self.roomId = roomId;
 	self.worgCtrl = worgCtrl;
 	self.users = users;
-	self.onlineList = onlineList;
 	self.isPersistent = isPersistent;
 	
 	self.setting = {};
 	self.handlerMap = {};
 	self.list = [];
-	
-	self.init( dbPool, roomName, callback );
 }
 
-util.inherits( ns.Settings, Emitter );
+ns.Settings.prototype.initialize = async function() {
+	const self = this;
+	const dbPool = self.dbPool;
+	const roomName = self.roomName;
+	delete self.dbPool;
+	delete self.roomName;
+	await self.init( dbPool, roomName );
+}
+
+util.inherits( ns.Settings, events.Emitter );
 
 // Public
 
 ns.Settings.prototype.bind = function( userId ) {
 	const self = this;
-	const user = self.users[ userId ];
+	const user = self.users.get( userId );
 	if ( !user || !user.on )
 		return;
 	
@@ -2362,20 +3185,12 @@ ns.Settings.prototype.sendError = function( setting, errMsg, userId ) {
 
 ns.Settings.prototype.send = function( event, userId, callback ) {
 	const self = this;
-	if ( !self.conn ) {
-		callback( 'ERR_NO_CONN', null );
-		return;
-	}
-	
-	self.conn.send( event, userId, callback );
+	self.users.sendSettings( userId, event );
 }
 
 ns.Settings.prototype.broadcast = function( event, sourceId, wrapSource ) {
 	const self = this;
-	if ( !self.conn )
-		return;
-	
-	self.conn.broadcast( event, sourceId, wrapSource );
+	self.users.broadcastSettings( null, event, sourceId, wrapSource );
 }
 
 ns.Settings.prototype.setPersistent = function( isPersistent, roomName ) {
@@ -2386,14 +3201,11 @@ ns.Settings.prototype.setPersistent = function( isPersistent, roomName ) {
 
 ns.Settings.prototype.close = function() {
 	const self = this;
-	if ( self.conn )
-		self.conn.close();
-	
 	if ( self.db )
 		self.db.close();
 	
 	delete self.worgCtrl;
-	delete self.conn;
+	delete self.users;
 	delete self.db;
 	delete self.roomId;
 	delete self.isPersistent;
@@ -2401,9 +3213,8 @@ ns.Settings.prototype.close = function() {
 
 // Private
 
-ns.Settings.prototype.init = function( dbPool, name, callback ) {
+ns.Settings.prototype.init = async function( dbPool, name ) {
 	const self = this;
-	self.conn = new ns.UserSend( 'settings', self.users, self.onlineList );
 	self.handlerMap = {
 		'roomName'    : roomName,
 		'userLimit'   : userLimit,
@@ -2420,10 +3231,21 @@ ns.Settings.prototype.init = function( dbPool, name, callback ) {
 	
 	self.list = Object.keys( self.handlerMap );
 	self.db = new dFace.RoomDB( dbPool, self.roomId );
-	self.db.getSettings()
-		.then( settings )
-		.catch( loadErr );
+	let dbSetts = null;
+	try {
+		dbSetts = await self.db.getSettings();
+	} catch ( err ) {
+		self.setDefaults();
+	}
 	
+	if ( dbSetts )
+		self.setDbSettings( dbSetts );
+	
+	self.set( 'roomName', name );
+	
+	return self.setting;
+	
+	/*
 	function settings( res ) {
 		self.setDbSettings( res );
 		self.set( 'roomName', name );
@@ -2438,6 +3260,7 @@ ns.Settings.prototype.init = function( dbPool, name, callback ) {
 	function done( err ) {
 		callback( err, self.setting );
 	}
+	*/
 }
 
 ns.Settings.prototype.setDbSettings = function( settings ) {
@@ -2504,7 +3327,7 @@ ns.Settings.prototype.handleLoad = function( event, userId ) {
 
 ns.Settings.prototype.saveSetting = function( event, userId ) {
 	const self = this;
-	const user = self.users[ userId ];
+	const user = self.users.get( userId );
 	if ( !user )
 		return;
 	
@@ -2524,7 +3347,7 @@ ns.Settings.prototype.saveSetting = function( event, userId ) {
 
 ns.Settings.prototype.checkIsAdminOrOwner = function( userId ) {
 	const self = this;
-	const user = self.users[ userId ];
+	const user = self.users.get( userId );
 	if ( !user )
 		return false;
 	
@@ -2537,7 +3360,7 @@ ns.Settings.prototype.checkIsAdminOrOwner = function( userId ) {
 
 ns.Settings.prototype.checkIsAdmin = function( userId ) {
 	const self = this;
-	const user = self.users[ userId ];
+	const user = self.users.get( userId );
 	if ( !user )
 		return false;
 	

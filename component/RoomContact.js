@@ -19,9 +19,9 @@
 
 'use strict';
 
+const FService = require( '../api/FService' );
 const log = require( './Log' )( 'ContactRoom' );
 const components = require( './RoomComponents' );
-const FService = require( '../api/FService' );
 const Signal = require( './Signal' );
 const dFace = require( './DFace' );
 const Janus = require( './Janus' );
@@ -32,6 +32,7 @@ var ns = {};
 
 ns.ContactRoom = function( conf, db, idCache ) {
 	const self = this;
+	self.relationId = conf.ownerId;
 	Room.call( self, conf, db, idCache );
 }
 
@@ -58,7 +59,7 @@ ns.ContactRoom.prototype.connect = async function( userId ) {
 	if ( !authed )
 		return false;
 	
-	if ( !self.users[ userId ])
+	if ( !self.users.exists( userId ))
 		await self.addUser( userId );
 	
 	const signal = self.bindUser( userId );
@@ -93,54 +94,57 @@ ns.ContactRoom.prototype.getOtherAccount = function( accId ) {
 	else
 		otherId = self.accIdA;
 	
-	return self.users[ otherId ];
+	return self.users.get( otherId );
 }
 
-ns.ContactRoom.prototype.init = function() {
+ns.ContactRoom.prototype.init = async function() {
 	const self = this;
-	self.service = new FService( global.config.server.friendcore );
+	self.service = new FService();
 	self.roomDb = new dFace.RoomDB( self.dbPool, self.id );
+	self.users = new components.Users(
+		self.dbPool,
+		self.id,
+		true
+	);
+	await self.users.initialize();
+	
 	self.settings = new ns.ContactSettings(
 		self.dbPool,
 		self.id,
 		self.users,
-		self.onlineList,
-		settingsDone
+	);
+	await self.settings.initialize();
+	
+	self.log = new ns.ContactLog(
+		self.dbPool,
+		self.id,
+		self.users,
+		self.activeList,
+		self.idCache,
+		self.ownerId
 	);
 	
-	async function settingsDone( err , res ) {
-		self.log = new ns.ContactLog(
-			self.dbPool,
-			self.id,
-			self.users,
-			self.activeList,
-			self.idCache,
-			self.ownerId
-		);
-		
-		self.chat = new ns.ContactChat(
-			self.id,
-			self.users,
-			self.onlineList,
-			self.log,
-			self.service
-		);
-		
-		self.live = new components.Live(
-			self.users,
-			self.onlineList,
-			self.log,
-			null,
-			self.settings
-		);
-		
-		try {
-			await self.loadUsers();
-		} catch( e ) {
-			log( 'load fail', e );
-		}
-		self.setOpen();
+	self.chat = new ns.ContactChat(
+		self.id,
+		self.users,
+		self.log,
+		self.service
+	);
+	
+	self.live = new components.Live(
+		self.users,
+		self.log,
+		null,
+		self.settings
+	);
+	
+	try {
+		await self.loadUsers();
+	} catch( e ) {
+		log( 'load fail', e );
 	}
+	
+	self.setOpen();
 }
 
 ns.ContactRoom.prototype.loadUsers = async function() {
@@ -157,21 +161,23 @@ ns.ContactRoom.prototype.loadUsers = async function() {
 		return false;
 	
 	try {
-		await Promise.all( auths.map( await add ));
+		await Promise.all( auths.map( add ));
 	} catch ( e ) {
 		log( 'opps', e.stack || e );
 	}
 	
 	return true;
 	
-	async function add( dbUser ) {
-		await self.addUser( dbUser.clientId );
+	function add( dbUser ) {
+		const cId = dbUser.clientId;
+		self.users.addAuthorized( cId );
+		self.addUser( cId );
 	}
 }
 
 ns.ContactRoom.prototype.bindUser = function( userId ) {
 	const self = this;
-	const id = self.users[ userId ];
+	const id = self.users.get( userId );
 	if ( id.close ) {
 		log( 'bindUser - user already bound' );
 		return;
@@ -181,7 +187,7 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 		log( 'bindUSer - no user for id', {
 			roomId : self.id,
 			userId : userId,
-			users  : self.users,
+			users  : self.users.getList(),
 		}, 4 );
 		try {
 			throw new Error( 'blah' );
@@ -192,8 +198,6 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 	}
 	
 	// removing basic user obj
-	delete self.users[ userId ];
-	
 	const otherAcc = self.getOtherAccount( userId );
 	const otherId = otherAcc.clientId;
 	const otherName = otherAcc.name;
@@ -212,12 +216,11 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 		isAuthed   : true,
 	};
 	const user = new Signal( sigConf );
-	self.users[ userId ] = user;
+	self.users.set( user );
 	
 	// bind room events
 	user.on( 'initialize', init );
 	user.on( 'persist', persist );
-	user.on( 'identity', identity );
 	user.on( 'disconnect', goOffline );
 	user.on( 'leave', leaveRoom );
 	user.on( 'live-join', joinLive );
@@ -229,7 +232,6 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 	let uid = userId;
 	function init( e ) { self.initialize( e, uid ); }
 	function persist( e ) { self.handlePersist( e, uid ); }
-	function identity( e ) { self.setIdentity( e, uid ); }
 	function goOffline( e ) { self.disconnect( uid ); }
 	function leaveRoom( e ) { self.handleLeave( uid ); }
 	function joinLive( e ) { self.handleJoinLive( e, uid ); }
@@ -243,74 +245,12 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 	self.settings.bind( userId );
 	
 	// show online
-	self.setOnline( userId );
+	self.users.setOnline( userId );
 	return user;
-}
-
-ns.ContactRoom.prototype.handleActive = function( event, userId ) {
-	const self = this;
-	if ( event.isActive )
-		add( userId );
-	else
-		remove( userId );
-	
-	function add( uId ) {
-		if ( false !== indexInList( uId ))
-			return;
-		
-		self.activeList.push( uId );
-	}
-	
-	function remove( uId ) {
-		let index = indexInList( uId );
-		if ( false === index )
-			return;
-		
-		self.activeList.splice( index, 1 );
-	}
-	
-	function indexInList( uId ) {
-		let index = self.activeList.indexOf( uId );
-		if ( -1 === index )
-			return false;
-		else
-			return index;
-	}
-}
-
-ns.ContactRoom.prototype.setOnline = function( userId ) {
-	const self = this;
-	const user = self.users[ userId ];
-	if ( !user )
-		return null;
-	
-	if ( -1 !== self.onlineList.indexOf( userId ))
-		return;
-	
-	self.onlineList.push( userId );
-	
-	/*
-	const online = {
-		type : 'online',
-		data : true,
-	};
-	const otherAcc = self.getOtherAccount( userId );
-	self.send( online, otherAcc.accountId );
-	*/
-	return user;
-}
-
-ns.ContactRoom.prototype.setOffline = function( userId ) {
-	const self = this;
-	const userIndex = self.onlineList.indexOf( userId );
-	if ( -1 !== userIndex ) {
-		let removed = self.onlineList.splice( userIndex, 1 );
-	}
 }
 
 ns.ContactRoom.prototype.handleOpen = function( userId ) {
 	const self = this;
-	log( 'handleOpen', userId );
 	const open = {
 		type : 'open',
 		data : true,
@@ -318,9 +258,24 @@ ns.ContactRoom.prototype.handleOpen = function( userId ) {
 	self.send( open, userId );
 }
 
-ns.ContactRoom.prototype.initialize = function( requestId, userId ) {
+ns.ContactRoom.prototype.getRoomRelation = async function( userId ) {
+	const self = this;
+	const other = self.getOtherAccount( userId );
+	const msgDb = new dFace.MessageDB( self.dbPool );
+	const rel = await msgDb.getRelationState( self.relationId, other.clientId );
+	const lastMessages = self.log.getLast( 1 );
+	const relation = {
+		unreadMessages : rel ? rel.unreadMessages : 0,
+		lastMessage    : rel ? rel.lastMessage : null,
+	};
+	
+	return relation;
+}
+
+ns.ContactRoom.prototype.initialize = async function( requestId, userId ) {
 	const self = this;
 	const otherAcc = self.getOtherAccount( userId );
+	const relation = await self.getRoomRelation( userId );
 	const state = {
 		id          : otherAcc.clientId,
 		name        : otherAcc.name,
@@ -330,11 +285,10 @@ ns.ContactRoom.prototype.initialize = function( requestId, userId ) {
 		settings    : self.settings.get(),
 		guestAvatar : self.guestAvatar,
 		users       : buildBaseUsers(),
-		online      : self.onlineList,
-		identities  : self.identities,
+		online      : self.users.getOnline(),
 		peers       : self.live.peerIds,
 		workgroups  : null,
-		lastMessage : self.log.getLast( 1 )[ 0 ],
+		relation    : relation,
 	};
 	
 	const init = {
@@ -345,19 +299,15 @@ ns.ContactRoom.prototype.initialize = function( requestId, userId ) {
 	
 	function buildBaseUsers() {
 		const users = {};
-		const uIds = Object.keys( self.users );
+		const uIds = self.users.getList();
 		uIds.forEach( build );
 		return users;
 		
 		function build( uId ) {
-			let user = self.users[ uId ];
+			let user = self.users.get( uId );
 			users[ uId ] = {
 				clientId   : uId,
-				name       : user.name,
-				avatar     : user.avatar,
-				isAdmin    : user.isAdmin,
 				isAuthed   : true,
-				isGuest    : false,
 				workgroups : [],
 			};
 		}
@@ -367,12 +317,12 @@ ns.ContactRoom.prototype.initialize = function( requestId, userId ) {
 ns.ContactRoom.prototype.addUser = async function( userId ) {
 	const self = this;
 	// add to users
-	if ( self.users[ userId ]) {
+	if ( self.users.exists( userId )) {
 		return userId;
 	}
 	
 	const user = await self.idCache.get( userId );
-	self.users[ userId ] = user;
+	self.users.set( user );
 	self.authorized.push( userId );
 	
 	if ( self.accIdB )
@@ -394,7 +344,6 @@ const cLog = require( './Log')( 'ContactRoom > Chat' );
 ns.ContactChat = function(
 	roomId,
 	users,
-	onlineList,
 	log,
 	service
 ) {
@@ -403,7 +352,6 @@ ns.ContactChat = function(
 		roomId,
 		null,
 		users,
-		onlineList,
 		log,
 		service
 	);
@@ -413,36 +361,38 @@ util.inherits( ns.ContactChat, components.Chat );
 
 ns.ContactChat.prototype.sendMsgNotification = async function( message, mId, fromId ) {
 	const self = this;
-	const from = self.users[ fromId ];
+	const from = self.users.get( fromId );
 	const roomName = from.name;
 	const notie = message;
-	const uIds = Object.keys( self.users );
-	
+	const uIds = self.users.getList();
 	const extra = {
 		roomId : fromId,
 		msgId  : mId,
 	};
 	
-	uIds.forEach( async uId => {
+	const userList = [];
+	uIds.forEach( uId => {
 		if ( fromId === uId )
 			return;
 		
-		const user = self.users[ uId ];
+		const user = self.users.get( uId );
 		if ( !user || !user.fUsername )
 			return;
 		
-		try {
-			await self.service.sendNotification(
-				user.fUsername,
-				roomName,
-				notie,
-				self.roomId,
-				extra
-			);
-		} catch( e ) {
-			cLog( 'sendMsgNotification - err', e );
-		}
+		userList.push( user.fUsername );
 	});
+	
+	try {
+		await self.service.sendNotification(
+			userList,
+			roomName,
+			notie,
+			self.roomId,
+			extra
+		);
+	} catch( e ) {
+		cLog( 'sendMsgNotification - err', e );
+	}
 }
 
 /*
@@ -454,8 +404,6 @@ ns.ContactSettings = function(
 	dbPool,
 	roomId,
 	users,
-	onlineList,
-	callback
 ) {
 	const self = this;
 	components.Settings.call( self,
@@ -463,41 +411,32 @@ ns.ContactSettings = function(
 		null,
 		roomId,
 		users,
-		onlineList,
 		true,
 		null,
-		callback
 	);
 }
 
 util.inherits( ns.ContactSettings, components.Settings );
 
-ns.ContactSettings.prototype.init = function( dbPool, ignore, callback ) {
+ns.ContactSettings.prototype.init = async function( dbPool, ignore ) {
 	const self = this;
-	self.conn = new components.UserSend( 'settings', self.users, self.onlineList );
 	self.handlerMap = {
 	};
 	
 	self.list = Object.keys( self.handlerMap );
 	self.db = new dFace.RoomDB( dbPool, self.roomId );
-	self.db.getSettings()
-		.then( settings )
-		.catch( loadErr );
-	
-	function settings( res ) {
-		self.setDbSettings( res );
-		done();
-	}
-	
-	function loadErr( err ) {
-		sLog( 'loadErr', err );
+	let dbSetts = null;
+	try {
+		dbSetts = await self.db.getSettings();
+	} catch ( e ) {
+		sLog( 'init - failed to load db settings', e );
 		self.setDefaults();
-		done( err );
 	}
 	
-	function done( err ) {
-		callback( err, self.setting );
-	}
+	if ( dbSetts )
+		self.setDbSettings( dbSetts );
+	
+	return self.setting;
 }
 
 ns.ContactSettings.prototype.setDbSettings = function( settings ) {

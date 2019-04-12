@@ -1,0 +1,3 @@
+ALTER TABLE `room`
+ADD COLUMN `workgroupId` VARCHAR( 191 ) NULL UNIQUE
+AFTER `clientId`;

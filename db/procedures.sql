@@ -41,6 +41,9 @@ DROP PROCEDURE IF EXISTS room_settings_remove_key;
 DROP PROCEDURE IF EXISTS room_get_assigned_workgroups;
 DROP PROCEDURE IF EXISTS room_assign_workgroup;
 DROP PROCEDURE IF EXISTS room_dismiss_workgroup;
+DROP PROCEDURE IF EXISTS room_get_assigned_to;
+DROP PROCEDURE IF EXISTS room_create_for_workgroup;
+DROP PROCEDURE IF EXISTS room_get_for_workgroup;
 
 # USER RELATION
 DROP PROCEDURE IF EXISTS user_relation_create;
@@ -61,13 +64,25 @@ DROP PROCEDURE IF EXISTS auth_remove;
 
 # MESSAGE
 DROP PROCEDURE IF EXISTS message_set;
+DROP PROCEDURE IF EXISTS message_set_work_target;
 DROP PROCEDURE IF EXISTS message_get_by_id;
 DROP PROCEDURE IF EXISTS message_get_asc;
 DROP PROCEDURE IF EXISTS message_get_desc;
 DROP PROCEDURE IF EXISTS message_get_after;
 DROP PROCEDURE IF EXISTS message_get_before;
+DROP PROCEDURE IF EXISTS message_get_with_work_targets;
+DROP PROCEDURE IF EXISTS message_get_work_targets_after;
+DROP PROCEDURE IF EXISTS message_get_work_targets_before;
+DROP PROCEDURE IF EXISTS message_get_work_targets_between;
+DROP PROCEDURE IF EXISTS message_get_for_view;
 DROP PROCEDURE IF EXISTS message_update;
-DROP PROCEDURE IF EXISTS message_update_with_history;
+DROP PROCEDURE IF EXISTS message_set_edit;
+
+DROP PROCEDURE IF EXISTS room_user_messages_set;
+DROP PROCEDURE IF EXISTS room_user_messages_load;
+DROP PROCEDURE IF EXISTS room_user_messages_update;
+DROP PROCEDURE IF EXISTS room_user_messages_count_unread;
+DROP PROCEDURE IF EXISTS room_user_messages_count_unread_worg;
 
 #INVITE TOKENS
 DROP PROCEDURE IF EXISTS invite_set;
@@ -86,7 +101,6 @@ DROP FUNCTION IF EXISTS fn_get_msg_time;
 #
 
 # RETURN PART OF A DELIMITED STRING BY INDEX
-
 CREATE FUNCTION fn_split_str(
 	source TEXT,
 	delim CHAR(12),
@@ -582,6 +596,57 @@ SELECT `fId` as 'fId', ROW_COUNT() as 'removed';
 END//
 
 #
+# room get assigned to
+CREATE PROCEDURE room_get_assigned_to(
+	IN `worgId` VARCHAR( 191 )
+)
+BEGIN
+SELECT r.roomId FROM workgroup_rooms AS r
+WHERE r.fId = `worgId`;
+
+END//
+
+#
+# room create for workgroup
+CREATE PROCEDURE room_create_for_workgroup(
+	IN `clientId`    VARCHAR( 191 ),
+	IN `workgroupId` VARCHAR( 191 ),
+	IN `name`        VARCHAR( 191 ),
+	IN `ownerId`     VARCHAR( 191 ),
+	IN `settings`    TEXT
+)
+BEGIN
+INSERT INTO `room` (
+	`clientId`,
+	`workgroupId`,
+	`name`,
+	`ownerId`,
+	`settings`,
+	`isPrivate`
+) VALUES (
+	`clientId`,
+	`workgroupId`,
+	`name`,
+	`ownerId`,
+	`settings`,
+	0
+);
+
+SELECT * FROM `room`
+WHERE room.workgroupId = `workgroupId`;
+END//
+
+#
+# room get for workgroup
+CREATE PROCEDURE room_get_for_workgroup(
+	IN `workgroupId` VARCHAR( 191 )
+)
+BEGIN
+SELECT * FROM `room` AS r
+WHERE r.workgroupId = `workgroupId`;
+END//
+
+#
 # set auths for a room
 CREATE PROCEDURE auth_add(
 	IN `roomId`      VARCHAR( 191 ),
@@ -737,18 +802,24 @@ AND tur.contactId = `contactId`;
 
 SELECT count(*) AS `unreadMessages` FROM message AS m
 WHERE m.roomId = room_id
-AND m.accountId = contactId
+AND m.fromId = contactId
 AND m.timestamp > fn_get_msg_time( last_read_id );
 
 SELECT
 	m.msgId,
 	m.roomId,
-	m.accountId AS `fromId`,
+	m.fromId,
 	m.timestamp AS `time`,
 	m.type,
 	m.name,
-	m.message
+	COALESCE( e.message, m.message ) AS `message`,
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS `editReason`
 FROM message AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId
 WHERE m.msgId = (
 	SELECT ur.lastMsgId FROM user_relation AS ur
 	WHERE ur.relationId = `relationId` AND ur.contactId = `contactId`
@@ -821,7 +892,7 @@ END//
 CREATE PROCEDURE message_set(
 	IN `msgId`     VARCHAR( 191 ),
 	IN `roomId`    VARCHAR( 191 ),
-	IN `accountId` VARCHAR( 191 ),
+	IN `fromId` VARCHAR( 191 ),
 	IN `timestamp` BIGINT,
 	IN `type`      VARCHAR( 20 ),
 	IN `name`      VARCHAR( 191 ),
@@ -831,7 +902,7 @@ BEGIN
 INSERT INTO `message` (
 	`msgId`,
 	`roomId`,
-	`accountId`,
+	`fromId`,
 	`timestamp`,
 	`type`,
 	`name`,
@@ -839,13 +910,36 @@ INSERT INTO `message` (
 ) VALUES (
 	`msgId`,
 	`roomId`,
-	`accountId`,
+	`fromId`,
 	`timestamp`,
 	`type`,
 	`name`,
 	`message`
 );
 END//
+
+
+# message_set_work_target
+CREATE PROCEDURE message_set_work_target(
+	IN `msgId` VARCHAR( 191 ),
+	IN `source` VARCHAR( 191 ),
+	IN `target` VARCHAR( 191 ),
+	IN `memberId` VARCHAR( 191 )
+)
+BEGIN
+INSERT INTO `message_work_target` (
+	`msgId`,
+	`source`,
+	`target`,
+	`memberId`
+) VALUES (
+	`msgId`,
+	`source`,
+	`target`,
+	`memberId`
+);
+END//
+
 
 # messge_get_by_id
 CREATE PROCEDURE message_get_by_id(
@@ -855,12 +949,18 @@ BEGIN
 SELECT
 	m.msgId,
 	m.roomId,
-	m.accountId AS `fromId`,
+	m.fromId,
 	m.timestamp AS `time`,
 	m.type,
 	m.name,
-	m.message
+	COALESCE( e.message, m.message ) AS `message`,
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS `editReason`
 FROM message AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId
 WHERE m.msgId = `msgId`;
 END//
 
@@ -871,20 +971,27 @@ CREATE PROCEDURE message_get_desc(
 )
 BEGIN
 SELECT
-	tmp.msgId,
-	tmp.roomId,
-	tmp.accountId AS `fromId`,
-	tmp.timestamp AS `time`,
-	tmp.type,
-	tmp.name,
-	tmp.message
+	m.msgId,
+	m.roomId,
+	m.fromId,
+	m.timestamp AS `time`,
+	m.type,
+	m.name,
+	COALESCE( e.message, m.message ) AS `message`,
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS `editReason`
 FROM (
-	SELECT * FROM message AS m
-	WHERE m.roomId = `roomId`
-	ORDER BY m._id DESC
+	SELECT * FROM message AS t
+	WHERE t.roomId = `roomId`
+	ORDER BY t._id DESC
 	LIMIT 0, `length`
-) AS tmp
-ORDER BY tmp._id ASC;
+) AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId
+ORDER BY m._id ASC;
+
 END//
 
 # message_get_asc
@@ -894,77 +1001,344 @@ CREATE PROCEDURE message_get_asc(
 )
 BEGIN
 SELECT
-	tmp.msgId,
-	tmp.roomId,
-	tmp.accountId AS `fromId`,
-	tmp.timestamp AS `time`,
-	tmp.type,
-	tmp.name,
-	tmp.message
+	m.msgId,
+	m.roomId,
+	m.fromId,
+	m.timestamp AS `time`,
+	m.type,
+	m.name,
+	COALESCE( e.message, m.message ) AS `message`,
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS `editReason`
 FROM (
-	SELECT * FROM message AS m
-	WHERE m.roomId = `roomId`
-	ORDER BY m._id ASC
+	SELECT * FROM message AS t
+	WHERE t.roomId = `roomId`
+	ORDER BY t._id ASC
 	LIMIT 0, `length`
-) AS tmp;
+) AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId;
+
 END//
 
 #mesage_get_after
 CREATE PROCEDURE message_get_after(
-	IN `roomId` VARCHAR( 191 ),
-	IN `lastId` VARCHAR( 191 ),
-	IN `length` INT
+	IN `roomId`   VARCHAR( 191 ),
+	IN `fromTime` BIGINT,
+	IN `length`   INT
 )
 BEGIN
 SELECT
-	tmp.msgId,
-	tmp.roomId,
-	tmp.accountId AS `fromId`,
-	tmp.timestamp AS `time`,
-	tmp.type,
-	tmp.name,
-	tmp.message
+	m.msgId,
+	m.roomId,
+	m.fromId,
+	m.timestamp AS `time`,
+	m.type,
+	m.name,
+	COALESCE( e.message, m.message ) AS `message`,
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS `editReason`
 FROM (
-	SELECT * FROM message AS m
-	WHERE m.roomId = `roomId`
-	AND m._id > (
-		SELECT l._id
-		FROM message AS l
-		WHERE l.msgId = `lastId`
-	)
-	ORDER BY m._id ASC
+	SELECT * FROM message AS t
+	WHERE t.roomId = `roomId`
+	AND t.timestamp >= `fromTime`
+	ORDER BY t._id ASC
 	LIMIT `length`
-) AS tmp;
+) AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId;
+
 END//
 
 # message_get_before
 CREATE PROCEDURE message_get_before(
 	IN `roomId` VARCHAR( 191 ),
-	IN `startId` VARCHAR( 191 ),
+	IN `toTime` BIGINT,
 	IN `length` INT
 )
 BEGIN
 SELECT
-	tmp.msgId,
-	tmp.roomId,
-	tmp.accountId AS `fromId`,
-	tmp.timestamp AS `time`,
-	tmp.type,
-	tmp.name,
-	tmp.message
+	m.msgId,
+	m.roomId,
+	m.fromId,
+	m.timestamp AS `time`,
+	m.type,
+	m.name,
+	COALESCE( e.message, m.message ) AS `message`,
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS `editReason`
 FROM (
-	SELECT * FROM message AS m
-	WHERE m.roomId = `roomId`
-	AND m._id < (
-		SELECT s._id
-		FROM message AS s
-		WHERE s.msgId = `startId`
-	)
-	ORDER BY m._id DESC
+	SELECT * FROM message AS t
+	WHERE t.roomId = `roomId`
+	AND t.timestamp < `toTime`
+	ORDER BY t._id DESC
 	LIMIT `length`
-) AS tmp
-ORDER BY tmp._id ASC;
+) AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId
+ORDER BY m._id ASC;
+
 END//
+
+# message get with work targets
+CREATE PROCEDURE message_get_with_work_targets(
+	IN `msgId` VARCHAR( 191 )
+)
+BEGIN
+SELECT
+	m.msgId,
+	m.roomId,
+	m.fromId,
+	m.timestamp AS `time`,
+	m.type,
+	m.name,
+	COALESCE( e.message, m.message ) AS `message`,
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS `editReason`
+FROM message AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId
+WHERE m.msgId = `msgId`;
+	
+SELECT
+	t.msgId,
+	t.source,
+	t.target,
+	t.memberId
+FROM message_work_target AS t
+WHERE t.msgId = `msgId`;
+
+END//
+
+# message_get_work_targets_after
+CREATE PROCEDURE message_get_work_targets_after(
+	IN `workgroup` VARCHAR( 191 ),
+	IN `from`      BIGINT,
+	IN `length`    INT
+)
+BEGIN
+DROP TABLE IF EXISTS tmp;
+CREATE TEMPORARY TABLE tmp (
+SELECT
+	t.msgId,
+	t.source,
+	t.target,
+	t.memberId
+FROM `message_work_target` AS t
+	LEFT JOIN `message` AS mt
+	ON t.msgId = mt.msgId
+WHERE mt.timestamp >= `from`
+AND ( t.source = `workgroup` OR t.target = `workgroup` )
+ORDER BY mt.timestamp ASC
+);
+
+SELECT
+	m.msgId,
+	m.roomId,
+	m.fromId,
+	m.timestamp AS 'time',
+	m.type,
+	m.name,
+	COALESCE( e.message, m.message ) AS 'message',
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS 'editReason'
+FROM message AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId
+WHERE m.msgId IN (
+	SELECT M.msgId FROM message AS M
+	RIGHT JOIN tmp AS T
+		ON M.msgId = T.msgId
+	GROUP BY M.msgId
+);
+
+SELECT * FROM tmp;
+
+END//
+
+# message_get_work_targets_before
+CREATE PROCEDURE message_get_work_targets_before(
+	IN `workgroup` VARCHAR( 191 ),
+	IN `to`        BIGINT,
+	IN `length`    INT
+)
+BEGIN
+DROP TABLE IF EXISTS tmp;
+CREATE TEMPORARY TABLE tmp (
+SELECT
+	t.msgId,
+	t.source,
+	t.target,
+	t.memberId
+FROM `message_work_target` AS t
+	LEFT JOIN `message` AS mt
+	ON t.msgId = mt.msgId
+WHERE mt.timestamp < `to`
+AND ( t.source = `workgroup` OR t.target = `workgroup` )
+ORDER BY mt.timestamp DESC
+);
+
+SELECT
+	m.msgId,
+	m.roomId,
+	m.fromId,
+	m.timestamp AS `time`,
+	m.type,
+	m.name,
+	COALESCE( e.message, m.message ) AS `message`,
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS `editReason`
+FROM message AS m 
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId
+WHERE m.msgId IN (
+	SELECT M.msgId FROM `message` AS M
+	RIGHT JOIN tmp AS T
+		ON M.msgId = T.msgId
+	GROUP BY M.msgId
+);
+
+SELECT * FROM tmp;
+
+END//
+
+# message_get_work_targets_between
+CREATE PROCEDURE message_get_work_targets_between(
+	IN `workgroup` VARCHAR( 191 ),
+	IN `from`      BIGINT,
+	IN `to`        BIGINT
+)
+BEGIN
+DROP TABLE IF EXISTS tmp;
+CREATE TEMPORARY TABLE tmp (
+SELECT
+	t.msgId,
+	t.source,
+	t.target,
+	t.memberId
+FROM `message_work_target` AS t
+	LEFT JOIN `message` AS mt
+	ON t.msgId = mt.msgId
+WHERE mt.timestamp >= `from`
+AND mt.timestamp <= `to`
+AND ( t.source = `workgroup` OR t.target = `workgroup` )
+ORDER BY mt.timestamp ASC
+);
+
+SELECT
+	m.msgId,
+	m.roomId,
+	m.fromId,
+	m.timestamp AS 'time',
+	m.type,
+	m.name,
+	COALESCE( e.message, m.message ) AS 'message',
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS 'editReason'
+FROM message AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId
+WHERE m.msgId IN (
+	SELECT M.msgId FROM message AS M
+	RIGHT JOIN tmp AS T
+		ON M.msgId = T.msgId
+	GROUP BY M.msgId
+);
+
+SELECT * FROM tmp;
+
+END//
+
+# message_get_before_view
+CREATE PROCEDURE message_get_for_view(
+	IN `worgId` VARCHAR( 191 ),
+	IN `userId` VARCHAR( 191 ),
+	IN `to`     BIGINT,
+	IN `from`   BIGINT,
+	IN `limit`  INT
+)
+BEGIN
+DROP TABLE IF EXISTS tmp;
+CREATE TEMPORARY TABLE tmp (
+SELECT
+	t.msgId
+FROM message_work_target AS t
+LEFT JOIN message AS m
+	ON t.msgId = m.msgId
+WHERE (
+		( `to` IS NOT NULL AND m.timestamp < `to` )
+		OR
+		( `from` IS NOT NULL AND m.timestamp > `from` )
+	  )
+  AND (
+  		( t.target = `worgId` AND m.fromId = `userId` )
+  		OR
+		( t.source = `worgId` AND t.memberId = `userId` )
+	  )
+GROUP BY t.msgId
+ORDER BY m.timestamp ASC
+LIMIT `limit`
+);
+
+SELECT
+	m.msgId,
+	m.roomId,
+	m.fromId,
+	m.timestamp AS 'time',
+	m.type,
+	m.name,
+	COALESCE( e.message, m.message ) AS 'message',
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS 'editReason'
+FROM message AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId
+WHERE m.msgId IN (
+	SELECT T.msgId FROM tmp AS T
+);
+
+SELECT
+	t.msgId,
+	t.source,
+	t.target,
+	t.memberId
+FROM message_work_target AS t
+WHERE t.msgId IN (
+	SELECT T.msgId FROM tmp AS T
+);
+
+END//
+
+# RETURN ID OF LAST MSG EDIT
+#CREATE FUNCTION fn_get_last_edit(
+#	msg_id VARCHAR( 191 )
+#) RETURNS TEXT DETERMINISTIC
+#BEGIN
+#DECLARE edit TEXT DEFAULT NULL;
+#SELECT e.message INTO edit FROM message_edit AS e
+#	WHERE e.msgId = msg_id
+#	GROUP BY e.msgId
+#	ORDER BY e.editTime DESC
+#	LIMIT 1;
+#
+#RETURN edit;
+#END//
 
 # message_update
 CREATE PROCEDURE message_update(
@@ -972,27 +1346,219 @@ CREATE PROCEDURE message_update(
 	IN `update` TEXT
 )
 BEGIN
+
 UPDATE message AS m
 SET
 	m.message = `update`
 WHERE m.msgId = `msgId`;
-
 SELECT
 	m.msgId,
 	m.roomId,
-	m.accountId AS `fromId`,
+	m.fromId,
 	m.timestamp AS `time`,
 	m.type,
 	m.name,
-	m.message
+	COALESCE( e.message, m.message ) AS `message`,
+	m.editId,
+	e.editBy,
+	e.editTime,
+	e.reason AS `editReason`
 FROM message AS m
+LEFT JOIN message_edit AS e
+	ON m.editId = e.clientId
 WHERE m.msgId = `msgId`;
-
+#msg-902f9106-b9b7-47c1-9ad9-74357e781029
 END//
 
 # message_update_with_history
+CREATE PROCEDURE message_set_edit(
+	IN `clientId` VARCHAR( 191 ),
+	IN `msgId`    VARCHAR( 191 ),
+	IN `editBy`   VARCHAR( 191 ),
+	IN `editTime` BIGINT,
+	IN `reason`   TEXT,
+	IN `message`  TEXT
+)
+BEGIN
+INSERT INTO message_edit (
+	`clientId`,
+	`msgId`,
+	`editBy`,
+	`editTime`,
+	`reason`,
+	`message`
+) VALUES (
+	`clientId`,
+	`msgId`,
+	`editBy`,
+	`editTime`,
+	`reason`,
+	`message`
+);
 
-#CREATE PROCEDURE message_updatE_with_history
+UPDATE message AS m
+SET m.editId = `clientId`
+WHERE m.msgId = `msgId`;
+
+SELECT * FROM message_edit AS e
+WHERE e.msgId = `msgId`
+ORDER BY e.editTime DESC
+LIMIT 1;
+
+END//
+
+#CREATE PROCEDURE message_update_with_history
+
+CREATE PROCEDURE room_user_messages_set(
+	IN `roomId` VARCHAR( 191 ),
+	IN `userId` VARCHAR( 191 )
+)
+BEGIN
+
+INSERT INTO room_user_messages (
+	`roomId`,
+	`userId`
+) VALUES (
+	`roomId`,
+	`userId`
+);
+
+SELECT
+	rum.roomId,
+	rum.userId,
+	rum.lastReadId
+FROM room_user_messages AS rum
+WHERE
+	rum.roomId = `roomId` AND
+	rum.userId = `userId`;
+	
+END//
+
+
+CREATE PROCEDURE room_user_messages_load(
+	IN `roomId` VARCHAR( 191 )
+)
+BEGIN
+SELECT
+	rum.userId
+FROM room_user_messages AS rum
+WHERE rum.roomId = `roomId`;
+END//
+
+
+CREATE PROCEDURE room_user_messages_update(
+	IN `roomId`   VARCHAR( 191 ),
+	IN `userList` TEXT,
+	IN `msgId`    VARCHAR( 191 )
+)
+BEGIN
+DECLARE i INT DEFAULT 0;
+DECLARE str VARCHAR( 191 );
+DROP TEMPORARY TABLE IF EXISTS str_split_tmp;
+CREATE TEMPORARY TABLE str_split_tmp( `id` VARCHAR( 191));
+loopie: LOOP
+	SET i=i+1;
+	SET str=fn_split_str( `userList`, '|', i );
+	IF str='' THEN
+		LEAVE loopie;
+	END IF;
+	INSERT INTO str_split_tmp VALUES( str );
+END LOOP loopie;
+
+UPDATE room_user_messages AS rum
+SET rum.lastReadId = `msgId`
+WHERE
+	rum.roomId = `roomId` AND
+	rum.userId IN ( SELECT id FROM str_split_tmp );
+
+END//
+
+
+CREATE PROCEDURE room_user_messages_count_unread(
+	IN `roomId` VARCHAR( 191 ),
+	IN `userId` VARCHAR( 191 )
+)
+BEGIN
+DECLARE lastReadTime BIGINT;
+SELECT 
+	m.timestamp
+INTO
+	lastReadTime
+FROM room_user_messages AS u
+LEFT JOIN message AS m
+ON
+	u.lastReadId = m.msgId
+WHERE
+	u.roomId = `roomId` AND
+	u.userId = `userId`;
+
+SELECT
+	COUNT(*) AS 'unread'
+FROM message AS m
+WHERE
+	m.roomId = `roomId` AND
+	m.timestamp > lastReadTime;
+	
+END//
+
+CREATE PROCEDURE room_user_messages_count_unread_worg(
+	IN `roomId`       VARCHAR( 191 ),
+	IN `userId`       VARCHAR( 191 ),
+	IN `worgId`       VARCHAR( 191 ),
+	IN `noPrivate`    BOOLEAN,
+	IN `userIsViewer` BOOLEAN
+)
+BEGIN
+
+# get timestamp ( TODO refactor to store timestamp in the first place )
+DECLARE lastReadTime BIGINT;
+SELECT
+	m.timestamp
+INTO
+	lastReadTime
+FROM room_user_messages AS u
+LEFT JOIN message AS m ON
+	u.lastReadId = m.msgId
+WHERE
+	u.roomId = `roomId` AND
+	u.userId = `userId`;
+
+#
+SELECT
+	COUNT(*) AS 'unread'
+FROM message AS m
+WHERE
+	m.timestamp > lastReadTime AND
+	m.fromId != `userId` AND
+	(
+		( 0 = `userIsViewer` AND (
+			( m.roomId = `roomId` AND m.type = 'msg' )
+			OR
+			m.msgId IN (
+				SELECT t.msgId FROM message_work_target AS t
+				WHERE t.target = `worgId` AND (
+					( 1 = `noPrivate` AND ( t.memberId IS NULL ))
+					OR
+					( 0 = `noPrivate` AND ( t.memberId = `userId` ))
+				)
+			)
+		))
+		OR
+		( 1 = `userIsViewer` AND (
+			m.msgId IN (
+				SELECT t.msgId FROM message_work_target AS t
+				WHERE (
+					t.source = `worgId` OR 
+					t.target = `worgId`
+				) AND (
+					m.fromId = `userId` OR
+					t.memberId = `userId`
+				)
+			)
+		))
+	);
+
+END//
 
 
 ## INVITE TOENS

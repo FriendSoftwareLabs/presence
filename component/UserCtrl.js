@@ -20,8 +20,10 @@
 'use strict';
 
 const log = require( './Log' )( 'UserCtrl' );
+const events = require( './Events' );
 const Account = require( './Account' );
 const Guest = require( './GuestAccount' );
+const FService = require( '../api/FService' );
 
 const ns = {};
 ns.UserCtrl = function(
@@ -107,11 +109,15 @@ ns.UserCtrl.prototype.remove = function( accountId ) {
 	self.accIds = Object.keys( self.accounts );
 	acc.close();
 	
-	self.worgs.removeUser( accountId );
+	//self.worgs.removeUser( accountId );
 }
 
 ns.UserCtrl.prototype.close = function() {
 	const self = this;
+	if ( self.serviceConn )
+		self.serviceConn.close();
+	
+	delete self.serviceConn;
 	delete self.dbPool;
 	delete self.worgs;
 	delete self.roomCtrl;
@@ -122,15 +128,26 @@ ns.UserCtrl.prototype.close = function() {
 ns.UserCtrl.prototype.init = function( dbPool ) {
 	const self = this;
 	log( ':3' );
+	const service = new FService();
+	self.serviceConn = new events.EventNode( 'user', service, serviceSink );
+	self.serviceConn.on( 'group', e => self.handleGroupUpdate );
+	function serviceSink( ...args ) {
+		log( 'serviceSink - user', args, 3 );
+	}
 	
-	self.worgs.on( 'user-add', ( accId, worgId ) =>
-		self.handleWorgUserAdded( accId, worgId ));
-	self.worgs.on( 'user-remove', ( accId, worgId ) =>
-		self.handleWorgUserRemoved( accId, worgId ));
+	self.worgs.on( 'users-added', ( worgId, accIds ) =>
+		self.handleWorgUsersAdded( worgId, accIds ));
+	self.worgs.on( 'regenerate', accIds => 
+		self.handleWorgRegenerate( accIds ));
 }
 
-ns.UserCtrl.prototype.handleWorgUserAdded = async function( addedAccId, worgId ) {
+ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds ) {
 	const self = this;
+	if ( !addedAccIds || !addedAccIds.length ) {
+		log( 'handleWorgUsersAdded - not really', addedAccIds );
+		return;
+	}
+	
 	let worgUserList = self.worgs.getUserList( worgId );
 	worgUserList.forEach( addTo );
 	function addTo( accId ) {
@@ -138,37 +155,48 @@ ns.UserCtrl.prototype.handleWorgUserAdded = async function( addedAccId, worgId )
 		if ( !acc )
 			return;
 		
-		acc.addContact( addedAccId );
+		acc.addContacts( addedAccIds );
 	}
 }
 
-ns.UserCtrl.prototype.handleWorgUserRemoved = function( removedId, memberOf ) {
+/*
+ns.UserCtrl.prototype.handleWorgUserRemoved = function( removedAccId, worgId ) {
 	const self = this;
-	memberOf.forEach( notifyOthers );
-	function notifyOthers( worgId ) {
-		const worgUsers = self.worgs.getUserList( worgId );
-		worgUsers.forEach( removeContact );
-	}
+	const worgUsers = self.worgs.getUserList( worgId );
+	worgUsers.forEach( removeContact );
 	
 	function removeContact( accId ) {
 		let acc = self.accounts[ accId ];
 		if ( !acc )
 			return;
 		
-		acc.removeContact( removedId );
+		acc.removeContact( removedAccId );
 	}
+}
+*/
+
+ns.UserCtrl.prototype.handleWorgRegenerate = function( affectedAccIds ) {
+	const self = this;
+	affectedAccIds.forEach( accId => {
+		const acc = self.accounts[ accId ];
+		if ( !acc )
+			return;
+		
+		acc.updateContacts();
+	});
 }
 
 ns.UserCtrl.prototype.broadcastOnlineStatus = function( subjectId, isOnline ) {
 	const self = this;
-	const subAcc = self.accounts[ subjectId ];
-	const contacts = subAcc.getContactList() || [];
-	contacts.forEach( cId => {
+	const subject = self.accounts[ subjectId ];
+	const id = subject.getId();
+	const state = isOnline ? id : false;
+	self.accIds.forEach( cId => {
 		const acc = self.accounts[ cId ];
 		if ( !acc || !acc.updateContactStatus )
 			return;
 		
-		acc.updateContactStatus( subjectId, 'online', isOnline );
+		acc.updateContactStatus( 'online', subjectId, state );
 	});
 }
 
@@ -184,7 +212,7 @@ ns.UserCtrl.prototype.updateOnlineStatus = function( accountId ) {
 		if ( !contact )
 			return;
 		
-		account.updateContactStatus( cId, 'online', true );
+		account.updateContactStatus( 'online', cId, true );
 	});
 }
 

@@ -538,6 +538,7 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 	const self = this;
 	let allWgs = [];
 	let streamWgs = null;
+	let pSettings = null;
 	try {
 		allWgs = await getWorkGroups( authId );
 	} catch( err ) {
@@ -552,6 +553,12 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 		log( 'addWorkgroups - getStreamWorkgroupSetting err', err );
 	}
 	
+	try {
+		pSettings = await getPresenceSettings( authId );
+	} catch( err ) {
+		log( 'addWorkgroups - getPresenceSettings err', err );
+	}
+	
 	allWgs = allWgs.map( normalize );
 	const worgs = {
 		available : allWgs,
@@ -561,16 +568,32 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 	if ( streamWgs )
 		worgs.stream = streamWgs;
 	
+	if ( pSettings ) {
+		worgs.supergroups = pSettings.supergroups;
+		worgs.streamgroups = pSettings.streamgroups;
+	}
+	
 	user.workgroups = worgs;
 	return user;
 	
 	function normalize( fcwg ) {
+		let fPId = getParentId( fcwg.ParentID );
 		let wg = {
-			fId      : '' + fcwg.ID,
-			//clientId : 'friend_wg_' + fcwg.ID,
-			name     : fcwg.Name,
+			fId       : '' + fcwg.ID,
+			fParentId : fPId,
+			name      : fcwg.Name,
 		};
 		return wg;
+		
+		function getParentId( fPId ) {
+			if ( !fPId )
+				return null;
+			
+			if ( '0' == fPId )
+				return null;
+			
+			return '' + fPId;
+		}
 	}
 	
 	function getUserWGs( userWGNames, WGs ) {
@@ -619,7 +642,7 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 				command : 'getsystemsetting',
 				authid  : authId,
 				args    : JSON.stringify({
-					type : 'friendchat',
+					type : 'presence',
 					key  : 'systemsettings',
 				}),
 			};
@@ -662,6 +685,64 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 				log( 'getStreamWorkgroupSetting - error', err );
 				reject( err );
 			}
+		});
+	}
+	
+	function getPresenceSettings( authId ) {
+		return new Promise(( resolve, reject ) => {
+			const data = {
+				module  : 'system',
+				command : 'getsystemsetting',
+				authid  : authId,
+				args    : JSON.stringify({
+					type : 'presence',
+					key  : 'systemsettings',
+				}),
+			};
+			const req = {
+				path    : '/system.library/module',
+				data    : data,
+				success : success,
+				error   : error,
+			};
+			self.fcReq.post( req );
+			function success( data ) {
+				if ( !data || !data.length ) {
+					reject( 'ERR_NO_DATA' );
+					return;
+				}
+				
+				const settings = {
+					supergroups  : [],
+					streamgroups : [],
+				};
+				let wgs = data.map( item => {
+					let setting = null;
+					try {
+						setting = JSON.parse( item.Data );
+					} catch( e ) {
+						log( 'error parsing system setting', item );
+						return null;
+					}
+					
+					if ( !setting )
+						return null;
+					
+					if ( setting.supergroups )
+						settings.supergroups = setting.supergroups.split( ',' );
+					
+					if ( setting.streamgroups )
+						settings.streamgroups = setting.streamgroups.split( ',' );
+				});
+				
+				resolve( settings );
+			}
+			
+			function error( err ) {
+				log( 'getPresenceSettings - error', err );
+				reject( err );
+			}
+			
 		});
 	}
 }

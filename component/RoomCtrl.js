@@ -22,6 +22,7 @@
 const log = require( './Log')( 'RoomCtrl' );
 const uuid = require( './UuidPrefix' )( 'room' );
 const ContactRoom = require( './RoomContact' );
+const WorkRoom = require( './RoomWork' );
 const Emitter = require( './Events' ).Emitter;
 const dFace = require( './DFace' );
 const Room = require( './Room' );
@@ -48,6 +49,9 @@ ns.RoomCtrl = function( dbPool, idCache, worgs ) {
 	self.relations = {};
 	self.relationIds = [];
 	self.relationLoads = {};
+	
+	self.workRooms = {};
+	self.workRoomIds = [];
 	
 	self.init();
 }
@@ -104,6 +108,62 @@ ns.RoomCtrl.prototype.joinRoom = async function( accountId, conf ) {
 		return await self.joinWithInvite( accountId, conf );
 	else
 		return await self.joinWithAuth( accountId, conf );
+}
+
+ns.RoomCtrl.prototype.getWorkRooms = function( accountId ) {
+	const self = this;
+	const rooms = {};
+	const worgs = self.worgs.getMemberOf( accountId );
+	let member = worgs.filter( wId => {
+		return !!self.workRooms[ wId ];
+	});
+	let subs = null;
+	let views = null;
+	if ( global.config.server.workroom.supersHaveSubRoom )
+		subs = getSubs( member );
+	
+	if ( global.config.server.workroom.subsHaveSuperView )
+		views = getViews( member );
+	
+	const works = [ ...member, ...subs ];
+	rooms.works = works.map( getRoomInfo );
+	rooms.views = views.filter( vId => {
+		return !works.some( wId => wId === vId );
+	}).map( getRoomInfo );
+	
+	return rooms;
+	
+	function getSubs( works ) {
+		let add = null;
+		works.forEach( wId => {
+			const subs = self.worgs.getSuperChildren( wId );
+			add = subs.filter( sId => {
+				return !!self.workRooms[ sId ];
+			});
+		});
+		return add || [];
+	}
+	
+	function getViews( works ) {
+		const viewMap = {};
+		works.forEach( wId => {
+			const room = self.getWorkRoom( wId );
+			const superId = room.getSuperId();
+			if ( !superId )
+				return;
+			
+			viewMap[ superId ] = true;
+		});
+		return Object.keys( viewMap ) || [];
+	}
+	
+	function getRoomInfo( wId ) {
+		const room = self.workRooms[ wId ];
+		return {
+			worgId   : wId,
+			clientId : room.id
+		};
+	}
 }
 
 ns.RoomCtrl.prototype.authorizeGuestInvite = async function( bundle ) {
@@ -176,6 +236,27 @@ ns.RoomCtrl.prototype.connectWorkgroup = async function( accountId, roomId ) {
 	return user;
 }
 
+ns.RoomCtrl.prototype.connectWorkRoom = async function( accountId, workgroupId ) {
+	const self = this;
+	const room = self.getWorkRoom( workgroupId );
+	if ( !room )
+		return null;
+	
+	const user = await room.connect( accountId );
+	return user;
+}
+
+// allows a user from a sub room to have a view into a parent room
+ns.RoomCtrl.prototype.connectWorkView = async function( accountId, workgroupId ) {
+	const self = this;
+	const room = self.getWorkRoom( workgroupId );
+	if ( !room )
+		return null;
+	
+	const user = await room.connectViewer( accountId );
+	return user;
+}
+
 // go online in a room  - the room will start sending events to this client
 // only an authorized user can .connect directly
 ns.RoomCtrl.prototype.connect = async function( accountId, roomId ) {
@@ -201,6 +282,8 @@ ns.RoomCtrl.prototype.connect = async function( accountId, roomId ) {
 // closes roomCtrl, not a room
 ns.RoomCtrl.prototype.close = function() {
 	const self = this;
+	// TODO : close rooms
+	
 	if ( self.roomDb )
 		self.roomDb.close();
 	
@@ -210,7 +293,12 @@ ns.RoomCtrl.prototype.close = function() {
 	if ( self.invDb )
 		self.invDb.close();
 	
-	// TODO : close rooms
+	if ( self.worgs ) {
+		self.worgs.release( 'super-added' );
+		self.worgs.release( 'super-removed' );
+		self.worgs.release( 'sub-added' );
+		self.worgs.release( 'sub-removed' );
+	}
 	
 	delete self.idCache;
 	delete self.worgs;
@@ -235,6 +323,238 @@ ns.RoomCtrl.prototype.init = async function() {
 		self.guestAvatar = null;
 		log( 'init - failed to generate guest avatar', err );
 	}
+	
+	self.worgs.on( 'users-added', ( wId, users ) => self.handleWorkgroupUserAdds( wId, users ));
+	self.worgs.on( 'users-removed', ( wId, users ) => self.handleWorkgroupUserRemoved( wId, users ));
+	self.worgs.on( 'super-added', ( s, c ) => self.superAdded( s, c ));
+	self.worgs.on( 'super-removed', ( s, c ) => self.superRemoved( s, c ));
+	self.worgs.on( 'sub-added', ( c, s ) => self.subAdded( c, s ));
+	self.worgs.on( 'sub-removed', ( c, s ) => self.subRemoved( c, s ));
+}
+
+ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {
+	const self = this;
+	// create room for super or update existing child
+	let wRoom = self.getWorkRoom( worgId );
+	if ( wRoom ) {
+		log( 'superAdded - room already open', {
+			worgId : worgId,
+			wRooms : self.workRooms,
+		});
+		return;
+	}
+	/*
+	if ( wRoom ) {
+		updateSubs( worgId, subs );
+		return;
+	}
+	*/
+	
+	wRoom = await self.setWorkRoom( worgId, 1 );
+	if ( !wRoom )
+		return null;
+	
+	
+	if ( subs )
+		await Promise.all( subs.map( await openSub ));
+	
+	await Promise.all( subs.map( connect ));
+	
+	/*
+	const members = self.worgs.getUserList( worgId );
+	log( 'superAdded - members', members );
+	self.addUsersToWorkRooms( worgId, members );
+	*/
+	
+	const parentId = self.worgs.getSuperParent( worgId );
+	if ( !parentId )
+		return;
+	
+	const parent = self.getWorkRoom( parentId );
+	if ( !parent )
+		return;
+	
+	wRoom.setSuper( parent );
+	
+	function updateSubs( worgId, subs ) {
+		log( 'updateSubs - NYI', {
+			super : worgId,
+			subs  : subs,
+		});
+	}
+	
+	async function openSub( subId ) {
+		let sub = self.getWorkRoom( subId );
+		if ( sub )
+			return;
+		
+		await self.setWorkRoom( subId, 3 );
+	}
+	
+	async function connect( subId ) {
+		let sup = self.getWorkRoom( worgId );
+		let sub = self.getWorkRoom( subId );
+		await sup.attach( sub );
+		sub.setSuper( sup );
+	}
+}
+
+ns.RoomCtrl.prototype.superRemoved = async function( superId, children ) {
+	const self = this;
+	// release
+	self.closeWorkRoom( superId, children );
+}
+
+ns.RoomCtrl.prototype.subAdded = async function( childId, superId ) {
+	const self = this;
+	const sup = self.getWorkRoom( superId );
+	if ( !sup ) {
+		log( 'subAdded - could not find super', {
+			subId : childId,
+			superId : superId,
+		});
+		return;
+	}
+	
+	let sub = self.getWorkRoom( childId )
+	if ( !sub )
+		sub = await self.setWorkRoom( childId, 3 );
+	
+	if ( !sub ) {
+		log( 'subAdded - still no sub room', sub );
+		return;
+	}
+	
+	await sup.attach( sub );
+	sub.setSuper( sup );
+}
+
+ns.RoomCtrl.prototype.subRemoved = async function( subId, superId ) {
+	const self = this;
+	const isSuper = self.worgs.checkIsSuper( subId );
+	if ( isSuper )
+		self.detachSub( subId, superId );
+	else
+		self.closeWorkRoom( subId );
+}
+
+ns.RoomCtrl.prototype.detachSub = function( childId ) {
+	const self = this;
+	let sub = self.getWorkRoom( childId );
+	const superId = sub.getSuperId();
+	if ( !superId )
+		return;
+	
+	let sup = self.getWorkRoom( superId );
+	if ( !sup || !sub ) {
+		log( 'detachSub - could not find', {
+			supId : superId,
+			subId : childId,
+			sup   : !!sup,
+			sub   : !!sub,
+			wroom : self.workRooms,
+		});
+		return;
+	}
+	
+	sup.detach( childId );
+	sub.unsetSuper();
+	
+	// remove child or update existing super
+}
+
+ns.RoomCtrl.prototype.setWorkRoom = async function( worgId, priority ) {
+	const self = this;
+	const worg = self.worgs.get( worgId );
+	if ( !worg ) {
+		log( 'setWorkRoom - no worg for', worgId );
+		return;
+	}
+	
+	let supConf = await self.roomDb.getForWorkgroup( worgId );
+	if ( !supConf )
+		supConf = await self.createWorkRoom( worgId );
+	
+	if ( !supConf )
+		return null;
+	
+	supConf.avatar = await tiny.generate( worg.name, 'block' );
+	supConf.name = worg.name;
+	supConf.priority = priority;
+	
+	const superId = await openRoom( worgId, supConf );
+	if ( superId !== worgId )
+		throw new Error( 'wft - ids not matching, wId: '
+		 + worgId + ', sId: ' + superId );
+	
+	const room = self.getWorkRoom( worgId );
+	return room;
+	
+	function openRoom( worgId, conf ) {
+		return new Promise(( resolve, reject ) => {
+			let roomId = conf.workgroupId;
+			let room = new WorkRoom(
+				supConf,
+				self.dbPool,
+				self.idCache,
+				self.worgs
+			);
+			
+			room.once( 'open', onOpen );
+			room.on( 'join-work', e => self.handleWorkRoomJoin( e, worgId ));
+			room.on( 'join-view', e => self.handleWorkViewJoin( e, worgId ));
+			
+			async function onOpen() {
+				self.workRooms[ roomId ] = room;
+				await self.addUsersToWorkRooms( worgId );
+				resolve( roomId );
+			}
+		});
+	}
+}
+
+ns.RoomCtrl.prototype.closeWorkRoom = async function( worgId, children ) {
+	const self = this;
+	const sRoom = self.workRooms[ worgId ];
+	if ( !sRoom )
+		return false;
+	
+	children = children || self.worgs.getSuperChildren( worgId );
+	await Promise.all( children.map( release ));
+	
+	// detach from super if child
+	if ( sRoom.isChild())
+		self.detachSub( worgId );
+	
+	delete self.workRooms[ worgId ];
+	sRoom.release();
+	sRoom.close();
+	return true;
+	
+	//
+	async function release( subId ) {
+		sRoom.detach( subId );
+		const sub = self.getWorkRoom( subId );
+		if ( !sub )
+			return;
+		
+		sub.unsetSuper();
+		const isSuper = self.worgs.checkIsSuper( subId );
+		if ( isSuper )
+			return;
+		
+		await self.closeWorkRoom( worgId );
+	}
+}
+
+ns.RoomCtrl.prototype.createWorkRoom = async function( worgId ) {
+	const self = this;
+	let worg = self.worgs.get( worgId );
+	let roomConf = await self.roomDb.setForWorkgroup(
+		worgId,
+		worg.name
+	);
+	return roomConf;
 }
 
 ns.RoomCtrl.prototype.createNamedRoom = function( accId, conf ) {
@@ -340,7 +660,7 @@ ns.RoomCtrl.prototype.setRoom = function( roomConf ) {
 
 ns.RoomCtrl.prototype.bindRoom = function( room ) {
 	const self = this;
-	let roomId = room.id;
+	const roomId = room.id;
 	room.on( 'empty', onEmpty );
 	room.on( 'workgroup-assigned', worgAss );
 	room.on( 'workgroup-dismissed', worgDiss );
@@ -360,16 +680,210 @@ ns.RoomCtrl.prototype.bindContactRoom = function( room ) {
 	function contactEvent( e ) { self.forwardContactEvent( e, rId ); }
 }
 
-ns.RoomCtrl.prototype.handleWorkgroupAssigned = function( worg, roomId ) {
+ns.RoomCtrl.prototype.handleWorkgroupAssigned = async function( worg, roomId ) {
 	const self = this;
-	const userList = self.worgs.getUserList( worg.cId );
+	const worgId = worg.cId;
+	const userList = self.worgs.getUserList( worgId );
+	const room = await self.getRoom( roomId );
+	await room.addUsers( userList, worgId );
+	self.sendWorgJoin( roomId, userList );
+}
+
+ns.RoomCtrl.prototype.handleWorkgroupUserAdds = async function( worgId, userList ) {
+	const self = this;
+	const fId = self.worgs.cIdToFId( worgId );
+	const roomIds = await self.roomDb.getAssignedTo( fId );
+	const wRoom = self.getWorkRoom( worgId );
+	if ( roomIds || roomIds.length )
+		await Promise.all( roomIds.map( addToRoom ));
+	
+	if ( !wRoom )
+		return;
+	
+	self.addUsersToWorkRooms( worgId, userList );
+	
+	async function addToRoom( rId ) {
+		const room = self.rooms[ rId ];
+		if ( room )
+			await room.addUsers( userList, worgId );
+		
+		self.sendWorgJoin( rId, userList );
+	};
+}
+
+ns.RoomCtrl.prototype.handleWorkgroupUserRemoved = async function( worgId, userList ) {
+	const self = this;
+	self.removeUsersFromWorkRooms( worgId, userList );
+}
+
+ns.RoomCtrl.prototype.handleWorkRoomJoin = function( e, roomId ) {
+	const self = this;
+	log( 'handleWorkRoomJoin - NYI', roomId );
+}
+
+ns.RoomCtrl.prototype.handleWorkViewJoin = function( joinList, workId ) {
+	const self = this;
+	const room = self.getWorkRoom( workId );
+	self.sendWorkViewJoin( room.id, workId, joinList );
+}
+
+ns.RoomCtrl.prototype.sendWorgJoin = function( roomId, userList ) {
+	const self = this;
+	if ( !userList || !userList.length )
+		return;
+	
 	const join = {
 		type : 'workgroup-join',
 		data : null,
 	};
-	userList.forEach( accId => {
-		self.emit( accId, join, roomId );
+	userList.forEach( userId => {
+		self.emit( userId, join, roomId );
 	});
+}
+
+ns.RoomCtrl.prototype.addUsersToWorkRooms = async function( worgId, userList ) {
+	const self = this;
+	if ( !userList )
+		userList = self.worgs.getUserList( worgId );
+	
+	const wRoom = self.getWorkRoom( worgId );
+	if ( !wRoom ) {
+		log( 'addUsersToWorkRoom - no room for', worgId );
+		return;
+	}
+	
+	if ( userList && userList.length )
+		await wRoom.addUsers( userList, worgId );
+	
+	const roomId = wRoom.id;
+	sendJoin( userList, worgId, roomId );
+	
+	if ( global.config.server.workroom.subsHaveSuperView )
+		await addToSuperView( worgId, userList );
+	
+	if ( global.config.server.workroom.supersHaveSubRoom ) {
+		await addFromSuper( worgId );
+		await addToSubRoom( worgId, userList );
+	}
+	
+	async function addToSuperView( worgId, uList ) {
+		if ( !uList || !uList.length )
+			return;
+		
+		const wParent = self.worgs.getSuperParent( worgId );
+		if ( !wParent ) {
+			return;
+		}
+		
+		const pRoom = self.getWorkRoom( wParent );
+		if ( !pRoom )
+			return;
+		
+		await pRoom.addViewers( uList, worgId );
+	}
+	
+	async function addToSubRoom( worgId, uList ) {
+		if ( !uList || !uList.length )
+			return;
+		
+		const subs = self.worgs.getSuperChildren( worgId );
+		if ( !subs || !subs.length )
+			return;
+		
+		await Promise.all( subs.map( async subId => {
+			const sRoom = self.getWorkRoom( subId );
+			if ( !sRoom ) {
+				return;
+			}
+			
+			await sRoom.addUsers( uList, worgId );
+			sendJoin( uList, subId, sRoom.id );
+		}));
+	}
+	
+	async function addFromSuper( worgId ) {
+		const parentId = self.worgs.getSuperParent( worgId );
+		const wRoom = self.getWorkRoom( worgId );
+		const pRoom = self.getWorkRoom( parentId );
+		if ( !pRoom )
+			return;
+		
+		const members = self.worgs.getUserList( parentId );
+		await wRoom.addUsers( members, parentId );
+		sendJoin( members, worgId, wRoom.id );
+	}
+	
+	function sendJoin( userList, worgId, roomId ) {
+		const join = {
+			type : 'workroom-join',
+			data : worgId,
+		};
+		userList.forEach( uId => {
+			self.emit( uId, join, roomId );
+		});
+	}
+}
+
+ns.RoomCtrl.prototype.sendWorkViewJoin = function( roomId, worgId, userList ) {
+	const self = this;
+	if ( !userList || !userList.length )
+		return;
+	
+	const join = {
+		type : 'workroom-view',
+		data : worgId,
+	};
+	userList.forEach( uId => {
+		self.emit( uId, join, roomId );
+	});
+}
+
+ns.RoomCtrl.prototype.removeUsersFromWorkRooms = async function( worgId, userList ) {
+	const self = this;
+	if ( !userList || !userList.length )
+		return;
+	
+	const wRoom = self.getWorkRoom( worgId );
+	if ( !wRoom )
+		return;
+	
+	await wRoom.removeUsers( userList, worgId );
+	
+	if ( global.config.server.workroom.subsHaveSuperView )
+		await removeFromSuperView( worgId, userList );
+	
+	if ( global.config.server.workroom.supersHaveSubRoom )
+		removeFromSubRoom( worgId, userList );
+	
+	async function removeFromSuperView( worgId, uList ) {
+		const superId = self.worgs.getSuperParent( worgId );
+		if ( !superId )
+			return;
+		
+		const pRoom = self.getWorkRoom( superId );
+		if ( !pRoom )
+			return;
+		
+		await pRoom.removeUsers( uList, worgId );
+	}
+	
+	function removeFromSubRoom( worgId, uList ) {
+		const subs = self.worgs.getSuperChildren( worgId );
+		if ( !subs || !subs.length )
+			return;
+		
+		subs.forEach( subId => {
+			sRoom = self.getWorkRoom( subId );
+			if ( !sRoom )
+				return;
+			
+			sRoom.removeUsers( userList, worgId );
+		});
+		
+		function notInMembers( uId ) {
+			return !members.some( mId => mId === uId );
+		};
+	}
 }
 
 ns.RoomCtrl.prototype.forwardContactEvent = function( event, roomId ) {
@@ -466,11 +980,15 @@ ns.RoomCtrl.prototype.removeRoom = function( rid ) {
 	if ( !room )
 		return;
 	
-	room.close( closeBack );
-	function closeBack() {
-		delete self.rooms[ rid ];
-		self.roomIds = Object.keys( self.rooms );
-	}
+	room.close();
+	delete self.rooms[ rid ];
+	self.roomIds = Object.keys( self.rooms );
+}
+
+ns.RoomCtrl.prototype.getWorkRoom = function( worgId ) {
+	const self = this;
+	let room = self.workRooms[ worgId ];
+	return room || null;
 }
 
 ns.RoomCtrl.prototype.getContactRoom = async function( accId, contactId ) {

@@ -53,7 +53,7 @@ const uuid = require( './UuidPrefix' )( 'listener' );
 
 const ns = {};
 
-ns.Emitter = function( eventSink ) {
+ns.Emitter = function( eventSink, debug ) {
 	if ( !( this instanceof ns.Emitter ))
 		return new ns.Emitter( eventSink );
 	
@@ -61,18 +61,23 @@ ns.Emitter = function( eventSink ) {
 	self._emitterEvent2ListenerId = {};
 	self._emitterListeners = {};
 	self._emitterEventSink = eventSink;
+	self._eventsDebug = !!debug;
 }
 
 // first argument must be the event type, a string,
 // send as many extra arguments as you wish, they will be passed to the handler
 
-// wait, no in args, you say? its voodoo magic, aka 'arguments' object
 ns.Emitter.prototype.emit = function( event, ...handlerArgs ) {
 	const self = this;
 	//var args = self._getArgs( arguments );
 	//const event = args.shift(); // first arguments passed to .emit()
 	//const handlerArgs = args;
-		// as an array that will be .apply to the listener
+	// as an array that will be .apply to the listener
+	if ( self._eventsDebug )
+		log( 'emit', {
+			event : event,
+			args  : handlerArgs,
+		}, 3 );
 	
 	const listenerIds = self._emitterEvent2ListenerId[ event ];
 	if ( !listenerIds || !listenerIds.length ) {
@@ -100,6 +105,12 @@ ns.Emitter.prototype.emit = function( event, ...handlerArgs ) {
 
 ns.Emitter.prototype.on = function( event, listener ) {
 	const self = this;
+	if ( self._eventsDebug )
+		log( 'on', {
+			event    : event,
+			listener : listener,
+		});
+	
 	var id = uuid.v4();
 	var eventListenerIds = self._emitterEvent2ListenerId[ event ];
 	if ( !eventListenerIds ) {
@@ -190,13 +201,13 @@ ns.Emitter.prototype.emitterClose = function() {
 */
 
 const nLog = require( './Log' )( 'EventNode' );
-ns.EventNode = function( type, conn, sink, proxyType ) {
+ns.EventNode = function( type, conn, sink, proxyType, debug ) {
 	const self = this;
 	self._eventNodeType = type;
 	self._eventNodeConn = conn;
 	self._eventNodeProxyType = proxyType;
 	//self._eventNodeSink = sink;
-	ns.Emitter.call( self, sink );
+	ns.Emitter.call( self, sink, debug );
 	
 	self._eventNodeInit();
 }
@@ -220,6 +231,12 @@ ns.EventNode.prototype.send = function( event, sourceId, altType ) {
 
 ns.EventNode.prototype.handle = function( event, sourceId ) {
 	const self = this;
+	if ( self._eventsDebug )
+		nLog( 'handle', {
+			event : event,
+			sourceId : sourceId,
+		}, 3 );
+	
 	self._handleEvent.apply( self, arguments );
 }
 
@@ -232,16 +249,25 @@ ns.EventNode.prototype.close = function() {
 
 ns.EventNode.prototype._eventNodeInit = function() {
 	const self = this;
+	if ( self._eventsDebug )
+		nLog( 'init', self._eventNodeType );
+	
 	self._eventNodeConn.on( self._eventNodeType, rcvEvent );
-	function rcvEvent() {
+	function rcvEvent( ...args ) {
 		//const args = Array.prototype.slice.call( arguments );
-		self._handleEvent.apply( self, arguments );
+		if ( self._eventsDebug )
+			nLog( 'rcvEvent', args, 3 );
+		
+		self._handleEvent.apply( self, args );
 	}
 }
 
 ns.EventNode.prototype._handleEvent = function( ...args ) {
 	const self = this;
 	//var args = self._getArgs( arguments );
+	if ( self._eventsDebug )
+		nLog( '_handleEvent', args, 3 );
+	
 	const event = args.shift();
 	args.unshift( event.data );
 	args.unshift( event.type );

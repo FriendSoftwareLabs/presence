@@ -30,8 +30,13 @@ ns.Signal = function( conf ) {
 	self.roomId = conf.roomId;
 	self.roomName = conf.roomName;
 	self.roomAvatar = conf.roomAvatar;
+	self.relation = conf.relation;
 	self.isPrivate = conf.isPrivate;
+	self.isView = conf.isView;
 	self.persistent = conf.persistent;
+	self.workgroupId = conf.workgroupId;
+	self.supergroupId = conf.supergroupId;
+	self.priority = conf.priority;
 	self.clientId = conf.clientId;
 	self.name = conf.name;
 	self.fUsername = conf.fUsername;
@@ -98,11 +103,11 @@ ns.Signal.prototype.setIsAuthed = function( isAuthed ) {
 ns.Signal.prototype.close = function() {
 	const self = this;
 	const onclose = self.onclose;
+	delete self.onclose;
 	
 	self.toRoomQueue = [];
 	self.toAccountQueue = [];
 	
-	delete self.onclose;
 	delete self.roomId;
 	delete self.accountId;
 	delete self.emitToAccount;
@@ -112,6 +117,26 @@ ns.Signal.prototype.close = function() {
 }
 
 // Account interface
+
+ns.Signal.prototype.getConf = function() {
+	const self = this;
+	return {
+		clientId     : self.roomId,
+		persistent   : self.persistent,
+		name         : self.roomName,
+		avatar       : self.roomAvatar,
+		isPrivate    : self.isPrivate,
+		isView       : self.isView,
+		workgroupId  : self.workgroupId,
+		supergroupId : self.supergroupId,
+		priority     : self.priority,
+		relation     : self.relation,
+	};
+}
+
+ns.Signal.prototype.getUnread = async function() {
+	const self = this;
+}
 
 ns.Signal.prototype.toRoom = function( event ) {
 	const self = this;

@@ -1,0 +1,3 @@
+ALTER TABLE `message`
+ADD COLUMN `editId` VARCHAR(191) NULL
+AFTER `message`;

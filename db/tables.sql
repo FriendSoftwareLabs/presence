@@ -7,6 +7,7 @@ ALTER DATABASE CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 DROP TABLE IF EXISTS `invite_token_used`;
 DROP TABLE IF EXISTS `invite_token`;
 DROP TABLE IF EXISTS `workgroup_rooms`;
+DROP TABLE IF EXISTS `room_user_messages`;
 DROP TABLE IF EXISTS `user_relation`;
 DROP TABLE IF EXISTS `authorized_for_room`;
 DROP TABLE IF EXISTS `message`;
@@ -32,6 +33,7 @@ CREATE TABLE `account` (
 CREATE TABLE `room` (
 	`_id`          INT UNSIGNED NOT NULL auto_increment,
 	`clientId`     VARCHAR( 191 ) NOT NULL UNIQUE,
+	`workgroupId`  VARCHAR( 191 ) NULL UNIQUE,
 	`name`         VARCHAR( 191 ) NOT NULL,
 	`ownerId`      VARCHAR( 191 ) NOT NULL,
 	`settings`     JSON NOT NULL,
@@ -75,17 +77,68 @@ CREATE TABLE `message` (
 	`_id`       INT UNSIGNED NOT NULL auto_increment,
 	`msgId`     VARCHAR( 191 ) NOT NULL UNIQUE,
 	`roomId`    VARCHAR( 191 ) NOT NULL,
-	`accountId` VARCHAR( 191 ),
+	`fromId`    VARCHAR( 191 ),
 	`timestamp` BIGINT NOT NULL,
 	`type`      VARCHAR( 20 ) NOT NULL,
 	`name`      VARCHAR( 191 ),
 	`message`   TEXT NOT NULL,
+	`editId`    VARCHAR( 191 ),
 	PRIMARY KEY( _id ),
 	FOREIGN KEY( roomId ) REFERENCES room( clientId )
 		ON DELETE CASCADE
 		ON UPDATE CASCADE,
-	FOREIGN KEY( accountId ) REFERENCES account( clientId )
+	FOREIGN KEY ( fromId ) REFERENCES account( clientId )
 		ON DELETE CASCADE
+		ON UPDATE CASCADE
+) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `message_work_target` (
+	`_id`         INT UNSIGNED NOT NULL auto_increment,
+	`msgId`       VARCHAR( 191 ) NOT NULL,
+	`source`      VARCHAR( 191 ) NOT NULL,
+	`target`      VARCHAR( 191 ) NOT NULL,
+	`memberId`    VARCHAR( 191 ) NULL,
+	PRIMARY KEY( _id ),
+	FOREIGN KEY( msgId ) REFERENCES message( msgId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+	FOREIGN KEY( memberId ) REFERENCES account( clientId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE
+) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `message_edit` (
+	`_id`       INT UNSIGNED NOT NULL auto_increment,
+	`clientId`  VARCHAR( 191 ) NOT NULL UNIQUE,
+	`msgId`     VARCHAR( 191 ) NOT NULL,
+	`editBy`    VARCHAR( 191 ),
+	`editTime`  BIGINT NOT NULL,
+	`reason`    TEXT,
+	`message`   TEXT NOT NULL,
+	PRIMARY KEY( _id ),
+	FOREIGN KEY( msgId ) REFERENCES message( msgId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+	FOREIGN KEY( editBy ) REFERENCES account( clientId )
+		ON DELETE SET NULL
+		ON UPDATE CASCADE
+) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `room_user_messages` (
+	`_id`        INT UNSIGNED NOT NULL auto_increment,
+	`userId`     VARCHAR( 191 ) NOT NULL,
+	`roomId`     VARCHAR( 191 ) NOT NULL,
+	`lastReadId` VARCHAR( 191 ),
+	PRIMARY KEY( _id ),
+	UNIQUE KEY( roomId, userId ),
+	FOREIGN KEY( userId ) REFERENCES account( clientId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+	FOREIGN KEY( roomId ) REFERENCES room( clientId )
+		ON DELETE CASCADE
+		ON UPDATE CASCADE,
+	FOREIGN KEY( lasReadId ) REFERENCES message( msgId )
+		ON DELETE SET NULL
 		ON UPDATE CASCADE
 ) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -160,6 +213,6 @@ INSERT INTO `db_history`(
 	`version`,
 	`comment`
 ) VALUES (
-	21,
+	28,
 	'tables.sql'
 );

@@ -48,6 +48,7 @@ ns.Account = function(
 	
 	self.settings = {};
 	self.rooms = null;
+	self.connecting = {};
 	self.ids = {};
 	self.contacts = {};
 	self.contactIds = [];
@@ -86,6 +87,11 @@ ns.Account.prototype.close = function() {
 	}
 }
 
+ns.Account.prototype.getId = function() {
+	const self = this;
+	return self.identity;
+}
+
 ns.Account.prototype.getWorkgroups = function() {
 	const self = this;
 	if ( !self.worgCtrl )
@@ -99,38 +105,59 @@ ns.Account.prototype.getContactList = function() {
 	return self.contactIds;
 }
 
-ns.Account.prototype.updateContactList = function( contactList ) {
+ns.Account.prototype.addContacts = async function( contactList ) {
 	const self = this;
-	contactList.forEach( id => self.addContact( id ));
+	await Promise.all( contactList.map( id => self.addContact( id )));
 }
 
-ns.Account.prototype.addContact = async function( clientId ) {
+ns.Account.prototype.addContact = async function( accId ) {
 	const self = this;
-	if ( clientId === self.id )
+	if ( accId === self.id )
 		return false;
 	
-	if ( self.contacts[ clientId ])
-		return clientId;
+	if ( self.contacts[ accId ])
+		return accId;
 	
-	self.rooms.listen( clientId, contactEvent );
-	self.contacts[ clientId ] = clientId;
-	self.contactIds.push( clientId );
-	await self.addIdentity( clientId );
+	self.rooms.listen( accId, contactEvent );
+	self.contacts[ accId ] = accId;
+	self.contactIds.push( accId );
+	await self.addIdentity( accId );
+	const rel = await self.getContactRelation( accId );
 	
 	const contact = {
-		clientId : clientId,
-		relation : self.relations[ clientId ] ? clientId : false,
+		clientId : accId,
+		relation : rel.relation,
 	};
 	const cAdd = {
 		type : 'contact-add',
 		data : contact,
 	};
 	self.conn.send( cAdd );
-	return clientId;
+	
+	const isOnline = self.idCache.checkOnline( accId );
+	self.updateContactStatus( 'online', accId, isOnline );
+	
+	return accId;
 	
 	function contactEvent( event ) {
-		let contactId = clientId;
+		let contactId = accId;
 		self.handleContactListen( event, contactId );
+	}
+}
+
+ns.Account.prototype.updateContacts = function() {
+	const self = this;
+	const cList = self.worgCtrl.getContactList( self.id );
+	const cMap = {};
+	cList.forEach( accId => {
+		cMap[ accId ] = true;
+		self.addContact( accId );
+	});
+	const removed = self.contactIds.filter( notInList );
+	removed.forEach( accId => self.removeContact( accId ));
+	
+	function notInList( currId ) {
+		return !cMap[ currId ];
 	}
 }
 
@@ -140,6 +167,11 @@ ns.Account.prototype.removeContact = function( contactId ) {
 		return;
 	
 	if ( !self.contacts[ contactId ])
+		return;
+	
+	const contacts = self.worgCtrl.getContactList( self.id );
+	const cIndex = contacts.indexOf( contactId );
+	if ( -1 != cIndex )
 		return;
 	
 	self.rooms.remove( contactId );
@@ -152,14 +184,17 @@ ns.Account.prototype.removeContact = function( contactId ) {
 	self.conn.send( cRemove );
 }
 
-ns.Account.prototype.updateContactStatus = function( contactId, type, value ) {
+ns.Account.prototype.updateContactStatus = function( type, contactId, data ) {
 	const self = this;
+	if ( !self.ids[ contactId ])
+		return;
+	
 	const event = {
-		type : type,
-		data : value,
+		contactId : contactId,
+		data      : data,
 	};
 	
-	self.sendContactEvent( contactId, event );
+	self.sendContactEvent( type, event );
 }
 
 // Private
@@ -173,8 +208,6 @@ ns.Account.prototype.init = async function() {
 	self.bindConn();
 	self.setupRooms();
 	self.bindIdRequests();
-	
-	await self.loadRooms();
 	await self.loadRelations();
 	await self.loadContacts();
 	
@@ -191,13 +224,17 @@ ns.Account.prototype.bindRoomCtrl = function() {
 	const self = this;
 	self.roomCtrl.on( self.id, roomCtrlEvent );
 	self.roomCtrlEvents = {
-		'workgroup-join' : worgJoin,
+		'workroom-join'  : workRoomJoin,
+		'workroom-view'  : workRoomView,
+		'workgroup-join' : workgroupJoin,
 		'contact-join'   : contactJoin,
 		'contact-event'  : contactRoomEvent,
 	};
 	
 	function roomCtrlEvent( e, rid ) { self.handleRoomCtrlEvent( e, rid ); }
-	function worgJoin( e, rid ) { self.handleWorkgroupJoin( e, rid ); }
+	function workRoomJoin( e, rid ) { self.handleWorkRoomJoin( e, rid ); }
+	function workRoomView( e, rid ) { self.handleWorkRoomView( e, rid ); }
+	function workgroupJoin( e, rid ) { self.handleWorkgroupJoin( e, rid ); }
 	function contactJoin( e, rid ) { self.openContactChat( e, rid ); }
 	function contactRoomEvent( e, rid ) { self.handleContactRoomEvent( e, rid ); }
 }
@@ -253,12 +290,40 @@ ns.Account.prototype.bindIdRequests = function() {
 	self.idNode = new events.EventNode( 'identity', self.conn );
 	self.idReq = new events.RequestNode( self.idNode );
 	self.idReq.on( 'get', e => { return self.handleIdGet( e ); });
+	self.idReq.on( 'get-list', e => { return self.handleIdList( e ); })
 }
 
 ns.Account.prototype.handleIdGet = async function( clientId ) {
 	const self = this;
-	return await self.idCache.get( clientId );
-} 
+	let id = self.ids[ clientId ];
+	if ( id )
+		return id;
+	
+	id = await self.idCache.get( clientId );
+	self.ids[ clientId ] = id;
+	return id;
+}
+
+ns.Account.prototype.handleIdList = async function( list ) {
+	const self = this;
+	const local = [];
+	const unknown = list.filter( cId => {
+		const id = self.ids[ cId ];
+		if ( !id )
+			return true;
+		
+		local.push( id );
+		return false;
+	});
+	
+	const fetched = await self.idCache.getList( unknown );
+	fetched.forEach( user => {
+		let cId = user.clientId;
+		self.ids[ cId ] = user;
+	});
+	
+	return [ ...local, ...fetched ];
+}
 
 ns.Account.prototype.handleRoomCtrlEvent = function( event, roomId ) {
 	const self = this;
@@ -271,17 +336,49 @@ ns.Account.prototype.handleRoomCtrlEvent = function( event, roomId ) {
 	handler( event.data, roomId );
 }
 
-ns.Account.prototype.handleWorkgroupJoin = async function( event, roomId ) {
+ns.Account.prototype.handleWorkRoomJoin = async function( worgId, roomId ) {
 	const self = this;
-	if ( self.rooms.isParticipant( roomId )) {
-		self.log( 'handleWorkgroupJoin - is participant', roomId );
+	const canConnect = self.doPreConnect( roomId );
+	if ( !canConnect )
+		return;
+	
+	let room = await self.roomCtrl.connectWorkRoom( self.id, worgId );
+	if ( !room ) {
+		self.log( 'loadWorkRoom - could not connect to room', worgId );
+		self.clearConnecting( roomId );
 		return;
 	}
 	
-	let room = null;
-	room = await self.roomCtrl.connectWorkgroup( self.id, roomId );
-	if ( !room )
+	await self.joinedARoomHooray( room );
+}
+
+ns.Account.prototype.handleWorkRoomView = async function( worgId, roomId ) {
+	const self = this;
+	const canConnect = self.doPreConnect( roomId );
+	if ( !canConnect )
 		return;
+	
+	let room = await self.roomCtrl.connectWorkView( self.id , worgId );
+	if ( !room ) {
+		self.log( 'handleWorkRoomView - could not connect to room', worgId );
+		self.clearConnecting( roomId );
+		return;
+	}
+	
+	await self.joinedARoomHooray( room );
+}
+
+ns.Account.prototype.handleWorkgroupJoin = async function( event, roomId ) {
+	const self = this;
+	const canConnect = self.doPreConnect( roomId );
+	if ( !canConnect )
+		return;
+	
+	const room = await self.roomCtrl.connectWorkgroup( self.id, roomId );
+	if ( !room ) {
+		self.clearConnecting( roomId );
+		return;
+	}
 	
 	await self.joinedARoomHooray( room );
 	return true;
@@ -342,6 +439,7 @@ ns.Account.prototype.handleWorkgroupAssigned = function( addedWorg, roomId ) {
 
 ns.Account.prototype.initializeClient = async function( event, clientId ) {
 	const self = this;
+	const rooms = self.rooms.getRooms();
 	const state = {
 		type : 'initialize',
 		data : {
@@ -351,11 +449,14 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 				identity : self.identity,
 			},
 			identities : await getIds(),
-			rooms      : self.rooms.getRooms(),
+			rooms      : rooms,
 			contacts   : await getContactRelations(),
 		},
 	};
 	self.conn.send( state, clientId );
+	
+	if ( !self.isLoaded )
+		await self.loadTheThings();
 	
 	async function getIds() {
 		const idList = Object.keys( self.ids );
@@ -363,24 +464,35 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 	}
 	
 	async function getContactRelations() {
-		const msgDb = new dFace.MessageDB( self.dbPool );
 		const contacts = {};
-		await Promise.all( self.contactIds.map( await setContact ));
+		const cList = await self.getContactRelation();
+		cList.forEach( c => {
+			const cId = c.clientId;
+			contacts[ cId ] = c;
+		});
 		return contacts;
+	}
+}
+
+ns.Account.prototype.getContactRelation = async function( contactId ) {
+	const self = this;
+	const msgDb = new dFace.MessageDB( self.dbPool );
+	if ( contactId )
+		return await getState( contactId );
+	else
+		return await Promise.all( self.contactIds.map( await getState ));
+	
+	async function getState( cId ) {
+		let rId = self.relations[ cId ];
+		let state = null;
+		if ( rId )
+			state = await msgDb.getRelationState( rId, cId );
 		
-		async function setContact( cId ) {
-			let rId = self.relations[ cId ];
-			let state = null;
-			if ( rId )
-				state = await msgDb.getRelationState( rId, cId );
-			
-			let contact = {
-				clientId : cId,
-				relation : state,
-			};
-			contacts[ cId ] = contact;
-			return true;
-		}
+		let contact = {
+			clientId : cId,
+			relation : state,
+		};
+		return contact;
 	}
 }
 
@@ -426,6 +538,13 @@ ns.Account.prototype.handleSettings = function( msg, cid ) {
 	self.log( 'handleSettings - NYI', msg );
 }
 
+ns.Account.prototype.loadTheThings = async function() {
+	const self = this;
+	self.isLoaded = true;
+	await self.loadRooms();
+	await self.loadWorkRooms();
+}
+
 ns.Account.prototype.loadRooms = async function() {
 	const self = this;
 	const roomDb = new dFace.RoomDB( self.dbPool );
@@ -443,13 +562,20 @@ ns.Account.prototype.loadRooms = async function() {
 	
 	async function connect( roomConf ) {
 		let room = null;
-		if ( roomConf.wgs )
-			room = await self.roomCtrl.connectWorkgroup( self.id, roomConf.clientId );
-		else
-			room = await self.roomCtrl.connect( self.id, roomConf.clientId );
-		
-		if ( !room )
+		const roomId = roomConf.clientId;
+		const canConnect = self.doPreConnect( roomId );
+		if ( !canConnect )
 			return false;
+		
+		if ( roomConf.wgs )
+			room = await self.roomCtrl.connectWorkgroup( self.id, roomId );
+		else
+			room = await self.roomCtrl.connect( self.id, roomId );
+		
+		if ( !room ) {
+			self.clearConnecting( roomId );
+			return false;
+		}
 		
 		await self.joinedARoomHooray( room );
 		return true;
@@ -473,7 +599,7 @@ ns.Account.prototype.loadRelations = async function() {
 		self.relations[ cId ] = rId;
 	});
 	const contactIdList = dbRelations.map( rel => rel.contactId );
-	self.updateContactList( contactIdList );
+	await self.addContacts( contactIdList );
 	try {
 		Promise.all( dbRelations.map( await checkRoomAvailability ));
 	} catch ( err ) {
@@ -490,13 +616,55 @@ ns.Account.prototype.loadRelations = async function() {
 		
 		await self.openContactChat( null, rel.contactId );
 	}
+	
 }
 
 ns.Account.prototype.loadContacts = async function() {
 	const self = this;
 	let contactIds = self.worgCtrl.getContactList( self.id );
-	self.updateContactList( contactIds );
+	await self.addContacts( contactIds );
 	return true;
+}
+
+ns.Account.prototype.loadWorkRooms = async function() {
+	const self = this;
+	const rooms = self.roomCtrl.getWorkRooms( self.id );
+	const works = rooms.works;
+	const views = rooms.views;
+	await Promise.all( works.map( await connectWork ));
+	await Promise.all( views.map( await connectView ));
+	
+	async function connectWork( conf ) {
+		const rId = conf.clientId;
+		const wId = conf.worgId;
+		const canConnect = self.doPreConnect( rId );
+		if ( !canConnect )
+			return;
+		
+		let room = await self.roomCtrl.connectWorkRoom( self.id, wId );
+		if ( !room ) {
+			self.log( 'loadWorkRoom - could not connect to room', wId );
+			return;
+		}
+		
+		await self.joinedARoomHooray( room );
+	}
+	
+	async function connectView( conf ) {
+		const rId = conf.clientId;
+		const wId = conf.worgId;
+		const canConnect = self.doPreConnect( rId );
+		if ( !canConnect )
+			return;
+		
+		const room = await self.roomCtrl.connectWorkView( self.id, wId );
+		if ( !room ) {
+			self.log( 'loadWorkRooms - could not conenct to view', wId );
+			return;
+		}
+		
+		await self.joinedARoomHooray( room );
+	}
 }
 
 ns.Account.prototype.joinRoom = async function( conf, cid ) {
@@ -543,7 +711,29 @@ ns.Account.prototype.connectedRoom = async function( room ) {
 	};
 	let sendRes = await self.conn.send( connected );
 	self.rooms.add( room );
-	room.setIdentity( self.identity );
+	//room.setIdentity( self.identity );
+}
+
+ns.Account.prototype.doPreConnect = function( roomId ) {
+	const self = this;
+	if ( !roomId || !( 'string' === typeof( roomId ))) {
+		throw new Error( 'no room id' );
+		return;
+	}
+	
+	if ( self.rooms.isParticipant( roomId ))
+		return false;
+	
+	if ( self.connecting[ roomId ])
+		return false;
+	
+	self.connecting[ roomId ] = true;
+	return true;
+}
+
+ns.Account.prototype.clearConnecting = function( roomId ) {
+	const self = this;
+	delete self.connecting[ roomId ];
 }
 
 ns.Account.prototype.joinedARoomHooray = async function( room, reqId  ) {
@@ -553,22 +743,18 @@ ns.Account.prototype.joinedARoomHooray = async function( room, reqId  ) {
 		return;
 	}
 	
-	const res = {
-		clientId    : room.roomId,
-		persistent  : room.persistent,
-		name        : room.roomName,
-		avatar      : room.roomAvatar,
-		isPrivate   : room.isPrivate,
-		req         : reqId,
-	};
+	const conf = room.getConf();
+	const rId = conf.clientId;
+	self.clearConnecting( rId );
+	conf.req = reqId;
 	const joined = {
 		type : 'join',
-		data : res,
+		data : conf,
 	};
 	
 	await self.conn.send( joined );
 	self.rooms.add( room );
-	room.setIdentity( self.identity );
+	//room.setIdentity( self.identity );
 }
 
 ns.Account.prototype.handleRoomClosed = function( roomId ) {
@@ -585,7 +771,6 @@ ns.Account.prototype.handleRoomClosed = function( roomId ) {
 
 ns.Account.prototype.handleContactListen = async function( event, contactId ) {
 	const self = this;
-	self.log( 'handleContactListen', event );
 	let room = await self.openContactChat( null, contactId );
 	if ( !room ) {
 		self.log( 'handleContactListen - could not room', contactId );
@@ -604,13 +789,13 @@ ns.Account.prototype.handleContactEvent = function( event, clientId ) {
 	handler( event.data, clientId );
 }
 
-ns.Account.prototype.sendContactEvent = function( contactId, event ) {
+ns.Account.prototype.sendContactEvent = function( type, event ) {
 	const self = this;
 	const wrap = {
 		type : 'contact-event',
 		data : {
-			contactId : contactId,
-			event     : event,
+			type : type,
+			data : event,
 		},
 	};
 	self.conn.send( wrap );
@@ -626,7 +811,6 @@ ns.Account.prototype.handleStartContactChat = async function( contactId, clientI
 
 ns.Account.prototype.someContactFnNotInUse = async function( event, clientId ) {
 	const self = this;
-	self.log( 'someContactFnNotInUse', event );
 	const contactId = event.clientId;
 	const room = self.rooms.get( contactId );
 	if ( room )
@@ -728,7 +912,7 @@ ns.Rooms.prototype.add = function( room ) {
 	const self = this;
 	const rid = room.roomId;
 	if ( self.rooms[ rid ]) {
-		rLog( 'add - already added', rid );
+		rLog( 'add - already added', self.rooms );
 		return;
 	}
 	
@@ -775,12 +959,7 @@ ns.Rooms.prototype.getRooms = function() {
 		if ( room.isPrivate )
 			return null;
 		
-		return {
-			clientId   : rid,
-			persistent : room.persistent,
-			name       : room.roomName,
-			avatar     : room.roomAvatar,
-		};
+		return room.getConf();
 	}
 }
 
@@ -822,6 +1001,9 @@ ns.Rooms.prototype.handleRoomEvent = function( event, roomId ) {
 		return;
 	
 	// noone want this event.. lets package and send to clients
+	if ( !self.conn )
+		return;
+	
 	const eventWrap = {
 		type : roomId,
 		data : event,
