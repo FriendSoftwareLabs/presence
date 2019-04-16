@@ -1325,7 +1325,6 @@ ns.MessageDB.prototype.getForView = async function(
 		afterTime || null,
 		length,
 	];
-	msgLog( 'getForView - values', values );
 	let res = null;
 	res = await self.query( 'message_get_for_view', values );
 	if ( !res )
@@ -1342,7 +1341,6 @@ ns.MessageDB.prototype.getForView = async function(
 	}
 	
 	const items = self.rebuildWorkMsgTargets( msgRows, targetRows );
-	msgLog( 'getForView - items', items, 3 );
 	return self.parseItems( items );
 }
 

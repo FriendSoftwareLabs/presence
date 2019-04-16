@@ -1274,24 +1274,28 @@ CREATE PROCEDURE message_get_for_view(
 BEGIN
 DROP TABLE IF EXISTS tmp;
 CREATE TEMPORARY TABLE tmp (
-SELECT
-	t.msgId
-FROM message_work_target AS t
-LEFT JOIN message AS m
-	ON t.msgId = m.msgId
-WHERE (
-		( `to` IS NOT NULL AND m.timestamp < `to` )
-		OR
-		( `from` IS NOT NULL AND m.timestamp > `from` )
-	  )
-  AND (
-  		( t.target = `worgId` AND m.fromId = `userId` )
-  		OR
-		( t.source = `worgId` AND t.memberId = `userId` )
-	  )
-GROUP BY t.msgId
-ORDER BY m.timestamp ASC
-LIMIT `limit`
+SELECT T.msgId FROM (
+	SELECT
+		t.msgId,
+		m.timestamp
+	FROM message_work_target AS t
+	LEFT JOIN message AS m
+		ON t.msgId = m.msgId
+	WHERE (
+			( `to` IS NOT NULL AND m.timestamp < `to` )
+			OR
+			( `from` IS NOT NULL AND m.timestamp > `from` )
+		  )
+	  AND (
+	  		( t.target = `worgId` AND m.fromId = `userId` )
+	  		OR
+			( t.source = `worgId` AND t.memberId = `userId` )
+		  )
+	GROUP BY t.msgId
+	ORDER BY m.timestamp DESC
+	LIMIT `limit`
+) AS T
+ORDER BY T.timestamp ASC
 );
 
 SELECT
@@ -1310,7 +1314,7 @@ FROM message AS m
 LEFT JOIN message_edit AS e
 	ON m.editId = e.clientId
 WHERE m.msgId IN (
-	SELECT T.msgId FROM tmp AS T
+	SELECT tmp.msgId FROM tmp
 );
 
 SELECT
@@ -1320,7 +1324,7 @@ SELECT
 	t.memberId
 FROM message_work_target AS t
 WHERE t.msgId IN (
-	SELECT T.msgId FROM tmp AS T
+	SELECT tmp.msgId FROM tmp
 );
 
 END//
