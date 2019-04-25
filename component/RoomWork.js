@@ -1823,6 +1823,65 @@ ns.WorkLog.prototype.loadAfterView = async function( conf, userId ) {
 	return await self.buildLogEvent( 'after', items );
 }
 
+ns.WorkLog.prototype.getUnknownIdentities = async function( events ) {
+	const self = this;
+	if ( !events || !events.length )
+		return null;
+	
+	const unknownIds = {};
+	const start = Date.now();
+	await Promise.all( events.map( check ));
+	const end = Date.now();
+	const total = end - start;
+	llLog( 'getUnknwon completed in ( ms ):', {
+		length : events.length,
+		time   : total,
+		start  : start,
+		end    : end,
+		unown  : Object.keys( unknownIds ),
+	}, 3 );
+	return unknownIds;
+	
+	async function check( event ) {
+		const msg = event.data;
+		let uId = msg.fromId;
+		let targets = msg.targets;
+		if ( uId )
+			await checkUser( uId );
+		
+		if ( targets )
+			await checkTargets( targets );
+		
+		return true;
+	}
+	
+	async function checkTargets( targets ) {
+		const tIds = Object.keys( targets );
+		await Promise.all( tIds.map( checkTarget ));
+		async function checkTarget( tId ) {
+			const target = targets[ tId ];
+			if ( !target || ( target === true ))
+				return;
+			
+			await Promise.all( target.map( checkUser ));
+		}
+	}
+	
+	async function checkUser( uId ) {
+		if ( unknownIds[ uId ])
+			return;
+		
+		let user = self.users.get( uId );
+		if ( user )
+			return;
+		
+		unknownIds[ uId ] = true;
+		let id = await self.idCache.get( uId );
+		unknownIds[ uId ] = id;
+		return;
+	}
+}
+
 //
 
 /*

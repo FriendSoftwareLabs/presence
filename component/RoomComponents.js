@@ -2539,7 +2539,13 @@ ns.Log.prototype.loadAfter = async function( conf, worg ) {
 
 ns.Log.prototype.buildLogEvent = async function( type, events ) {
 	const self = this;
-	let unknownIds = await getUnknownIdentities( events );
+	let unknownIds = null;
+	try {
+		unknownIds = await self.getUnknownIdentities( events );
+	} catch ( e ) {
+		llLog( 'getunown e', e );
+	}
+	
 	let log = {
 		type : type,
 		data : {
@@ -2549,28 +2555,47 @@ ns.Log.prototype.buildLogEvent = async function( type, events ) {
 	};
 	return log;
 	
-	async function getUnknownIdentities( events ) {
-		if ( !events || !events.length )
-			return null;
+}
+
+ns.Log.prototype.getUnknownIdentities = async function( events ) {
+	const self = this;
+	if ( !events || !events.length )
+		return null;
+	
+	const unknownIds = {};
+	const start = Date.now();
+	await Promise.all( events.map( check ));
+	const end = Date.now();
+	const total = end - start;
+	/*
+	llLog( 'getUnknwon completed in ( ms ):', {
+		length : events.length,
+		time   : total,
+		start  : start,
+		end    : end,
+	}, 3 );
+	*/
+	return unknownIds;
+	
+	async function check( event ) {
+		const msg = event.data;
+		//llLog( 'msg', msg );
+		let uId = msg.fromId;
+		//llLog( 'checking', uId );
+		if ( !uId )
+			return;
 		
-		let unknownIds = {};
-		for ( let event of events ) {
-			let uId = event.data.fromId;
-			if ( !uId )
-				continue;
-			
-			if ( unknownIds[ uId ])
-				continue;
-			
-			let user = self.users.get( uId );
-			if ( user )
-				continue;
-			
-			let id = await self.idCache.get( uId );
-			unknownIds[ uId ] = id;
-		};
+		if ( unknownIds[ uId ])
+			return;
 		
-		return unknownIds;
+		let user = self.users.get( uId );
+		if ( user )
+			return;
+		
+		unknownIds[ uId ] = true;
+		let id = await self.idCache.get( uId );
+		unknownIds[ uId ] = id;
+		return;
 	}
 }
 
