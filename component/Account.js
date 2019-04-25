@@ -412,6 +412,7 @@ ns.Account.prototype.openContactChat = async function( event, contactId ) {
 	return room;
 	
 	function sendOpen() {
+		return;
 		const open = {
 			type : 'open',
 			data : true,

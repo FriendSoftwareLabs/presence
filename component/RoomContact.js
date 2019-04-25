@@ -123,6 +123,7 @@ ns.ContactRoom.prototype.init = async function() {
 		self.idCache,
 		self.ownerId
 	);
+	await self.log.initialize();
 	
 	self.chat = new ns.ContactChat(
 		self.id,
