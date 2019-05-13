@@ -254,14 +254,16 @@ ns.Account.prototype.bindConn = function() {
 	self.conn.on( 'initialize', init );
 	self.conn.on( 'settings', handleSettings );
 	self.conn.on( 'room', handleRoomMsg );
-	self.conn.on( 'join', joinRoom );
-	self.conn.on( 'create', createRoom );
+	self.conn.on( 'room-get', getRoom );
+	self.conn.on( 'room-join', joinRoom );
+	self.conn.on( 'room-create', createRoom );
 	self.conn.on( 'contact', handleContact );
 	
 	function accEventSink() {} //self.log( 'accEventSink', arguments, 3 ); }
 	function init( e, cid ) { self.initializeClient( e, cid ); }
 	function handleSettings( e, cid ) { self.handleSettings( e, cid ); }
 	function handleRoomMsg( e, cid ) { self.log( 'roomMsg', msg ); }
+	function getRoom( e, cid ) { self.getRoom( e, cid ); }
 	function joinRoom( e, cid ) { self.joinRoom( e, cid ); }
 	function createRoom( e, cid ) { self.createRoom( e, cid ); }
 	function handleContact( e, cid ) { self.handleContactEvent( e, cid ); }
@@ -295,6 +297,11 @@ ns.Account.prototype.bindIdRequests = function() {
 
 ns.Account.prototype.handleIdGet = async function( clientId ) {
 	const self = this;
+	if ( !clientId || ( 'string' != typeof( clientId ))) {
+		log( 'handleIdGet - invalid clientId', clientId );
+		return null;
+	}
+	
 	let id = self.ids[ clientId ];
 	if ( id )
 		return id;
@@ -441,6 +448,7 @@ ns.Account.prototype.handleWorkgroupAssigned = function( addedWorg, roomId ) {
 ns.Account.prototype.initializeClient = async function( event, clientId ) {
 	const self = this;
 	const rooms = self.rooms.getRooms();
+	self.log( 'init rooms', rooms.length );
 	const state = {
 		type : 'initialize',
 		data : {
@@ -454,6 +462,7 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 			contacts   : await getContactRelations(),
 		},
 	};
+	self.log( 'init send' );
 	self.conn.send( state, clientId );
 	
 	if ( !self.isLoaded )
@@ -668,6 +677,17 @@ ns.Account.prototype.loadWorkRooms = async function() {
 	}
 }
 
+ns.Account.prototype.getRoom = function( roomId, cId ) {
+	const self = this;
+	self.log( 'getRoom', roomId );
+	const room = self.rooms.get( roomId );
+	if ( !room )
+		return;
+	
+	const conf = room.getConf();
+	self.sendJoined( conf, null, cId );
+}
+
 ns.Account.prototype.joinRoom = async function( conf, cid ) {
 	const self = this;
 	const room = await self.roomCtrl.joinRoom( self.id, conf.invite );
@@ -748,14 +768,23 @@ ns.Account.prototype.joinedARoomHooray = async function( room, reqId  ) {
 	const rId = conf.clientId;
 	self.clearConnecting( rId );
 	conf.req = reqId;
+	const list = self.rooms.add( room );
+	
+	self.sendJoined( conf, list );
+	//room.setIdentity( self.identity );
+}
+
+ns.Account.prototype.sendJoined = async function( roomConf, currentRooms, clientId ) {
+	const self = this;
 	const joined = {
 		type : 'join',
-		data : conf,
+		data : {
+			joined  : roomConf,
+			current : currentRooms,
+		},
 	};
 	
-	await self.conn.send( joined );
-	self.rooms.add( room );
-	//room.setIdentity( self.identity );
+	await self.conn.send( joined, clientId );
 }
 
 ns.Account.prototype.handleRoomClosed = function( roomId ) {
@@ -911,6 +940,7 @@ ns.Rooms.prototype.listen = function( roomId, callback ) {
 
 ns.Rooms.prototype.add = function( room ) {
 	const self = this;
+	rLog( 'add', room.getConf().name );
 	const rid = room.roomId;
 	if ( self.rooms[ rid ]) {
 		rLog( 'add - already added', self.rooms );
@@ -922,6 +952,9 @@ ns.Rooms.prototype.add = function( room ) {
 	self.conn.on( rid, fromClient );
 	room.setToAccount( fromRoom );
 	room.setOnclose( onClose );
+	
+	return self.list;
+	
 	function fromRoom( e ) { self.handleRoomEvent( e, rid ); }
 	function fromClient( e ) { self.handleClientEvent( e, rid ); }
 	function onClose( e ) { self.handleRoomClosed( rid ); }
@@ -949,6 +982,10 @@ ns.Rooms.prototype.remove = function( roomId ) {
 
 ns.Rooms.prototype.getRooms = function() {
 	const self = this;
+	rLog( 'getRooms', {
+		list : self.list,
+		rooms : self.rooms,
+	});
 	const rooms = self.list
 		.map( roomConf )
 		.filter( conf => !!conf );

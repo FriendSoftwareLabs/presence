@@ -1833,6 +1833,7 @@ ns.WorkLog.prototype.getUnknownIdentities = async function( events ) {
 	await Promise.all( events.map( check ));
 	const end = Date.now();
 	const total = end - start;
+	/*
 	llLog( 'getUnknwon completed in ( ms ):', {
 		length : events.length,
 		time   : total,
@@ -1840,6 +1841,7 @@ ns.WorkLog.prototype.getUnknownIdentities = async function( events ) {
 		end    : end,
 		unown  : Object.keys( unknownIds ),
 	}, 3 );
+	*/
 	return unknownIds;
 	
 	async function check( event ) {

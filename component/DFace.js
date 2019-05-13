@@ -255,8 +255,10 @@ ns.AccountDB.prototype.getByFUserId = async function( fUserId ) {
 
 ns.AccountDB.prototype.getById = async function( accountId ) {
 	const self = this;
-	if ( 'string' != typeof( accountId ))
+	if ( 'string' != typeof( accountId )) {
+		accLog( 'getById - invalid accountId', accountId );
 		throw new Error( 'rabble rabble rabble' );
+	}
 	
 	const values = [ accountId ];
 	let res = null;
