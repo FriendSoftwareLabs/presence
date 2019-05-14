@@ -206,7 +206,7 @@ ns.FService.prototype.connect = function() {
 
 ns.FService.prototype.handleService = function( event ) {
 	const self = this;
-	//log( 'handleService', event );
+	log( 'service event', event, 3 );
 	self.emit( event.type, event.data );
 }
 
@@ -606,7 +606,6 @@ ns.FCWS.prototype.tryReconnect = function() {
 
 ns.FCWS.prototype.handleFCEvent = function( msgStr ) {
 	const self = this;
-	wsLog( 'handleFCEvent - str', msgStr );
 	let event = null;
 	try {
 		event = JSON.parse( msgStr );

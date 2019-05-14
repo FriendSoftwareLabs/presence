@@ -262,7 +262,7 @@ ns.Account.prototype.bindConn = function() {
 	function accEventSink() {} //self.log( 'accEventSink', arguments, 3 ); }
 	function init( e, cid ) { self.initializeClient( e, cid ); }
 	function handleSettings( e, cid ) { self.handleSettings( e, cid ); }
-	function handleRoomMsg( e, cid ) { self.log( 'roomMsg', msg ); }
+	function handleRoomMsg( e, cid ) { self.log( 'roomMsg - nyi', msg ); }
 	function getRoom( e, cid ) { self.getRoom( e, cid ); }
 	function joinRoom( e, cid ) { self.joinRoom( e, cid ); }
 	function createRoom( e, cid ) { self.createRoom( e, cid ); }
