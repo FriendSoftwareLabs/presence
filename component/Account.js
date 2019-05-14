@@ -448,7 +448,6 @@ ns.Account.prototype.handleWorkgroupAssigned = function( addedWorg, roomId ) {
 ns.Account.prototype.initializeClient = async function( event, clientId ) {
 	const self = this;
 	const rooms = self.rooms.getRooms();
-	self.log( 'init rooms', rooms.length );
 	const state = {
 		type : 'initialize',
 		data : {
@@ -462,7 +461,6 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 			contacts   : await getContactRelations(),
 		},
 	};
-	self.log( 'init send' );
 	self.conn.send( state, clientId );
 	
 	if ( !self.isLoaded )
@@ -679,7 +677,6 @@ ns.Account.prototype.loadWorkRooms = async function() {
 
 ns.Account.prototype.getRoom = function( roomId, cId ) {
 	const self = this;
-	self.log( 'getRoom', roomId );
 	const room = self.rooms.get( roomId );
 	if ( !room )
 		return;
@@ -940,7 +937,6 @@ ns.Rooms.prototype.listen = function( roomId, callback ) {
 
 ns.Rooms.prototype.add = function( room ) {
 	const self = this;
-	rLog( 'add', room.getConf().name );
 	const rid = room.roomId;
 	if ( self.rooms[ rid ]) {
 		rLog( 'add - already added', self.rooms );
@@ -982,10 +978,6 @@ ns.Rooms.prototype.remove = function( roomId ) {
 
 ns.Rooms.prototype.getRooms = function() {
 	const self = this;
-	rLog( 'getRooms', {
-		list : self.list,
-		rooms : self.rooms,
-	});
 	const rooms = self.list
 		.map( roomConf )
 		.filter( conf => !!conf );

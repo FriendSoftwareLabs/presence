@@ -112,6 +112,8 @@ ns.GuestAccount.prototype.initializeClient = async function( event, clientId ) {
 			contacts : {},
 		},
 	};
+	
+	self.log( 'initializeClient', state );
 	self.conn.send( state, clientId );
 	const room = await self.roomCtrl.guestJoinRoom( self.id, self.roomId );
 	if ( !room )

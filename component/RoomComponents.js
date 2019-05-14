@@ -1909,7 +1909,6 @@ ns.Invite = function(
 		dbPool,
 		roomId,
 		users,
-		online,
 		isPersistent
 ) {
 	const self = this;
