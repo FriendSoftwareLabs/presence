@@ -298,7 +298,7 @@ ns.Account.prototype.bindIdRequests = function() {
 ns.Account.prototype.handleIdGet = async function( clientId ) {
 	const self = this;
 	if ( !clientId || ( 'string' != typeof( clientId ))) {
-		log( 'handleIdGet - invalid clientId', clientId );
+		self.log( 'handleIdGet - invalid clientId', clientId );
 		return null;
 	}
 	
