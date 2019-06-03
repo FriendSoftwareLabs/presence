@@ -32,6 +32,9 @@ var ns = {};
 ns.IDC = function( dbPool ) {
 	const self = this;
 	log( 'hi!' );
+	
+	Emitter.call( self );
+	
 	self.IDs = {};
 	self.FIDs = {};
 	self.lastAccess = {};
@@ -40,6 +43,8 @@ ns.IDC = function( dbPool ) {
 	
 	self.init( dbPool );
 }
+
+util.inherits( ns.IDC, Emitter );
 
 // Public
 
@@ -147,10 +152,35 @@ ns.IDC.prototype.update = async function( identity ) {
 	cache.fLogin = identity.fLogin;
 	cache.isAdmin = !!identity.isAdmin;
 	cache.isGuest = !!identity.isGuest;
-	await self.checkName( identity, cache );
-	await self.checkAvatar( identity, cache );
+	const nameChange = await self.checkName( identity, cache );
+	const avaChange = await self.checkAvatar( identity, nameChange );
 	//self.checkEmail( identity, cache );
+	log( 'update - change', {
+		name : nameChange,
+		avatar : avaChange,
+	});
+	
+	if ( nameChange )
+		self.sendUpdate( cId, 'name' );
+	
+	if ( avaChange )
+		self.sendUpdate( cId, 'avatar' );
+	
 	return cache;
+}
+
+ns.IDC.prototype.updateAvatar = async function( userId, avatar ) {
+	const self = this;
+	log( 'IDC.updateAvatar', userId );
+	if ( null == avatar )
+		return;
+	
+	if ( false === avatar ) {
+		await self.resetAvatar( userId );
+	} else
+		await self.setAvatar( userId, avatar );
+	
+	self.sendUpdate( userId, 'avatar' );
 }
 
 ns.IDC.prototype.setOnline = function( clientId, isOnline ) {
@@ -292,67 +322,125 @@ ns.IDC.prototype.touch = function( id ) {
 ns.IDC.prototype.checkName = async function( id, c ) {
 	const self = this;
 	if ( id.name === c.name )
-		return true;
+		return false;
 	
 	const cId = c.clientId;
 	const name = id.name;
 	await self.accDB.updateName( cId, name );
 	c.name = name;
 	
-	await self.updateAvatar( cId );
-	/* 
-	self.emit( 'name', {
-		clientId : cId,
-		name     : name,
-	});
-	*/
 	return true;
 }
 
-ns.IDC.prototype.checkAvatar = async function( id, c ) {
+ns.IDC.prototype.checkAvatar = async function( id, nameChange ) {
 	const self = this;
-	if ( !id.avatar )
+	log( 'checkAvatar', {
+		id   : id,
+		name : nameChange,
+	}, 3 );
+	const uId = id.clientId;
+	let current = id.avatar;
+	if ( nameChange && ( null == current )) {
+		log( 'checkAvatar - namechange' );
+		const dbId = await self.accDB.getById( uId );
+		if ( dbId && !dbId.avatar ) {
+			await self.setPixelAvatar();
+			return true;
+		} else
+			return false;
+	}
+	
+	if ( null == current )
 		return false;
 	
-	if ( id.avatar === c.avatar )
-		return false;
+	let change = false;
+	if ( false === current ) 
+		change = await self.resetAvatar( uId );
+	else
+		change = await self.setAvatar( uId, current );
 	
-	const avatar = await self.updateAvatar( id.clientId, id.avatar );
-	return avatar;
+	return change;
 }
 
-ns.IDC.prototype.updateAvatar = async function( clientId, avatar ) {
+ns.IDC.prototype.setAvatar = async function( userId, avatar ) {
 	const self = this;
-	const dbId = await self.accDB.getById( clientId );
+	log( 'setAvatar', userId );
+	const dbId = await self.accDB.getById( userId );
 	if ( !dbId )
-		return null;
+		return false;
 	
-	if ( !avatar && !dbId.avatar )
-		return await self.setPixelAvatar( clientId );
+	const tiny = await tinyAvatar.rescale( avatar );
+	log( 'setAvatar - tiny', {
+		tiny  : tiny ? tiny.slice( -10 ) : '',
+		cache : dbId.avatar ? dbId.avatar.slice( -10 ) : '',
+	}, 3 );
+	if ( dbId.avatar === tiny )
+		return true;
 	
-	if ( !avatar )
-		return null;
+	log( 'setting tiny', tiny.slice( -10 ));
+	await self.accDB.updateAvatar( userId, tiny );
+	const cacheId = await self.get( userId );
+	cacheId.avatar = tiny;
+	return true;
+}
+
+ns.IDC.prototype.resetAvatar = async function( userId ) {
+	const self = this;
+	const dbId = await self.accDB.getById( userId );
+	if ( !dbId )
+		return false;
 	
-	// TODO preprocessing of avatar goes here
+	log( 'resetAvatar', {
+		uid  : userId,
+		dbId : dbId,
+	});
+	if ( !dbId.avatar )
+		return false;
 	
-	await self.accDB.updateAvatar( clientId, avatar );
-	const cacheId = await self.get( clientId );
-	cacheId.avatar = avatar;
-	return avatar;
+	await self.accDB.updateAvatar( userId, null );
+	return await self.setPixelAvatar( userId );
 }
 
 ns.IDC.prototype.setPixelAvatar = async function( clientId ) {
 	const self = this;
 	const cacheId = await self.get( clientId );
 	let pixels = await tinyAvatar.generate( cacheId.name, 'roundel' );
+	 if ( !pixels ) {
+	 	log( 'setPixelAvatar - something interesting happend while trying to\
+	 		to create a pixel avatar', {
+	 			cId    : clientId,
+	 			id     : cacheId,
+	 			pixels : pixels,
+	 		}, 3 );
+		return false;
+	 }
+	
+	if ( pixels === cacheId.avatar )
+		return false;
+	
 	cacheId.avatar = pixels;
-	return pixels;
+	return true;
 }
 
 ns.IDC.prototype.checkEmail = async function( id, c ) {
 	const self = this;
 	log( 'checkEmail - NYI', id );
 	return true;
+}
+
+ns.IDC.prototype.sendUpdate = function( userId, type ) {
+	const self = this;
+	const id = self.getSync( userId );
+	const update = {
+		type : type,
+		data : id,
+	};
+	self.emitUpdate( update );
+}
+
+ns.IDC.prototype.emitUpdate = function( event ) {
+	const self = this;
+	self.emit( 'update', event );
 }
 
 module.exports = ns.IDC;

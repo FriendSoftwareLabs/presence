@@ -197,6 +197,16 @@ ns.Account.prototype.updateContactStatus = function( type, contactId, data ) {
 	self.sendContactEvent( type, event );
 }
 
+ns.Account.prototype.updateIdentity = function( event ) {
+	const self = this;
+	self.log( 'updateIdentity', event.data.avatar.slice( -10 ));
+	const update = {
+		type : 'identity-update',
+		data : event,
+	};
+	self.conn.send( update );
+}
+
 // Private
 
 ns.Account.prototype.init = async function() {
@@ -258,6 +268,7 @@ ns.Account.prototype.bindConn = function() {
 	self.conn.on( 'room-join', joinRoom );
 	self.conn.on( 'room-create', createRoom );
 	self.conn.on( 'contact', handleContact );
+	self.conn.on( 'avatar', ( e, cid ) => self.handleAvatarEvent( e, cid ));
 	
 	function accEventSink() {} //self.log( 'accEventSink', arguments, 3 ); }
 	function init( e, cid ) { self.initializeClient( e, cid ); }
@@ -814,6 +825,12 @@ ns.Account.prototype.handleContactEvent = function( event, clientId ) {
 		return;
 	
 	handler( event.data, clientId );
+}
+
+ns.Account.prototype.handleAvatarEvent = function( event, clientId ) {
+	const self = this;
+	self.log( 'handleAvatarEvent', [ clientId ] );
+	self.idCache.updateAvatar( self.id, event.avatar );
 }
 
 ns.Account.prototype.sendContactEvent = function( type, event ) {

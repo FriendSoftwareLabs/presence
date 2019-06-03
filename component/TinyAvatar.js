@@ -31,6 +31,7 @@ ns.TinyAvatar = function() {
 
 // Public
 
+// returns a Promise
 ns.TinyAvatar.prototype.generate = function( sourceString, type ) {
 	const self = this;
 	if ( !sourceString || !sourceString.length || 'string' !== typeof( sourceString )) {
@@ -46,6 +47,7 @@ ns.TinyAvatar.prototype.generate = function( sourceString, type ) {
 		return self.generateRoundel( sourceString );
 }
 
+// returns a Promise
 ns.TinyAvatar.prototype.generateGuest = function( type ) {
 	const self = this;
 	type = type || 'block';
@@ -70,6 +72,22 @@ ns.TinyAvatar.generateDefault = function( callback ) {
 	];
 }
 */
+
+ns.TinyAvatar.prototype.rescale = async function( imgStr ) {
+	const self = this;
+	if ( !imgStr || !imgStr.length ) {
+		log( 'rescale - invalid imgStr', imgStr );
+		return null;
+	}
+	
+	const base64Index = imgStr.indexOf( 'base64,' );
+	if ( -1 !== base64Index )
+		imgStr = imgStr.slice( base64Index + 7 );
+	
+	const image = await Jimp.read( Buffer.from( imgStr, 'base64' ));
+	image.cover( 128, 128 );
+	return image.getBase64Async( Jimp.MIME_PNG );
+}
 
 // Private
 

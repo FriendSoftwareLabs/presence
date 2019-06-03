@@ -51,6 +51,8 @@ ns.UserCtrl = function(
 
 ns.UserCtrl.prototype.addAccount = async function( session, conf ) {
 	const self = this;
+	log( 'addAccount', conf );
+	
 	const accId = conf.clientId;
 	if ( self.accounts[ accId ])
 		return;
@@ -135,6 +137,8 @@ ns.UserCtrl.prototype.init = function( dbPool ) {
 		log( 'serviceSink - user', args, 3 );
 	}
 	
+	self.idc.on( 'update', e => self.handleIdUpdate( e ));
+	
 	self.worgs.on( 'users-added', ( worgId, accIds ) =>
 		self.handleWorgUsersAdded( worgId, accIds ));
 	self.worgs.on( 'regenerate', accIds => 
@@ -157,6 +161,14 @@ ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds
 		
 		acc.addContacts( addedAccIds );
 	}
+}
+
+ns.UserCtrl.prototype.handleIdUpdate = function( update ) {
+	const self = this;
+	self.accIds.forEach( id => {
+		const acc = self.accounts[ id ];
+		acc.updateIdentity( update );
+	});
 }
 
 /*

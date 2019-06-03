@@ -323,9 +323,7 @@ ns.AccountDB.prototype.updateName = async function( clientId, name ) {
 
 ns.AccountDB.prototype.updateAvatar = async function( clientId, avatar ) {
 	const self = this;
-	accLog( 'updateAvatar - NYI', avatar );
-	return true;
-	
+	accLog( 'updateAvatar', avatar ? avatar.slice( -10 ) : avatar );
 	const values = [
 		clientId,
 		avatar,
@@ -335,7 +333,10 @@ ns.AccountDB.prototype.updateAvatar = async function( clientId, avatar ) {
 		self.query( 'account_update_avatar', values );
 	} catch( err ) {
 		accLog( 'updateAvatar - query failed', err );
+		return false;
 	}
+	
+	return true;
 }
 
 ns.AccountDB.prototype.setSetting = function( clientId, key, value ) {

@@ -171,7 +171,7 @@ ns.NoMansLand.prototype.loginGuest = function( identity, roomId, cId ) {
 	const accConf = {
 		clientId : accId,
 		name     : identity.name,
-		avatar   : identity.avatar,
+		avatar   : '',
 		isGuest  : true,
 	};
 	self.userCtrl.addGuest( session, accConf, roomId );
@@ -339,6 +339,7 @@ ns.NoMansLand.prototype.clientLogin = async function( clientAuth, cid ) {
 	
 	identity.clientId = accId;
 	identity.isGuest = false;
+	identity.avatar = clientAuth.avatar;
 	self.unsetClientAccountStage( cid );
 	const session = self.getSessionForAccount( accId );
 	if ( session ) // already logged in
@@ -448,6 +449,7 @@ ns.NoMansLand.prototype.validate = async function( bundle ) {
 
 ns.NoMansLand.prototype.validateAuthId = async function( data ) {
 	const self = this;
+	log( 'validateAuthId', data, 3 );
 	const authId = data.tokens.authId;
 	let fUser = null;
 	try {
