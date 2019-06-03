@@ -51,8 +51,6 @@ ns.UserCtrl = function(
 
 ns.UserCtrl.prototype.addAccount = async function( session, conf ) {
 	const self = this;
-	log( 'addAccount', conf );
-	
 	const accId = conf.clientId;
 	if ( self.accounts[ accId ])
 		return;

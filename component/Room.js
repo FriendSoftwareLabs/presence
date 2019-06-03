@@ -58,7 +58,6 @@ ns.Room = function( conf, db, idCache, worgCtrl ) {
 	self.worgs = null;
 	self.settings = null;
 	self.users = null;
-	self.activeList = [];
 	self.authorized = [];
 	self.accessKey = null;
 	self.roomDb = null;
@@ -265,7 +264,6 @@ ns.Room.prototype.close = async function() {
 	delete self.log;
 	delete self.worgs;
 	delete self.settings;
-	delete self.activeList;
 	delete self.authorized;
 	delete self.users;
 	delete self.idCache;
@@ -801,6 +799,7 @@ ns.Room.prototype.handleLeaveLive = function( event, uid ) {
 
 ns.Room.prototype.handleActive = function( event, userId ) {
 	const self = this;
+	log( 'handleActive', [ event, userId ]);
 	if ( !event )
 		return;
 	

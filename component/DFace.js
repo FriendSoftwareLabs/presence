@@ -1054,7 +1054,11 @@ ns.MessageDB.prototype.setWork = async function( conf ) {
 	
 }
 
-ns.MessageDB.prototype.setForRelation = async function( msg, relationId, activeList ) {
+ns.MessageDB.prototype.setForRelation = async function(
+	msg,
+	relationId,
+	toId,
+) {
 	const self = this;
 	try {
 		await self.set( msg );
@@ -1066,8 +1070,9 @@ ns.MessageDB.prototype.setForRelation = async function( msg, relationId, activeL
 	const values = [
 		msg.msgId,
 		relationId,
-		activeList[ 0 ] || null,
-		activeList[ 1 ] || null,
+		msg.fromId,
+		toId,
+		msg.time,
 	];
 	try {
 		await self.query( 'user_relation_update_messages', values );
@@ -1077,6 +1082,26 @@ ns.MessageDB.prototype.setForRelation = async function( msg, relationId, activeL
 	}
 	
 	return true;
+}
+
+ns.MessageDB.prototype.getRelations = async function( relationId ) {
+	const self = this;
+	const values = [ relationId ];
+	let res;
+	try {
+		res = await self.query( 'user_relation_messages', values );
+	} catch( ex ) {
+		msgLog( 'getRelations - query ex', ex );
+		return null;
+	}
+	
+	const relations = res[ 0 ][ 0 ];
+	const rels = res[ 1 ];
+	const userA = rels[ 0 ];
+	const userB = rels[ 1 ];
+	relations[ userA.userId ] = userA;
+	relations[ userB.userId ] = userB;
+	return relations;
 }
 
 ns.MessageDB.prototype.getRelationState = async function( relationId, contactId ) {
@@ -1106,19 +1131,25 @@ ns.MessageDB.prototype.getRelationState = async function( relationId, contactId 
 
 ns.MessageDB.prototype.updateUserLastRead = async function( relationId, userId, msgId ) {
 	const self = this;
+	const timestamp = Date.now();
 	const values = [
 		relationId,
 		userId,
 		msgId,
+		timestamp,
 	];
+	let res = null;
 	try {
-		await self.query( 'user_relation_update_last_read', values );
+		res = await self.query( 'user_relation_update_last_read', values );
 	} catch( err ) {
 		msgLog( 'updateUserLastRead - db err', err );
 		return false;
 	}
 	
-	return true;
+	if ( !res )
+		return null;
+	
+	return res[ 0 ] || null;
 }
 
 ns.MessageDB.prototype.setRoomUserMessages = async function( userId, roomId ) {

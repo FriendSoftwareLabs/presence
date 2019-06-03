@@ -51,6 +51,7 @@ DROP PROCEDURE IF EXISTS user_relation_assign_room;
 DROP PROCEDURE IF EXISTS user_relation_read;
 DROP PROCEDURE IF EXISTS user_relation_read_all_for;
 DROP PROCEDURE IF EXISTS user_relation_state;
+DROP PROCEDURE IF EXISTS user_relation_messages;
 DROP PROCEDURE IF EXISTS user_relation_update_last_read;
 DROP PROCEDURE IF EXISTS user_relation_update_messages;
 
@@ -797,8 +798,9 @@ INTO
 	room_id,
 	last_read_id
 FROM user_relation AS tur
-WHERE tur.relationId = `relationId`
-AND tur.contactId = `contactId`;
+WHERE
+	tur.relationId = `relationId`
+	AND tur.contactId = `contactId`;
 
 SELECT count(*) AS `unreadMessages` FROM message AS m
 WHERE m.roomId = room_id
@@ -822,8 +824,38 @@ LEFT JOIN message_edit AS e
 	ON m.editId = e.clientId
 WHERE m.msgId = (
 	SELECT ur.lastMsgId FROM user_relation AS ur
-	WHERE ur.relationId = `relationId` AND ur.contactId = `contactId`
+	WHERE
+		ur.relationId = `relationId`
+		AND ur.contactId = `contactId`
 );
+
+END//
+
+#
+# USER RELATION MESSAGES
+CREATE PROCEDURE user_relation_messages(
+	IN `relationId` VARCHAR( 191 )
+)
+BEGIN
+
+SELECT
+	ur.lastMsgId,
+	lm.fromId AS 'lastMsgFrom'
+FROM user_relation AS ur
+LEFT JOIN message AS lm
+	ON ur.lastMsgId = lm.msgId
+WHERE ur.relationId = `relationId`
+LIMIT 1;
+
+SELECT
+	ur.userId,
+	ur.lastReadId,
+	ur.lastReadTime,
+	lr.fromId AS 'lastReadFrom'
+FROM user_relation AS ur
+LEFT JOIN message AS lr
+	ON ur.lastReadId = lr.msgId
+WHERE ur.relationId = `relationId`;
 
 END//
 
@@ -832,23 +864,54 @@ END//
 CREATE PROCEDURE user_relation_update_last_read(
 	IN `relationId` VARCHAR( 191 ),
 	IN `userId`     VARCHAR( 191 ),
-	IN `lastReadId` VARCHAR( 191 )
+	IN `lastReadId` VARCHAR( 191 ),
+	IN `timestamp`  BIGINT
 )
 required_label:BEGIN
 DECLARE update_msg_id VARCHAR( 191 );
-SELECT m.msgId INTO update_msg_id FROM message AS m
-WHERE m.msgId = `lastReadId`;
+DECLARE has_read_last VARCHAR( 191 );
+
+# return early on invalid msg id or sender trying to confirm his own message
+SELECT m.msgId INTO update_msg_id
+FROM message AS m
+WHERE
+	m.msgId = `lastReadId`
+	AND m.fromId != `userId`;
 
 IF ( update_msg_id IS NULL ) THEN
 	LEAVE required_label;
 END IF;
 
-UPDATE user_relation AS ur
-SET	ur.lastReadId = `lastReadId`
+# return early if shownTime is already set
+SELECT ur.lastReadId INTO has_read_last
+FROM user_relation AS ur
 WHERE
 	ur.relationId = `relationId`
 	AND ur.userId = `userId`
-	AND ( fn_get_msg_time( ur.lastReadId ) < fn_get_msg_time( update_msg_id ));
+	AND ur.lastReadId = ur.lastMsgId;
+#	AND ( fn_get_msg_time( update_msg_id ) > ( fn_get_msg_time( ur.lastReadId ));
+
+IF ( has_read_last IS NOT NULL ) THEN
+	LEAVE required_label;
+END IF;
+
+UPDATE user_relation AS ur
+SET
+	ur.lastReadId = `lastReadId`,
+	ur.lastReadTime = `timestamp`
+WHERE
+	ur.relationId = `relationId`
+	AND ur.userId = `userId`;
+
+SELECT
+	ur.userId,
+	ur.contactId AS 'fromId',
+	ur.lastReadId AS 'msgId',
+	ur.lastReadTime
+FROM user_relation AS ur
+WHERE
+	ur.relationId = `relationId`
+	AND ur.userId = `userId`;
 
 END//
 
@@ -857,8 +920,9 @@ END//
 CREATE PROCEDURE user_relation_update_messages(
 	IN `msgId`      VARCHAR( 191 ),
 	IN `relationId` VARCHAR( 191 ),
-	IN `accIdA`     VARCHAR( 191 ),
-	IN `accIdB`     VARCHAR( 191 )
+	IN `fromId`     VARCHAR( 191 ),
+	IN `toId`       VARCHAR( 191 ),
+	IN `timestamp`  BIGINT
 )
 BEGIN
 UPDATE user_relation AS ur
@@ -866,19 +930,14 @@ SET
 	ur.lastMsgId = `msgId`
 WHERE ur.relationId = `relationId`;
 
-IF ( `accIdA` IS NOT NULL ) THEN
-	UPDATE user_relation AS ur_a
-	SET ur_a.lastReadId = `msgId`
-	WHERE ur_a.relationId = `relationId`
-	AND ur_a.userId = `accIdA`;
-END IF;
-
-IF ( `accIdB` IS NOT NULL ) THEN
-	UPDATE user_relation AS ur_b
-	SET ur_b.lastReadId = `msgId`
-	WHERE ur_b.relationId = `relationId`
-	AND ur_b.userId = `accIdB`;
-END IF;
+# update from
+UPDATE user_relation AS ur_f
+SET
+	ur_f.lastReadId = `msgId`,
+	ur_f.lastReadTime = `timestamp`
+WHERE
+	ur_f.relationId = `relationId`
+	AND ur_f.userId = `fromId`;
 
 END//
 
@@ -892,7 +951,7 @@ END//
 CREATE PROCEDURE message_set(
 	IN `msgId`     VARCHAR( 191 ),
 	IN `roomId`    VARCHAR( 191 ),
-	IN `fromId` VARCHAR( 191 ),
+	IN `fromId`    VARCHAR( 191 ),
 	IN `timestamp` BIGINT,
 	IN `type`      VARCHAR( 20 ),
 	IN `name`      VARCHAR( 191 ),

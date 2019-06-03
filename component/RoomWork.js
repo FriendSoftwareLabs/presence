@@ -844,7 +844,8 @@ ns.WorkRoom.prototype.initialize = async function( requestId, userId ) {
 		
 		function setMembers( sId ) {
 			const sub = self.subs[ sId ];
-			workgroups.members[ sId ] = sub.getMemberList();
+			const subMList = sub.getMemberList();
+			workgroups.members[ sId ] = subMList;
 			workgroups.rooms[ sId ] = sub.getRoomId();
 		}
 	}

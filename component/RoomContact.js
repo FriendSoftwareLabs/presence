@@ -86,25 +86,13 @@ ns.ContactRoom.prototype.authenticateInvite = async function( token ) {
 	return false;
 }
 
-ns.ContactRoom.prototype.getOtherAccount = function( accId ) {
-	const self = this;
-	let otherId;
-	if ( accId === self.accIdA )
-		otherId = self.accIdB;
-	else
-		otherId = self.accIdA;
-	
-	return self.users.get( otherId );
-}
-
 ns.ContactRoom.prototype.init = async function() {
 	const self = this;
 	self.service = new FService();
 	self.roomDb = new dFace.RoomDB( self.dbPool, self.id );
-	self.users = new components.Users(
+	self.users = new ns.ContactUsers(
 		self.dbPool,
 		self.id,
-		true
 	);
 	await self.users.initialize();
 	
@@ -119,7 +107,6 @@ ns.ContactRoom.prototype.init = async function() {
 		self.dbPool,
 		self.id,
 		self.users,
-		self.activeList,
 		self.idCache,
 		self.ownerId
 	);
@@ -169,10 +156,10 @@ ns.ContactRoom.prototype.loadUsers = async function() {
 	
 	return true;
 	
-	function add( dbUser ) {
+	async function add( dbUser ) {
 		const cId = dbUser.clientId;
 		self.users.addAuthorized( cId );
-		self.addUser( cId );
+		await self.addUser( cId );
 	}
 }
 
@@ -199,7 +186,7 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 	}
 	
 	// removing basic user obj
-	const otherAcc = self.getOtherAccount( userId );
+	const otherAcc = self.users.getOther( userId );
 	const otherId = otherAcc.clientId;
 	const otherName = otherAcc.name;
 	// add signal user obj
@@ -261,7 +248,7 @@ ns.ContactRoom.prototype.handleOpen = function( userId ) {
 
 ns.ContactRoom.prototype.getRoomRelation = async function( userId ) {
 	const self = this;
-	const other = self.getOtherAccount( userId );
+	const other = self.users.getOther( userId );
 	const msgDb = new dFace.MessageDB( self.dbPool );
 	const rel = await msgDb.getRelationState( self.relationId, other.clientId );
 	const lastMessages = self.log.getLast( 1 );
@@ -270,12 +257,13 @@ ns.ContactRoom.prototype.getRoomRelation = async function( userId ) {
 		lastMessage    : rel ? rel.lastMessage : null,
 	};
 	
+	msgDb.close();
 	return relation;
 }
 
 ns.ContactRoom.prototype.initialize = async function( requestId, userId ) {
 	const self = this;
-	const otherAcc = self.getOtherAccount( userId );
+	const otherAcc = self.users.getOther( userId );
 	const relation = await self.getRoomRelation( userId );
 	const state = {
 		id          : otherAcc.clientId,
@@ -323,18 +311,36 @@ ns.ContactRoom.prototype.addUser = async function( userId ) {
 	}
 	
 	const user = await self.idCache.get( userId );
-	self.users.set( user );
-	self.authorized.push( userId );
-	
-	if ( self.accIdB )
-		return true;
-	
-	if ( self.accIdA )
-		self.accIdB = userId;
-	else
-		self.accIdA = userId;
-	
+	await self.users.set( user );
 	return true;
+}
+
+/*
+	ContactUsers
+*/
+
+const uLog = require( './Log' )( 'ContactRoom > Chat' );
+ns.ContactUsers = function(
+	dbPool,
+	roomId
+) {
+	const self = this;
+	components.Users.call( self,
+		dbPool,
+		roomId,
+		true,
+		null
+	);
+}
+
+util.inherits( ns.ContactUsers, components.Users );
+
+ns.ContactUsers.prototype.getOther = function( clientId ) {
+	const self = this;
+	const list = self.getList();
+	const otherId = list[ 0 ] === clientId ? list[ 1 ] : list[ 0 ];
+	const other = self.everyone[ otherId ];
+	return other;
 }
 
 /*
@@ -359,6 +365,37 @@ ns.ContactChat = function(
 }
 
 util.inherits( ns.ContactChat, components.Chat );
+
+ns.ContactChat.prototype.handleConfirm = function( event, userId ) {
+	const self = this;
+	if ( 'message' === event.type ) {
+		confirmMessage( event.eventId, userId );
+		return;
+	}
+	
+	async function confirmMessage( msgId, userId ) {
+		const res = await self.log.confirm( msgId, userId );
+		if ( !res )
+			return;
+		
+		const notie = {
+			type : 'message',
+			data : res,
+		};
+		
+		sendConfirm( notie, userId );
+	}
+	
+	function sendConfirm( event, userId ) {
+		const confirm = {
+			type : 'confirm',
+			data : event,
+		};
+		const other = self.users.getOther( userId );
+		const contactId = other.clientId;
+		self.send( confirm, contactId );
+	}
+}
 
 ns.ContactChat.prototype.sendMsgNotification = async function( message, mId, fromId ) {
 	const self = this;
@@ -467,15 +504,12 @@ ns.ContactLog = function(
 	dbPool,
 	roomId,
 	users,
-	activeList,
 	idCache,
 	relationId
 ) {
 	const self = this;
-	self.activeList = activeList;
 	self.relationId = relationId;
-	components.Log.call(
-		self,
+	components.Log.call( self,
 		dbPool,
 		roomId,
 		users,
@@ -491,9 +525,30 @@ util.inherits( ns.ContactLog, components.Log );
 ns.ContactLog.prototype.baseClose = ns.ContactLog.prototype.close;
 ns.ContactLog.prototype.close = function() {
 	const self = this;
-	delete self.activeList;
 	delete self.relationId;
 	self.baseClose();
+}
+
+ns.ContactLog.prototype.get = async function( conf ) {
+	const self = this;
+	if ( null == conf ) {
+		return await self.buildLogEvent( 'before', self.items );
+	} else {
+		return self.load( conf );
+	}
+}
+
+ns.ContactLog.prototype.buildLogEvent = async function( type, events ) {
+	const self = this;
+	const relations = await self.msgDb.getRelations( self.relationId );
+	const logs = {
+		type : type,
+		data : {
+			events    : events,
+			relations : relations,
+		}
+	};
+	return logs;
 }
 
 ns.ContactLog.prototype.confirm = async function( msgId, userId ) {
@@ -501,14 +556,19 @@ ns.ContactLog.prototype.confirm = async function( msgId, userId ) {
 	if ( !msgId || !userId )
 		return;
 	
+	let res = null;
 	try {
-		await self.msgDb.updateUserLastRead( self.relationId, userId, msgId );
-	} catch( err ) {
-		llLog( 'confirm - db fail', err );
+		res = await self.msgDb.updateUserLastRead(
+			self.relationId,
+			userId,
+			msgId
+		);
+	} catch( ex ) {
+		llLog( 'confirm - db fail', ex );
 		return false;
 	}
 	
-	return true;
+	return res;
 }
 
 // Private
@@ -518,8 +578,14 @@ ns.ContactLog.prototype.persist = async function( event ) {
 	const item = event.data;
 	item.type = event.type;
 	const fromId = item.fromId;
+	const other = self.users.getOther( fromId );
+	const toId = other.clientId;
 	try {
-		await self.msgDb.setForRelation( item, self.relationId, self.activeList );
+		await self.msgDb.setForRelation(
+			item,
+			self.relationId,
+			toId
+		);
 	} catch( err ) {
 		llLog( 'persist - err', err );
 		return false;

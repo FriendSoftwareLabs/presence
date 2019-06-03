@@ -125,10 +125,10 @@ CREATE TABLE `message_edit` (
 ) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `room_user_messages` (
-	`_id`        INT UNSIGNED NOT NULL auto_increment,
-	`userId`     VARCHAR( 191 ) NOT NULL,
-	`roomId`     VARCHAR( 191 ) NOT NULL,
-	`lastReadId` VARCHAR( 191 ),
+	`_id`          INT UNSIGNED NOT NULL auto_increment,
+	`userId`       VARCHAR( 191 ) NOT NULL,
+	`roomId`       VARCHAR( 191 ) NOT NULL,
+	`lastReadId`   VARCHAR( 191 ),
 	PRIMARY KEY( _id ),
 	UNIQUE KEY( roomId, userId ),
 	FOREIGN KEY( userId ) REFERENCES account( clientId )
@@ -143,14 +143,15 @@ CREATE TABLE `room_user_messages` (
 ) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `user_relation` (
-	`_id`        INT UNSIGNED NOT NULL auto_increment,
-	`relationId` VARCHAR( 191 ) NOT NULL,
-	`userId`     VARCHAR( 191 ) NOT NULL,
-	`contactId`  VARCHAR( 191 ) NOT NULL,
-	`created`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	`roomId`     VARCHAR( 191 ) NULL,
-	`lastReadId` VARCHAR( 191 ) NULL,
-	`lastMsgId`  VARCHAR( 191 ) NULL,
+	`_id`          INT UNSIGNED NOT NULL auto_increment,
+	`relationId`   VARCHAR( 191 ) NOT NULL,
+	`userId`       VARCHAR( 191 ) NOT NULL,
+	`contactId`    VARCHAR( 191 ) NOT NULL,
+	`created`      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	`roomId`       VARCHAR( 191 ) NULL,
+	`lastReadId`   VARCHAR( 191 ) NULL,
+	`lastReadTime` BIGINT NULL,
+	`lastMsgId`    VARCHAR( 191 ) NULL,
 	PRIMARY KEY( _id ),
 	UNIQUE KEY( userId, contactId ),
 	FOREIGN KEY( userId ) REFERENCES account( clientId )
@@ -213,6 +214,6 @@ INSERT INTO `db_history`(
 	`version`,
 	`comment`
 ) VALUES (
-	29,
+	30,
 	'tables.sql'
 );

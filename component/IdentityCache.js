@@ -155,10 +155,6 @@ ns.IDC.prototype.update = async function( identity ) {
 	const nameChange = await self.checkName( identity, cache );
 	const avaChange = await self.checkAvatar( identity, nameChange );
 	//self.checkEmail( identity, cache );
-	log( 'update - change', {
-		name : nameChange,
-		avatar : avaChange,
-	});
 	
 	if ( nameChange )
 		self.sendUpdate( cId, 'name' );
@@ -171,7 +167,6 @@ ns.IDC.prototype.update = async function( identity ) {
 
 ns.IDC.prototype.updateAvatar = async function( userId, avatar ) {
 	const self = this;
-	log( 'IDC.updateAvatar', userId );
 	if ( null == avatar )
 		return;
 	
