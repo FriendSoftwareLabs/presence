@@ -1351,7 +1351,7 @@ ns.MessageDB.prototype.getForView = async function(
 	length
 ) {
 	const self = this;
-	length = length || 30;
+	length = length || 5;
 	const values = [
 		worgId,
 		userId,

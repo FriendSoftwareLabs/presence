@@ -1333,7 +1333,9 @@ CREATE PROCEDURE message_get_for_view(
 BEGIN
 DROP TABLE IF EXISTS tmp;
 CREATE TEMPORARY TABLE tmp (
-SELECT T.msgId FROM (
+SELECT
+	T.msgId
+FROM (
 	SELECT
 		t.msgId,
 		m.timestamp
@@ -1353,9 +1355,7 @@ SELECT T.msgId FROM (
 	GROUP BY t.msgId
 	ORDER BY m.timestamp DESC
 	LIMIT `limit`
-) AS T
-ORDER BY T.timestamp ASC
-);
+) AS T );
 
 SELECT
 	m.msgId,
@@ -1374,7 +1374,8 @@ LEFT JOIN message_edit AS e
 	ON m.editId = e.clientId
 WHERE m.msgId IN (
 	SELECT tmp.msgId FROM tmp
-);
+)
+ORDER BY m.timestamp ASC;
 
 SELECT
 	t.msgId,
@@ -1385,6 +1386,7 @@ FROM message_work_target AS t
 WHERE t.msgId IN (
 	SELECT tmp.msgId FROM tmp
 );
+
 
 END//
 
