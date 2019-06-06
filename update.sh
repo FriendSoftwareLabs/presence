@@ -4,8 +4,19 @@
 # Copies the modified files in the friendchat/server directory to
 # the proper location in Friend build directory structure.
 
-echo "Stopping presence-server system service"
-sudo systemctl stop presence-server
+NORESTART=0
+if [ -n "$1" ]; then
+    NORESTART=1
+fi
+
+# stop if service should be restarted
+if [ $NORESTART -eq 0 ]
+then
+    echo "Stopping presence-server system service"
+    sudo systemctl stop presence-server
+else
+    echo "NORESTART - service, if it is set up, will not be restarted"
+fi
 
 FRIEND=""
 
@@ -83,7 +94,12 @@ cd "$TEMP"
 # End
 echo ""
 echo "Update successfully completed."
-echo "Starting presence-server system service"
-sudo systemctl start presence-server
+
+if [ $NORESTART -eq 0 ]
+then
+    echo "Starting presence-server system service"
+    sudo systemctl start presence-server
+fi
+
 
 echo ""
