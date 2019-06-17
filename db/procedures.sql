@@ -850,11 +850,8 @@ LIMIT 1;
 SELECT
 	ur.userId,
 	ur.lastReadId,
-	ur.lastReadTime,
-	lr.fromId AS 'lastReadFrom'
+	ur.lastReadTime
 FROM user_relation AS ur
-LEFT JOIN message AS lr
-	ON ur.lastReadId = lr.msgId
 WHERE ur.relationId = `relationId`;
 
 END//
@@ -931,13 +928,13 @@ SET
 WHERE ur.relationId = `relationId`;
 
 # update from
-UPDATE user_relation AS ur_f
-SET
-	ur_f.lastReadId = `msgId`,
-	ur_f.lastReadTime = `timestamp`
-WHERE
-	ur_f.relationId = `relationId`
-	AND ur_f.userId = `fromId`;
+#UPDATE user_relation AS ur_t
+#SET
+#	ur_t.lastReadId = `msgId`,
+#	ur_t.lastReadTime = `timestamp`
+#WHERE
+#	ur_t.relationId = `relationId`
+#	AND ur_t.userId = `fromId`;
 
 END//
 
