@@ -94,6 +94,7 @@ ns.FService.prototype.sendNotification = async function(
 		title,
 		message,
 		channel,
+		timestamp,
 		extra,
 		destApp
 	) {
@@ -121,6 +122,7 @@ ns.FService.prototype.sendNotification = async function(
 			notification_type : 1,
 			title             : title,
 			message           : message,
+			timecreated       : timestamp,
 			extra             : extra,
 			application       : destApp,
 		},

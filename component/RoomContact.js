@@ -397,8 +397,11 @@ ns.ContactChat.prototype.handleConfirm = function( event, userId ) {
 	}
 }
 
-ns.ContactChat.prototype.sendMsgNotification = async function( message, mId, fromId ) {
+ns.ContactChat.prototype.sendMsgNotification = async function( msg, fromId ) {
 	const self = this;
+	const mId = msg.msgId;
+	const time = msg.time;
+	const message = msg.message;
 	const from = self.users.get( fromId );
 	const roomName = from.name;
 	const notie = message;
@@ -426,6 +429,7 @@ ns.ContactChat.prototype.sendMsgNotification = async function( message, mId, fro
 			roomName,
 			notie,
 			self.roomId,
+			time,
 			extra
 		);
 	} catch( e ) {

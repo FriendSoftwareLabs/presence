@@ -835,12 +835,15 @@ ns.Chat.prototype.createMsg = function( input, userId ) {
 	};
 	
 	self.log.add( event );
-	self.sendMsgNotification( message, mId, userId );
+	self.sendMsgNotification( msg, userId );
 	self.broadcast( event );
 }
 
-ns.Chat.prototype.sendMsgNotification = async function( message, mId, fromId ) {
+ns.Chat.prototype.sendMsgNotification = async function( msg, fromId ) {
 	const self = this;
+	const mId = msg.msgId;
+	const time = msg.time;
+	const message = msg.message;
 	const from = self.users.get( fromId );
 	const roomName = '#' + self.roomName;
 	const notie = from.name + ': ' + message;
@@ -871,6 +874,7 @@ ns.Chat.prototype.sendMsgNotification = async function( message, mId, fromId ) {
 			roomName,
 			notie,
 			self.roomId,
+			time,
 			extra
 		);
 	} catch ( err ) {

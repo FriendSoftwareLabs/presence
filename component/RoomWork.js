@@ -1329,6 +1329,7 @@ ns.WorkChat.prototype.sendWorkMsgNotification = async function( msg ) {
 	const toSuper = !!targets[ superId ];
 	const roomName = '#' + self.roomName;
 	const notie = sender.name + ': ' + msg.message;
+	const time = msg.time;
 	let userIds = [];
 	const extra = {
 		roomId : self.roomId,
@@ -1405,10 +1406,11 @@ ns.WorkChat.prototype.sendWorkMsgNotification = async function( msg ) {
 			roomName,
 			notie,
 			extra.roomId,
+			time,
 			extra
 		);
 	} catch ( err ) {
-		cLog( 'sendMsgNotification - err', err );
+		cLog( 'sendWorkMsgNotification - err', err );
 	}
 }
 
