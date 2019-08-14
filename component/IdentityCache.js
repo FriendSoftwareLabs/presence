@@ -329,10 +329,6 @@ ns.IDC.prototype.checkName = async function( id, c ) {
 
 ns.IDC.prototype.checkAvatar = async function( id, nameChange ) {
 	const self = this;
-	log( 'checkAvatar', {
-		id   : id,
-		name : nameChange,
-	}, 3 );
 	const uId = id.clientId;
 	let current = id.avatar;
 	if ( nameChange && ( null == current )) {
@@ -359,20 +355,14 @@ ns.IDC.prototype.checkAvatar = async function( id, nameChange ) {
 
 ns.IDC.prototype.setAvatar = async function( userId, avatar ) {
 	const self = this;
-	log( 'setAvatar', userId );
 	const dbId = await self.accDB.getById( userId );
 	if ( !dbId )
 		return false;
 	
 	const tiny = await tinyAvatar.rescale( avatar );
-	log( 'setAvatar - tiny', {
-		tiny  : tiny ? tiny.slice( -10 ) : '',
-		cache : dbId.avatar ? dbId.avatar.slice( -10 ) : '',
-	}, 3 );
 	if ( dbId.avatar === tiny )
 		return true;
 	
-	log( 'setting tiny', tiny.slice( -10 ));
 	await self.accDB.updateAvatar( userId, tiny );
 	const cacheId = await self.get( userId );
 	cacheId.avatar = tiny;
@@ -385,10 +375,6 @@ ns.IDC.prototype.resetAvatar = async function( userId ) {
 	if ( !dbId )
 		return false;
 	
-	log( 'resetAvatar', {
-		uid  : userId,
-		dbId : dbId,
-	});
 	if ( !dbId.avatar )
 		return false;
 	
@@ -401,12 +387,6 @@ ns.IDC.prototype.setPixelAvatar = async function( clientId ) {
 	const cacheId = await self.get( clientId );
 	let pixels = await tinyAvatar.generate( cacheId.name, 'roundel' );
 	 if ( !pixels ) {
-	 	log( 'setPixelAvatar - something interesting happend while trying to\
-	 		to create a pixel avatar', {
-	 			cId    : clientId,
-	 			id     : cacheId,
-	 			pixels : pixels,
-	 		}, 3 );
 		return false;
 	 }
 	

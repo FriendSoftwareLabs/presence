@@ -174,7 +174,6 @@ ns.FService.prototype.init = function( fcConf, destApp ) {
 	log( 'init //:;;:\\\\' );
 	self.fcc = fcConf;
 	self.connect();
-	
 }
 
 ns.FService.prototype.connect = function() {

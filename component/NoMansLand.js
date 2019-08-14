@@ -449,7 +449,6 @@ ns.NoMansLand.prototype.validate = async function( bundle ) {
 
 ns.NoMansLand.prototype.validateAuthId = async function( data ) {
 	const self = this;
-	log( 'validateAuthId', data, 3 );
 	const authId = data.tokens.authId;
 	let fUser = null;
 	try {

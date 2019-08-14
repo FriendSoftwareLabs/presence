@@ -34,6 +34,15 @@ const FService = require( './api/FService' );
 
 let service = null;
 let worgList = null;
+const presence = {
+	conn  : null,
+	db    : null,
+	idc   : null,
+	worgs : null,
+	users : null,
+	rooms : null,
+};
+
 if ( global.config.server.friendcore.serviceKey ) {
 	service = new FService(
 		global.config.server.friendcore,
@@ -46,19 +55,14 @@ if ( global.config.server.friendcore.serviceKey ) {
 		
 		worgList = e.data;
 		service.off( gId );
+		if ( presence.worgs )
+			presence.worgs.update( worgList );
+		
 	});
 }
 
 //const fcReq = require( './component/FCRequest' )( global.config.server.friendcore );
 
-var presence = {
-	conn  : null,
-	db    : null,
-	idc   : null,
-	worgs : null,
-	users : null,
-	rooms : null,
-};
 
 presence.db = new MySQLPool( global.config.server.mysql, dbReady );
 function dbReady( ok ) {

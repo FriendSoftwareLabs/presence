@@ -130,7 +130,7 @@ ns.UserCtrl.prototype.init = function( dbPool ) {
 	log( ':3' );
 	const service = new FService();
 	self.serviceConn = new events.EventNode( 'user', service, serviceSink );
-	self.serviceConn.on( 'group', e => self.handleGroupUpdate );
+	self.serviceConn.on( 'update', e => self.handleFUserUpdate );
 	function serviceSink( ...args ) {
 		log( 'serviceSink - user', args, 3 );
 	}
@@ -141,6 +141,11 @@ ns.UserCtrl.prototype.init = function( dbPool ) {
 		self.handleWorgUsersAdded( worgId, accIds ));
 	self.worgs.on( 'regenerate', accIds => 
 		self.handleWorgRegenerate( accIds ));
+}
+
+ns.UserCtrl.prototype.handleFUserUpdate = function( update ) {
+	const self = this;
+	log( 'handleFUserUpdate - NYI', update );
 }
 
 ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds ) {
