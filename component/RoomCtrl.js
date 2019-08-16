@@ -218,6 +218,11 @@ ns.RoomCtrl.prototype.guestJoinRoom = async function( accountId, roomId ) {
 	return user || null;
 }
 
+ns.RoomCtrl.prototype.rejectInvite = function( accountId, inv ) {
+	const self = this;
+	log( 'rejectInvite', inv );
+}
+
 ns.RoomCtrl.prototype.connectWorkgroup = async function( accountId, roomId ) {
 	const self = this;
 	let room = null;
@@ -350,7 +355,7 @@ ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {
 	}
 	*/
 	
-	wRoom = await self.setWorkRoom( worgId, 1 );
+	wRoom = await self.setWorkRoom( worgId, 2 );
 	if ( !wRoom )
 		return null;
 	
@@ -388,7 +393,7 @@ ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {
 		if ( sub )
 			return;
 		
-		await self.setWorkRoom( subId, 3 );
+		await self.setWorkRoom( subId, 4 );
 	}
 	
 	async function connect( subId ) {
@@ -418,7 +423,7 @@ ns.RoomCtrl.prototype.subAdded = async function( childId, superId ) {
 	
 	let sub = self.getWorkRoom( childId )
 	if ( !sub )
-		sub = await self.setWorkRoom( childId, 3 );
+		sub = await self.setWorkRoom( childId, 4 );
 	
 	if ( !sub ) {
 		log( 'subAdded - still no sub room', sub );
@@ -584,18 +589,21 @@ ns.RoomCtrl.prototype.createAnonRoom = async function( accId ) {
 
 ns.RoomCtrl.prototype.joinWithInvite = async function( accountId, conf ) {
 	const self = this;
-	const rid = conf.roomId;
-	const room = await self.getRoom( rid );
+	const rId = conf.roomId;
+	const room = await self.getRoom( rId );
 	if ( !room )
 		return null;
 	
-	const isValid = await room.authenticateInvite( conf.token )
+	const isValid = await room.authenticateInvite( conf.token, accountId );
 	if ( !isValid ) {
 		log( 'ERR_INVITE_INVALID', conf );
 		return false;
 	}
 	
-	const authed = await self.authorizeForRoom( accountId, rid );
+	const authed = await self.authorizeForRoom( accountId, rId );
+	if ( !authed )
+		return null;
+	
 	const user = await room.connect( accountId );
 	return user;
 }
@@ -661,13 +669,10 @@ ns.RoomCtrl.prototype.setRoom = function( roomConf ) {
 ns.RoomCtrl.prototype.bindRoom = function( room ) {
 	const self = this;
 	const roomId = room.id;
-	room.on( 'empty', onEmpty );
-	room.on( 'workgroup-assigned', worgAss );
-	room.on( 'workgroup-dismissed', worgDiss );
-	
-	function onEmpty( e ) { self.removeRoom( roomId ); }
-	function worgAss( e ) { self.handleWorkgroupAssigned( e, roomId ); }
-	function worgDiss( e ) {  }
+	room.on( 'empty', e => self.removeRoom( roomId ));
+	room.on( 'invite-add', e => self.handleInviteAdd( e, roomId ));
+	room.on( 'workgroup-assigned', e => self.handleWorkgroupAssigned( e, roomId ));
+	room.on( 'workgroup-dismissed', e => {});
 }
 
 ns.RoomCtrl.prototype.bindContactRoom = function( room ) {
@@ -678,6 +683,19 @@ ns.RoomCtrl.prototype.bindContactRoom = function( room ) {
 	
 	function onEmpty( e ) { self.removeRoom( rId ); }
 	function contactEvent( e ) { self.forwardContactEvent( e, rId ); }
+}
+
+ns.RoomCtrl.prototype.handleInviteAdd = function( event, roomId ) {
+	const self = this;
+	const room = self.rooms[ roomId ];
+	const info = room.getInfo();
+	event.room = info;
+	const userId = event.targetId;
+	const inv = {
+		type : 'invite-add',
+		data : event,
+	};
+	self.emit( userId, inv, roomId );
 }
 
 ns.RoomCtrl.prototype.handleWorkgroupAssigned = async function( worg, roomId ) {
@@ -1131,7 +1149,8 @@ ns.RoomCtrl.prototype.authorizeForRoom = async function( accId, roomId ) {
 		return false;
 	
 	const ok = await room.authorizeUser( accId );
-	return true;
+	log( 'authForroom', ok );
+	return ok;
 }
 
 ns.RoomCtrl.prototype.removeFromRoom = function( accountId, roomId ) {

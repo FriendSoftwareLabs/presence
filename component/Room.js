@@ -73,6 +73,16 @@ util.inherits( ns.Room, Emitter );
 
 // Public
 
+ns.Room.prototype.getInfo = function() {
+	const self = this;
+	const info = {
+		clientId : self.id,
+		name     : self.name,
+		avatar   : self.avatar,
+	};
+	return info;
+}
+
 ns.Room.prototype.getClientId = function() {
 	const self = this;
 	return self.id;
@@ -122,7 +132,6 @@ ns.Room.prototype.authorizeUser = async function( userId ) {
 	if ( !ok )
 		return false;
 	
-	self.users.addAuthorized( userId );
 	await self.addUser( userId );
 	return true;
 }
@@ -217,14 +226,15 @@ ns.Room.prototype.removeUser = async function( userId, worgId ) {
 	return true;
 }
 
-ns.Room.prototype.authenticateInvite = async function( token ) {
+ns.Room.prototype.authenticateInvite = async function( token, userId ) {
 	const self = this;
 	let valid = false;
 	try {
-		valid = await self.invite.authenticate( token );
+		valid = await self.invite.authenticate( token, userId );
 	} catch ( e ) {
 		log( 'authenticateInvite - failed', e );
 	}
+	
 	return valid;
 }
 
@@ -328,6 +338,7 @@ ns.Room.prototype.init = async function( worgCtrl ) {
 		self.users,
 		self.persistent
 	);
+	self.invite.on( 'add', e => self.emit( 'invite-add', e ));
 	
 	self.chat = new components.Chat(
 		self.id,
@@ -361,6 +372,10 @@ ns.Room.prototype.handleRemovedFromWorgs = function( userId ) {
 ns.Room.prototype.handleWorkgroupDismissed = function( worg ) {
 	const self = this;
 	self.emit( 'workgroup-dismissed', worg );
+}
+
+ns.Room.prototype.handleInviteAdd = function( invted ) {
+	const self = this;
 }
 
 ns.Room.prototype.setOpen = function() {
@@ -644,12 +659,17 @@ ns.Room.prototype.persistRoom = function( callback ) {
 
 ns.Room.prototype.persistAuthorization = async function( userId ) {
 	const self = this;
-	const accIds = [ userId ];
-	const success = await self.roomDb.authorize( self.id, accIds );
+	let success = true;
+	if ( self.persistent ) {
+		const accIds = [ userId ];
+		const success = await self.roomDb.authorize( self.id, accIds );
+	}
+	
 	if ( !success )
 		return false;
 	
 	self.users.addAuthorized( userId );
+	return true;
 }
 
 ns.Room.prototype.revokeAuthorization = async function( userId ) {
@@ -799,7 +819,6 @@ ns.Room.prototype.handleLeaveLive = function( event, uid ) {
 
 ns.Room.prototype.handleActive = function( event, userId ) {
 	const self = this;
-	log( 'handleActive', [ event, userId ]);
 	if ( !event )
 		return;
 	

@@ -199,7 +199,6 @@ ns.Account.prototype.updateContactStatus = function( type, contactId, data ) {
 
 ns.Account.prototype.updateIdentity = function( event ) {
 	const self = this;
-	self.log( 'updateIdentity', event.data.avatar.slice( -10 ));
 	const update = {
 		type : 'identity-update',
 		data : event,
@@ -239,6 +238,7 @@ ns.Account.prototype.bindRoomCtrl = function() {
 		'workgroup-join' : workgroupJoin,
 		'contact-join'   : contactJoin,
 		'contact-event'  : contactRoomEvent,
+		'invite-add'     : inviteAdd,
 	};
 	
 	function roomCtrlEvent( e, rid ) { self.handleRoomCtrlEvent( e, rid ); }
@@ -247,6 +247,7 @@ ns.Account.prototype.bindRoomCtrl = function() {
 	function workgroupJoin( e, rid ) { self.handleWorkgroupJoin( e, rid ); }
 	function contactJoin( e, rid ) { self.openContactChat( e, rid ); }
 	function contactRoomEvent( e, rid ) { self.handleContactRoomEvent( e, rid ); }
+	function inviteAdd( e, rid ) { self.handleInviteAdd( e, rid ); }
 }
 
 ns.Account.prototype.bindContactEvents = function() {
@@ -269,6 +270,7 @@ ns.Account.prototype.bindConn = function() {
 	self.conn.on( 'room-create', createRoom );
 	self.conn.on( 'contact', handleContact );
 	self.conn.on( 'avatar', ( e, cid ) => self.handleAvatarEvent( e, cid ));
+	self.conn.on( 'invite-response', ( e, cid ) => self.handleInviteResponse( e, cid ));
 	
 	function accEventSink() {} //self.log( 'accEventSink', arguments, 3 ); }
 	function init( e, cid ) { self.initializeClient( e, cid ); }
@@ -446,6 +448,25 @@ ns.Account.prototype.handleContactRoomEvent = function( event, contactId ) {
 		r : contactId,
 	});
 	
+}
+
+ns.Account.prototype.handleInviteAdd = function( invite, roomId ) {
+	const self = this;
+	const room = self.rooms.get( roomId );
+	if ( room ) {
+		self.log( 'handleInviteAdd - already in room', room );
+		return;
+	}
+	
+	invite.roomId = roomId;
+	const inv = {
+		type : 'invite',
+		data : {
+			type : 'add',
+			data: invite,
+		},
+	};
+	self.conn.send( inv );
 }
 
 ns.Account.prototype.handleWorkgroupAssigned = function( addedWorg, roomId ) {
@@ -829,8 +850,21 @@ ns.Account.prototype.handleContactEvent = function( event, clientId ) {
 
 ns.Account.prototype.handleAvatarEvent = function( event, clientId ) {
 	const self = this;
-	self.log( 'handleAvatarEvent', [ clientId ] );
 	self.idCache.updateAvatar( self.id, event.avatar );
+}
+
+ns.Account.prototype.handleInviteResponse = async function( res, clientId ) {
+	const self = this;
+	let room = null;
+	if ( res.accepted )
+		room = await self.roomCtrl.joinRoom( self.id, res );
+	else
+		self.roomCtrl.rejectInvite( self.id, res );
+	
+	if ( !room )
+		return;
+	
+	self.joinedARoomHooray( room );
 }
 
 ns.Account.prototype.sendContactEvent = function( type, event ) {
