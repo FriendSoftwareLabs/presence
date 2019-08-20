@@ -69,10 +69,6 @@ ns.Emitter = function( eventSink, debug ) {
 
 ns.Emitter.prototype.emit = function( event, ...handlerArgs ) {
 	const self = this;
-	//var args = self._getArgs( arguments );
-	//const event = args.shift(); // first arguments passed to .emit()
-	//const handlerArgs = args;
-	// as an array that will be .apply to the listener
 	if ( self._eventsDebug )
 		log( 'emit', {
 			event : event,
@@ -95,7 +91,7 @@ ns.Emitter.prototype.emit = function( event, ...handlerArgs ) {
 	return null;
 	
 	function sendOnListener( id ) {
-		var listener = self._emitterListeners[ id ];
+		const listener = self._emitterListeners[ id ];
 		if ( !listener )
 			return;
 		
@@ -111,8 +107,8 @@ ns.Emitter.prototype.on = function( event, listener ) {
 			listener : listener,
 		});
 	
-	var id = uuid.v4();
-	var eventListenerIds = self._emitterEvent2ListenerId[ event ];
+	const id = uuid.v4();
+	let eventListenerIds = self._emitterEvent2ListenerId[ event ];
 	if ( !eventListenerIds ) {
 		eventListenerIds = [];
 		self._emitterEvent2ListenerId[ event ] = eventListenerIds;
@@ -177,16 +173,6 @@ ns.Emitter.prototype.release = function( eventName ) {
 	}
 }
 
-ns.Emitter.prototype._getArgs = function( argObj ) {
-	const self = this;
-	const args = [];
-	var len = argObj.length;
-	while( len-- )
-		args[ len ] = argObj[ len ];
-	
-	return args;
-}
-
 ns.Emitter.prototype.emitterClose = function() {
 	const self = this;
 	self.release();
@@ -206,7 +192,6 @@ ns.EventNode = function( type, conn, sink, proxyType, debug ) {
 	self._eventNodeType = type;
 	self._eventNodeConn = conn;
 	self._eventNodeProxyType = proxyType;
-	//self._eventNodeSink = sink;
 	ns.Emitter.call( self, sink, debug );
 	
 	self._eventNodeInit();
@@ -226,7 +211,7 @@ ns.EventNode.prototype.send = function( event, sourceId, altType ) {
 		type : altType || self._eventNodeType,
 		data : event,
 	};
-	self._eventNodeConn.send( wrap, sourceId, self._eventNodeProxyType );
+	self.sendEvent( wrap, sourceId );
 }
 
 ns.EventNode.prototype.handle = function( event, sourceId ) {
@@ -252,9 +237,11 @@ ns.EventNode.prototype._eventNodeInit = function() {
 	if ( self._eventsDebug )
 		nLog( 'init', self._eventNodeType );
 	
+	if ( !self._eventNodeConn )
+		return;
+	
 	self._eventNodeConn.on( self._eventNodeType, rcvEvent );
 	function rcvEvent( ...args ) {
-		//const args = Array.prototype.slice.call( arguments );
 		if ( self._eventsDebug )
 			nLog( 'rcvEvent', args, 3 );
 		
@@ -264,7 +251,6 @@ ns.EventNode.prototype._eventNodeInit = function() {
 
 ns.EventNode.prototype._handleEvent = function( ...args ) {
 	const self = this;
-	//var args = self._getArgs( arguments );
 	if ( self._eventsDebug )
 		nLog( '_handleEvent', args, 3 );
 	
@@ -274,10 +260,17 @@ ns.EventNode.prototype._handleEvent = function( ...args ) {
 	self.emit.apply( self, args );
 }
 
+ns.EventNode.prototype.sendEvent = function( e, sId ) {
+	const self = this;
+	self._eventNodeConn.send( e, sId, self._eventNodeProxyType );
+}
+
 ns.EventNode.prototype._eventNodeClose = function() {
 	const self = this;
 	self.emitterClose();
-	self._eventNodeConn.release( self._eventNodeType );
+	if ( self._eventNodeConn )
+		self._eventNodeConn.release( self._eventNodeType );
+	
 	delete self._eventNodeConn;
 	delete self._eventNodeType;
 }
@@ -287,17 +280,18 @@ ns.EventNode.prototype._eventNodeClose = function() {
 
 - Write things here aswell
 - also later
-- request listeners are expected to return a Promise
+- but request listeners are expected to return a Promise
 
 */
 
-ns.RequestNode = function( conn, eventSink ) {
+ns.RequestNode = function( type, conn, eventSink, proxyType, debug ) {
 	const self = this;
 	ns.EventNode.call( self,
-		'request',
+		type,
 		conn,
 		eventSink,
-		null,
+		proxyType,
+		debug
 	);
 	
 	self._requests = {};
@@ -306,21 +300,17 @@ ns.RequestNode = function( conn, eventSink ) {
 
 util.inherits( ns.RequestNode, ns.EventNode );
 
-ns.RequestNode.prototype.request = async function( type, data ) {
+ns.RequestNode.prototype.request = async function( request, sourceId ) {
 	const self = this;
 	return new Promise(( resolve, reject ) => {
 		function sendRequest( type, data ) {
 			const reqId = uuid.get( 'req' );
 			self._requests[ reqId ] = handleResponse;
-			const reqWrap = {
-				requestId : reqId,
-				request   : {
-					type    : type,
-					data    : data,
-				},
-			};
-			
-			self.send( reqWrap );
+			request.requestId = reqId;
+			self.send(
+				request,
+				sourceId
+			);
 		}
 		
 		function handleResponse( error, response ) {
@@ -346,36 +336,40 @@ ns.RequestNode.prototype._requestNodeInit = function() {
 	const self = this;
 }
 
-ns.RequestNode.prototype._handleEvent = async function( req, sourceId ) {
+ns.RequestNode.prototype._handleEvent = async function( ...args ) {
 	const self = this;
-	if ( 'response' === req.type ) {
-		self._handleResponse( req.data, sourceId );
+	const event = args.shift();
+	const reqId = event.requestId;
+	if ( !reqId ) {
+		args.unshift( event.data );
+		args.unshift( event.type );
+		self.emit.apply( self, args );
 		return;
 	}
 	
-	const reqId = req.requestId;
-	const request = req.request;
+	const isResponse = self._requests[ reqId ];
+	const sourceId = args.shift();
+	if ( !isResponse )
+		self._handleRequest( event, sourceId );
+	else
+		self._handleResponse( event, sourceId );
+}
+
+ns.RequestNode.prototype._handleRequest = async function( event, sourceId ) {
+	const self = this;
+	const reqId = event.requestId;
 	let response = null;
 	let error = null;
 	try {
-		response = await self._callListener( request )
+		response = await self._callListener( event );
 	} catch( err ) {
 		error = err;
 	}
 	
-	let errMsg = null;
-	if ( error ) {
-		log( 'RequestNode._handleEvent - response error', error );
-		errMsg = error.message;
-	}
-	
 	const res = {
-		type : 'response',
-		data : {
-			requestId : reqId,
-			error     : errMsg,
-			response  : response,
-		},
+		requestId : reqId,
+		response  : response,
+		error     : error,
 	};
 	self.send( res, sourceId );
 }

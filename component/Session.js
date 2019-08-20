@@ -39,8 +39,8 @@ ns.Session = function( id, accountId, onclose ) {
 	
 	self.init();
 	
-	function eventSink() {
-		log( 'Session eventSink', arguments );
+	function eventSink( ...args ) {
+		log( 'Session eventSink', args, 3 );
 	}
 }
 

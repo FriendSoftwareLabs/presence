@@ -714,6 +714,10 @@ ns.Chat.prototype.bind = function( userId ) {
 	if ( !user || !user.on ) // no .on() means its an offline user
 		return;
 	
+	/*
+	const userChat = new events.RequestNode( 'chat', user );
+	self.chatters[ userId ] = userChat;
+	*/
 	user.on( 'chat', cat );
 	function cat( e ) { self.handleChat( e, userId ); }
 }
@@ -735,11 +739,12 @@ ns.Chat.prototype.close = function( callback ) {
 ns.Chat.prototype.init = function() {
 	const self = this;
 	self.eventMap = {
-		'msg'     : msg,
-		'log'     : log,
-		'state'   : state,
-		'confirm' : confirm,
-		'request' : ( e, uid ) => self.handleRequest( e, uid ),
+		'msg'       : msg,
+		'log'       : log,
+		'state'     : state,
+		'confirm'   : confirm,
+		'edit-get'  : ( e, uid ) => { return self.handleEditGet( e, uid ); },
+		'edit-save' : ( e, uid ) => { return self.handleEditSave( e, uid ); },
 	};
 	
 	function msg( e, uid ) { self.createMsg( e, uid ); }
@@ -750,27 +755,33 @@ ns.Chat.prototype.init = function() {
 
 ns.Chat.prototype.handleChat = function( event, userId ) {
 	const self = this;
-	var handler = self.eventMap[ event.type ];
+	if ( event.requestId ) {
+		self.handleRequest( event, userId );
+		return;
+	}
+	
+	const handler = self.eventMap[ event.type ];
 	if ( !handler ) {
 		cLog( 'unknown chat event', event );
 		return;
 	}
 	
-	handler( event.data, userId );
+	return handler( event.data, userId );
 }
 
 ns.Chat.prototype.handleRequest = async function( event, userId ) {
 	const self = this;
 	const reqId = event.requestId;
-	const req = event.request;
+	const type = event.type;
+	const req = event.data;
 	let res = null;
 	let err = null;
 	try {
-		if ( 'edit-get' === req.type )
-			res = await self.handleEditGet( req.data, userId );
+		if ( 'edit-get' === type )
+			res = await self.handleEditGet( req, userId );
 		
-		if ( 'edit-save' === req.type )
-			res = await self.handleEditSave( req.data, userId );
+		if ( 'edit-save' === type )
+			res = await self.handleEditSave( req, userId );
 		
 	} catch( err ) {
 		cLog( 'handleRequest - err', err );
@@ -789,15 +800,9 @@ ns.Chat.prototype.handleEditGet = async function( event, userId ) {
 ns.Chat.prototype.returnRequest = function( err, res, reqId, userId ) {
 	const self = this;
 	const response = {
-		type : 'request',
-		data : {
-			type : 'response',
-			data : {
-				requestId : reqId,
-				error     : err,
-				response  : res,
-			},
-		},
+		requestId : reqId,
+		response  : res,
+		error     : err,
 	};
 	self.send( response, userId );
 }

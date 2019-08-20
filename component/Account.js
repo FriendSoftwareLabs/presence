@@ -190,8 +190,8 @@ ns.Account.prototype.updateContactStatus = function( type, contactId, data ) {
 		return;
 	
 	const event = {
-		contactId : contactId,
-		data      : data,
+		clientId : contactId,
+		data     : data,
 	};
 	
 	self.sendContactEvent( type, event );
@@ -261,7 +261,7 @@ ns.Account.prototype.bindContactEvents = function() {
 
 ns.Account.prototype.bindConn = function() {
 	const self = this;
-	self.conn = new events.EventNode( self.id, self.session, accEventSink );
+	self.conn = new events.RequestNode( self.id, self.session, accEventSink );
 	self.conn.on( 'initialize', init );
 	self.conn.on( 'settings', handleSettings );
 	self.conn.on( 'room', handleRoomMsg );
@@ -281,9 +281,9 @@ ns.Account.prototype.bindConn = function() {
 	function createRoom( e, cid ) { self.createRoom( e, cid ); }
 	function handleContact( e, cid ) { self.handleContactEvent( e, cid ); }
 	
-	self.req = new events.RequestNode( self.conn, reqEventSink );
-	self.req.on( 'friend-get', fGet );
-	self.req.on( 'contact-add', addContact );
+	//self.req = new events.RequestNode( self.conn, reqEventSink );
+	self.conn.on( 'friend-get', fGet );
+	self.conn.on( 'contact-add', addContact );
 	
 	function reqEventSink( ...args ) { self.log( 'req event sink', args, 3 ); }
 	function fGet( e ) { return self.handleFriendGet( e ); }
@@ -302,10 +302,14 @@ ns.Account.prototype.setupRooms = function() {
 
 ns.Account.prototype.bindIdRequests = function() {
 	const self = this;
-	self.idNode = new events.EventNode( 'identity', self.conn );
-	self.idReq = new events.RequestNode( self.idNode );
+	self.idReq = new events.RequestNode( 'identity', self.conn, idSink );
+	//self.idReq = new events.RequestNode( self.idNode );
 	self.idReq.on( 'get', e => { return self.handleIdGet( e ); });
-	self.idReq.on( 'get-list', e => { return self.handleIdList( e ); })
+	self.idReq.on( 'get-list', e => { return self.handleIdList( e ); });
+	
+	function idSink( ...args ) {
+		self.log( 'idSink', args );
+	}
 }
 
 ns.Account.prototype.handleIdGet = async function( clientId ) {
@@ -933,9 +937,6 @@ ns.Account.prototype.logout = function( callback ) {
 	
 	if ( self.idReq )
 		self.idReq.close();
-	
-	if ( self.idNode )
-		self.idNode.close();
 	
 	delete self.roomCtrl;
 	delete self.rooms;
