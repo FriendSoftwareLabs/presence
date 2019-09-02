@@ -265,6 +265,11 @@ ns.Users.prototype.checkIsAuthed = function( userId ) {
 	return self.authorized.some( uId => uId === userId );
 }
 
+ns.Users.prototype.getAuthorized = function() {
+	const self = this;
+	return self.authorized;
+}
+
 ns.Users.prototype.removeAuth = function( userId ) {
 	const self = this;
 	const aIdx = self.authorized.indexOf( userId );
@@ -3182,11 +3187,15 @@ ns.Settings.prototype.bind = function( userId ) {
 	if ( !user || !user.on )
 		return;
 	
-	user.on( 'settings', loadSettings );
-	user.on( 'setting', saveSetting );
-	
-	function loadSettings( e ) { self.handleLoad( e, userId ); }
-	function saveSetting( e ) { self.saveSetting( e, userId ); }
+	user.on( 'settings', ( e, sourceId ) => {
+		sLog( 'settings event from user', {
+			e        : e,
+			sourceId : sourceId,
+			userId   : userId,
+		});
+		
+		self.events.handle( e, userId, sourceId );
+	});
 }
 
 ns.Settings.prototype.updateWorkgroups = function( assigned ) {
@@ -3279,6 +3288,7 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 		'isStream'    : isStream,
 		'isClassroom' : isClassroom,
 		'workgroups'  : worgs,
+		'authorized'  : authRemove,
 	};
 	
 	function roomName( e, uid ) { self.handleRoomName( e, uid ); }
@@ -3286,6 +3296,7 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 	function isStream( e, uid  ) { self.handleStream( e, uid ); }
 	function isClassroom( e, uid ) { self.handleClassroom( e, uid ); }
 	function worgs( e, uid ) { self.handleWorgs( e, uid ); }
+	function authRemove( e, uid ) { self.handleAuthRemove( e, uid ); }
 	
 	self.list = Object.keys( self.handlerMap );
 	self.db = new dFace.RoomDB( dbPool, self.roomId );
@@ -3301,24 +3312,31 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 	
 	self.set( 'roomName', name );
 	
+	self.events = new events.RequestNode( null, onSend, sSink, true, true );
+	self.events.on( 'get', ( ...args ) => {
+		return self.handleLoad( ...args );
+	});
+	self.events.on( 'save', ( ...args ) => {
+		return self.saveSettings( ...args );
+	});
+	self.events.on( 'setting', ( ...args ) => self.saveSetting( ...args ));
+	
 	return self.setting;
 	
-	/*
-	function settings( res ) {
-		self.setDbSettings( res );
-		self.set( 'roomName', name );
-		done();
+	function onSend( event, userId ) {
+		sLog( 'onSend', {
+			event : event,
+			userId : userId,
+		}, 3 );
+		if ( userId )
+			self.send( event, userId );
+		else
+			self.broadcast( event );
 	}
 	
-	function loadErr( err ) {
-		self.setDefaults();
-		done( err );
+	function sSink( ...args ) {
+		sLog( 'sSink', args );
 	}
-	
-	function done( err ) {
-		callback( err, self.setting );
-	}
-	*/
 }
 
 ns.Settings.prototype.setDbSettings = function( settings ) {
@@ -3369,22 +3387,34 @@ ns.Settings.prototype.set = function( setting, value ) {
 	self.settingStr = JSON.stringify( self.setting );
 }
 
-ns.Settings.prototype.handleLoad = function( event, userId ) {
+ns.Settings.prototype.handleLoad = async function( event, userId ) {
 	const self = this;
+	sLog( 'handleLoad', {
+		event : event,
+		userId : userId,
+	});
 	const values = self.get();
 	if ( null != global.config.server.classroomProxy ) {
 		values.isClassroom = values.isStream;
 		delete values.isStream;
 	}
 	
-	if ( !self.checkIsAdmin( userId ))
+	const isAdmin = self.checkIsAdmin( userId );
+	if ( !isAdmin )
 		delete values[ 'workgroups' ];
 	
-	self.send( values, userId );
+	if ( isAdmin )
+		values.authorized = self.users.getAuthorized();
+	
+	return values;
 }
 
 ns.Settings.prototype.saveSetting = function( event, userId ) {
 	const self = this;
+	sLog( 'saveSetting', {
+		event  : event,
+		userId : userId,
+	}, 3 );
 	const user = self.users.get( userId );
 	if ( !user )
 		return;
@@ -3503,6 +3533,16 @@ ns.Settings.prototype.handleWorgs = function( worg, userId ) {
 		return;
 	
 	self.emit( 'workgroups', worg, userId );
+}
+
+ns.Settings.prototype.handleAuthRemove = async function( event, userId ) {
+	const self = this;
+	sLog( 'handleAuthRemove', {
+		event : event,
+		userId : userId,
+	}, 3 );
+	self.emit( 'auth-remove', event.clientId );
+	self.sendSaved( 'authorized', event, true, userId );
 }
 
 module.exports = ns;

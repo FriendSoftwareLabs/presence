@@ -1998,7 +1998,31 @@ ns.WorkSettings.prototype.init = async function( dbPool, ignore ) {
 	if ( dbSetts )
 		self.setDbSettings( dbSetts );
 	
+	self.events = new events.RequestNode( null, onSend, sSink, true, true );
+	self.events.on( 'get', ( ...args ) => {
+		return self.handleLoad( ...args );
+	});
+	self.events.on( 'save', ( ...args ) => {
+		return self.saveSettings( ...args );
+	});
+	self.events.on( 'setting', ( ...args ) => self.saveSetting( ...args ));
+	
 	return self.setting;
+	
+	function onSend( event, userId ) {
+		sLog( 'onSend', {
+			event : event,
+			userId : userId,
+		}, 3 );
+		if ( userId )
+			self.send( event, userId );
+		else
+			self.broadcast( event );
+	}
+	
+	function sSink( ...args ) {
+		sLog( 'sSink', args );
+	}
 }
 
 ns.WorkSettings.prototype.setDbSettings = function( settings ) {
@@ -2017,6 +2041,11 @@ ns.WorkSettings.prototype.setDefaults = function() {
 	const self = this;
 	//self.set( 'userLimit', 0 );
 	//self.set( 'isStream', false );
+}
+
+ns.WorkSettings.prototype.handleLoad = async function( event, userId ) {
+	const self = this;
+	return {};
 }
 
 module.exports = ns.WorkRoom;

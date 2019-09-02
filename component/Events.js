@@ -240,12 +240,27 @@ ns.EventNode.prototype._eventNodeInit = function() {
 	if ( !self._eventNodeConn )
 		return;
 	
-	self._eventNodeConn.on( self._eventNodeType, rcvEvent );
+	if ( 'function' === typeof( self._eventNodeConn )) {
+		self.onSend = fnSend;
+	} else {
+		self._eventNodeConn.on( self._eventNodeType, rcvEvent );
+		self.onSend = connSend;
+	}
+	
+	function fnSend( ...args ) {
+		nLog( 'fnSend', args );
+		self._eventNodeConn( ...args, self._eventNodeProxyType );
+	}
+	
+	function connSend( e, sId ) {
+		self._eventNodeConn.send( e, sId, self._eventNodeProxyType );
+	}
+	
 	function rcvEvent( ...args ) {
 		if ( self._eventsDebug )
 			nLog( 'rcvEvent', args, 3 );
 		
-		self._handleEvent.apply( self, args );
+		self._handleEvent( ...args );
 	}
 }
 
@@ -262,7 +277,7 @@ ns.EventNode.prototype._handleEvent = function( ...args ) {
 
 ns.EventNode.prototype.sendEvent = function( e, sId ) {
 	const self = this;
-	self._eventNodeConn.send( e, sId, self._eventNodeProxyType );
+	self.onSend( e, sId );
 }
 
 ns.EventNode.prototype._eventNodeClose = function() {
@@ -284,6 +299,7 @@ ns.EventNode.prototype._eventNodeClose = function() {
 
 */
 
+const rLog = require( './Log' )( 'RequestNode' );
 ns.RequestNode = function( type, conn, eventSink, proxyType, debug ) {
 	const self = this;
 	ns.EventNode.call( self,
@@ -338,6 +354,9 @@ ns.RequestNode.prototype._requestNodeInit = function() {
 
 ns.RequestNode.prototype._handleEvent = async function( ...args ) {
 	const self = this;
+	if ( self._eventsDebug )
+		rLog( '_handleEvent', args );
+	
 	const event = args.shift();
 	const reqId = event.requestId;
 	if ( !reqId ) {
@@ -357,11 +376,17 @@ ns.RequestNode.prototype._handleEvent = async function( ...args ) {
 
 ns.RequestNode.prototype._handleRequest = async function( event, sourceId ) {
 	const self = this;
+	if ( self._eventsDebug )
+		rLog( '_handleRequest', {
+			event    : event,
+			sourceId : sourceId,
+		});
+	
 	const reqId = event.requestId;
 	let response = null;
 	let error = null;
 	try {
-		response = await self._callListener( event );
+		response = await self._callListener( event, sourceId );
 	} catch( err ) {
 		error = err;
 	}
@@ -371,15 +396,17 @@ ns.RequestNode.prototype._handleRequest = async function( event, sourceId ) {
 		response  : response,
 		error     : error,
 	};
+	if ( self._eventsDebug )
+		rLog( '_handleRequest - response', response );
 	self.send( res, sourceId );
 }
 
 ns.RequestNode.prototype._handleResponse = function( res, sourceId ) {
 	const self = this;
-	log( '_handleResponse - NYI', res );
+	rLog( '_handleResponse - NYI', res );
 }
 
-ns.RequestNode.prototype._callListener = async function( req ) {
+ns.RequestNode.prototype._callListener = async function( req, sourceId ) {
 	const self = this;
 	const type = req.type;
 	const listeners = self._emitterEvent2ListenerId[ type ];
@@ -392,7 +419,7 @@ ns.RequestNode.prototype._callListener = async function( req ) {
 	const lId = listeners[ 0 ];
 	const listener = self._emitterListeners[ lId ];
 	try {
-		return listener( req.data );
+		return listener( req.data, sourceId );
 	} catch( err ) {
 		throw new Error( err );
 	}

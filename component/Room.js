@@ -304,8 +304,8 @@ ns.Room.prototype.init = async function( worgCtrl ) {
 		self.name,
 	);
 	await self.settings.initialize();
-	self.settings.on( 'roomName', roomName );
-	function roomName( e ) { self.handleRename( e ); }
+	self.settings.on( 'roomName', e => self.handleRename( e ));
+	self.settings.on( 'auth-remove', e => self.handleAuthRemove( e ));
 	
 	self.worgs = new components.Workgroup(
 		worgCtrl,
@@ -506,7 +506,7 @@ ns.Room.prototype.bindUser = async function( userId ) {
 	function init( e ) { self.initialize( e, uid ); }
 	function persist( e ) { self.handlePersist( e, uid ); }
 	function goOffline( e ) { self.disconnect( uid ); }
-	function leaveRoom( e ) { self.handleLeave( uid ); }
+	function leaveRoom( e ) { self.unAuthUser( uid ); }
 	function joinLive( e ) { self.handleJoinLive( e, uid ); }
 	function restoreLive( e ) { self.handleRestoreLive( e, uid ); }
 	function leaveLive( e ) { self.handleLeaveLive( e, uid ); }
@@ -711,6 +711,12 @@ ns.Room.prototype.handleRename = async function( name, userId ) {
 	self.broadcast( uptd );
 }
 
+ns.Room.prototype.handleAuthRemove = function( userId ) {
+	const self = this;
+	log( 'handleAuthRemove', userId );
+	self.unAuthUser( userId );
+}
+
 ns.Room.prototype.setAvatar = async function() {
 	const self = this;
 	const tiny = require( './TinyAvatar' );
@@ -753,7 +759,7 @@ ns.Room.prototype.onLeave = function( userId ) {
 	const self = this;
 }
 
-ns.Room.prototype.handleLeave = async function( uid ) {
+ns.Room.prototype.unAuthUser = async function( uid ) {
 	const self = this;
 	// check if user is authorized, if so, remove
 	const isAuthorized = await self.roomDb.check( uid );
