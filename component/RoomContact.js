@@ -407,8 +407,9 @@ ns.ContactChat.prototype.sendMsgNotification = async function( msg, fromId ) {
 	const notie = message;
 	const uIds = self.users.getList();
 	const extra = {
-		roomId : fromId,
-		msgId  : mId,
+		isPrivate : true,
+		roomId    : fromId,
+		msgId     : mId,
 	};
 	
 	const userList = [];
