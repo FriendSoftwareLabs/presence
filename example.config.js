@@ -72,6 +72,9 @@ const server = {
 	messages : {
 		forceShowRead : false,
 	},
+	tinyAvatar : {
+		imageSidePX : 48,
+	},
 	streamProxy    : null,
 	classroomProxy : null,
 	janus : {

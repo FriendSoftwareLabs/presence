@@ -19,6 +19,7 @@
 
 'use strict';
 
+require( './component/Config' ); // writes to global.config
 const log = require( './component/Log' )( 'main' );
 const MySQLPool = require( './component/MysqlPool' );
 const IdCache = require( './component/IdentityCache' );
@@ -26,7 +27,6 @@ const WorgCtrl = require( './component/WorgCtrl' );
 const UserCtrl = require( './component/UserCtrl' );
 const RoomCtrl = require( './component/RoomCtrl' );
 const NML = require( './component/NoMansLand' );
-require( './component/Config' ); // writes to global.config
 
 const FService = require( './api/FService' );
 //log( 'conf', global.config, 4 );

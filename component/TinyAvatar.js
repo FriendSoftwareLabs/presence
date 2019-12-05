@@ -85,13 +85,23 @@ ns.TinyAvatar.prototype.rescale = async function( imgStr ) {
 		imgStr = imgStr.slice( base64Index + 7 );
 	
 	const image = await Jimp.read( Buffer.from( imgStr, 'base64' ));
-	image.cover( 128, 128 );
+	const xy = self.imageSide;
+	image.cover( xy, xy );
 	return image.getBase64Async( Jimp.MIME_PNG );
 }
 
 // Private
 
-ns.TinyAvatar.prototype.init = function() {}
+ns.TinyAvatar.prototype.init = function() {
+	const self = this;
+	log( 'conf???', global.config );
+	const conf = global.config.server.tinyAvatar;
+	if ( conf )
+		self.imageSide = conf.imageSidePX;
+	else
+		self.imageSide = 128;
+	
+}
 
 ns.TinyAvatar.prototype.generateBlock = function( string ) {
 	const self = this;
@@ -138,7 +148,7 @@ ns.TinyAvatar.prototype.generateGuestBlock = function() {
 	return self.buildBlock( color, bgColor, pattern );
 }
 
-ns.TinyAvatar.prototype.generateGuestRoundel = function() {
+ns.TinyAvatar.prototype.generateGuestRoundel = async function() {
 	const self = this;
 	const color = Buffer.from( '2B97CCFF', 'hex' );
 	const bgColor = Buffer.from( '444444FF', 'hex' );
@@ -149,12 +159,14 @@ ns.TinyAvatar.prototype.generateGuestRoundel = function() {
 		1, 0,
 		0, 1, 0, 1, 0,
 	];
-	return self.buildRoundel( color, bgColor, pattern );
+	
+	const roundel = await self.buildRoundel( color, bgColor, pattern );
+	return self.rescale( roundel );
 }
 
 ns.TinyAvatar.prototype.buildBlock = function( color, bgColor, pattern ) {
 	const self = this;
-	const imageSide = 128;
+	const imageSide = self.imageSide;
 	const border = 4;
 	const pixelSize = ( imageSide - ( border * 2 )) / 5;
 	const bitmask = self.buildBlockMask(
@@ -171,16 +183,15 @@ ns.TinyAvatar.prototype.buildBlock = function( color, bgColor, pattern ) {
 
 ns.TinyAvatar.prototype.buildRoundel = function( color, bgColor, pattern ) {
 	const self = this;
-	const imageWidth = 128;
+	const imageSide = 128;
 	const bitmask = self.buildRoundelMask(
-		imageWidth,
+		imageSide,
 		pattern,
 		color,
 		bgColor
 	);
 	
-	return self.generateBase64( imageWidth, bitmask );
-	
+	return self.generateBase64( imageSide, bitmask );
 }
 
 ns.TinyAvatar.prototype.generateBase64 = async function( sideLength, bitmask ) {
