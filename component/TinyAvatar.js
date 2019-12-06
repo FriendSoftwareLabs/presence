@@ -84,7 +84,14 @@ ns.TinyAvatar.prototype.rescale = async function( imgStr ) {
 	if ( -1 !== base64Index )
 		imgStr = imgStr.slice( base64Index + 7 );
 	
-	const image = await Jimp.read( Buffer.from( imgStr, 'base64' ));
+	let image = null;
+	try {
+		image = await Jimp.read( Buffer.from( imgStr, 'base64' ));
+	} catch ( ex ) {
+		log( 'rescale jimp ex', ex );
+		return null;
+	}
+	
 	const xy = self.imageSide;
 	image.cover( xy, xy );
 	return image.getBase64Async( Jimp.MIME_PNG );
