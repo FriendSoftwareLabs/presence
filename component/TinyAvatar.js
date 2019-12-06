@@ -155,7 +155,7 @@ ns.TinyAvatar.prototype.generateGuestBlock = function() {
 	return self.buildBlock( color, bgColor, pattern );
 }
 
-ns.TinyAvatar.prototype.generateGuestRoundel = async function() {
+ns.TinyAvatar.prototype.generateGuestRoundel = function() {
 	const self = this;
 	const color = Buffer.from( '2B97CCFF', 'hex' );
 	const bgColor = Buffer.from( '444444FF', 'hex' );
@@ -167,13 +167,12 @@ ns.TinyAvatar.prototype.generateGuestRoundel = async function() {
 		0, 1, 0, 1, 0,
 	];
 	
-	const roundel = await self.buildRoundel( color, bgColor, pattern );
-	return self.rescale( roundel );
+	return self.buildRoundel( color, bgColor, pattern );
 }
 
-ns.TinyAvatar.prototype.buildBlock = function( color, bgColor, pattern ) {
+ns.TinyAvatar.prototype.buildBlock = async function( color, bgColor, pattern ) {
 	const self = this;
-	const imageSide = self.imageSide;
+	const imageSide = 128;
 	const border = 4;
 	const pixelSize = ( imageSide - ( border * 2 )) / 5;
 	const bitmask = self.buildBlockMask(
@@ -185,10 +184,11 @@ ns.TinyAvatar.prototype.buildBlock = function( color, bgColor, pattern ) {
 		bgColor
 	);
 	
-	return self.generateBase64( imageSide, bitmask );
+	const block = await self.generateBase64( imageSide, bitmask );
+	return self.rescale( block );
 }
 
-ns.TinyAvatar.prototype.buildRoundel = function( color, bgColor, pattern ) {
+ns.TinyAvatar.prototype.buildRoundel = async function( color, bgColor, pattern ) {
 	const self = this;
 	const imageSide = 128;
 	const bitmask = self.buildRoundelMask(
@@ -198,7 +198,8 @@ ns.TinyAvatar.prototype.buildRoundel = function( color, bgColor, pattern ) {
 		bgColor
 	);
 	
-	return self.generateBase64( imageSide, bitmask );
+	const roundel = await self.generateBase64( imageSide, bitmask );
+	return self.rescale( roundel );
 }
 
 ns.TinyAvatar.prototype.generateBase64 = async function( sideLength, bitmask ) {
