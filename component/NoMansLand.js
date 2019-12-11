@@ -872,7 +872,6 @@ ns.NoMansLand.prototype.restoreSession = function( sessionId, clientId ) {
 			.catch( e => { log( 'failsend fail', e ) });
 			
 		function failSent() {
-			log( 'failSent' );
 			self.removeClient( clientId );
 		}
 	}

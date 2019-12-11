@@ -3302,7 +3302,7 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 	
 	self.set( 'roomName', name );
 	
-	self.events = new events.RequestNode( null, onSend, sSink, true, true );
+	self.events = new events.RequestNode( null, onSend, sSink, true );
 	self.events.on( 'get', ( ...args ) => {
 		return self.handleLoad( ...args );
 	});

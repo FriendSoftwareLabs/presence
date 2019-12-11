@@ -62,6 +62,13 @@ ns.Emitter = function( eventSink, debug ) {
 	self._emitterListeners = {};
 	self._emitterEventSink = eventSink;
 	self._eventsDebug = !!debug;
+	if ( self._eventsDebug ) {
+		try {
+			throw Error( 'DEBUG TRACE' );
+		} catch( ex ) {
+			log( 'debug trace', ex );
+		}
+	}
 }
 
 // first argument must be the event type, a string,

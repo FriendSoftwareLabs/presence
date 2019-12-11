@@ -528,7 +528,7 @@ ns.WorkRoom.prototype.sendWorkMembers = function( worgId, memberList ) {
 
 ns.WorkRoom.prototype.sendWorkUsers = function( worgId, memberList ) {
 	const self = this;
-	log( 'sendWorkUsers - NYI', memberList );
+	//log( 'sendWorkUsers - NYI', memberList );
 }
 
 ns.WorkRoom.prototype.handleWorkMessage = function( worgId, msg ) {
@@ -1992,7 +1992,7 @@ ns.WorkSettings.prototype.init = async function( dbPool, ignore ) {
 	if ( dbSetts )
 		self.setDbSettings( dbSetts );
 	
-	self.events = new events.RequestNode( null, onSend, sSink, true, true );
+	self.events = new events.RequestNode( null, onSend, sSink, true );
 	self.events.on( 'get', ( ...args ) => {
 		return self.handleLoad( ...args );
 	});
