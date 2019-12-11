@@ -67,6 +67,10 @@ ns.RoomCtrl.prototype.checkActive = function( roomId ) {
 
 ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
 	const self = this;
+	log( 'connectContact', {
+		accId : accId,
+		conId : contactId,
+	});
 	if ( accId === contactId )
 		return null;
 	
@@ -78,12 +82,15 @@ ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
 		return null;
 	}
 	
+	log( 'connectContact - room?', !!room );
 	if ( !room )
 		return null;
 	
 	const user = await room.connect( accId );
-	if ( !user )
+	if ( !user ) {
+		log( 'connectContact - no user' );
 		return null;
+	}
 	
 	const join = {
 		type : 'contact-join',
@@ -335,6 +342,28 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.worgs.on( 'super-removed', ( s, c ) => self.superRemoved( s, c ));
 	self.worgs.on( 'sub-added', ( c, s ) => self.subAdded( c, s ));
 	self.worgs.on( 'sub-removed', ( c, s ) => self.subRemoved( c, s ));
+	
+	self.idCache.on( 'update', e => self.handleIdUpdate( e ));
+}
+
+ns.RoomCtrl.prototype.handleIdUpdate = async function( update ) {
+	const self = this;
+	if ( 'fIsDisabled' != update.type )
+		return;
+	
+	const id = update.data;
+	const userId = id.clientId;
+	const isDisabled = !!id.fIsDisabled;
+	const rooms = await self.roomDb.loadAuthorizationsForAccount( userId );
+	log( 'handleIdUpdate - rooms', rooms );
+	rooms.forEach( r => {
+		const rId = r.clientId;
+		const room = self.rooms[ rId ];
+		if ( !room )
+			return;
+		
+		room.setUserDisabled( userId, isDisabled );
+	});
 }
 
 ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {
@@ -709,8 +738,8 @@ ns.RoomCtrl.prototype.handleWorkgroupAssigned = async function( worg, roomId ) {
 
 ns.RoomCtrl.prototype.handleWorkgroupUserAdds = async function( worgId, userList ) {
 	const self = this;
-	const fId = self.worgs.cIdToFId( worgId );
-	const roomIds = await self.roomDb.getAssignedTo( fId );
+	const wFId = self.worgs.cIdToFId( worgId );
+	const roomIds = await self.roomDb.getAssignedTo( wFId );
 	const wRoom = self.getWorkRoom( worgId );
 	if ( roomIds || roomIds.length )
 		await Promise.all( roomIds.map( addToRoom ));
@@ -891,7 +920,7 @@ ns.RoomCtrl.prototype.removeUsersFromWorkRooms = async function( worgId, userLis
 			return;
 		
 		subs.forEach( subId => {
-			sRoom = self.getWorkRoom( subId );
+			const sRoom = self.getWorkRoom( subId );
 			if ( !sRoom )
 				return;
 			
@@ -1135,7 +1164,7 @@ ns.RoomCtrl.prototype.getRelation = async function( accIdA, accIdB ) {
 	
 	self.relations[ relation.clientId ] = relation;
 	self.relationIds = Object.keys( self.relations );
-	return relation || null;
+	return relation;
 }
 
 // account

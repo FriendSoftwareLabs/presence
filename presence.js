@@ -29,11 +29,8 @@ const RoomCtrl = require( './component/RoomCtrl' );
 const NML = require( './component/NoMansLand' );
 
 const FService = require( './api/FService' );
-//log( 'conf', global.config, 4 );
-
 
 let service = null;
-let worgList = null;
 const presence = {
 	conn  : null,
 	db    : null,
@@ -43,26 +40,7 @@ const presence = {
 	rooms : null,
 };
 
-if ( global.config.server.friendcore.serviceKey ) {
-	service = new FService(
-		global.config.server.friendcore,
-		'FriendChat',
-	);
-	
-	let gId = service.on( 'group', e => {
-		if ( 'list' !== e.type )
-			return;
-		
-		worgList = e.data;
-		service.off( gId );
-		if ( presence.worgs )
-			presence.worgs.update( worgList );
-		
-	});
-}
-
 //const fcReq = require( './component/FCRequest' )( global.config.server.friendcore );
-
 
 presence.db = new MySQLPool( global.config.server.mysql, dbReady );
 function dbReady( ok ) {
@@ -73,13 +51,55 @@ function dbReady( ok ) {
 	presence.worgs = new WorgCtrl( presence.db, presence.idc );
 	presence.rooms = new RoomCtrl( presence.db, presence.idc, presence.worgs );
 	presence.users = new UserCtrl( presence.db, presence.idc, presence.worgs, presence.rooms );
-	if ( worgList )
-		presence.worgs.update( worgList );
+	
+	connectFC();
+}
+
+function connectFC() {
+	if ( !global.config.server.friendcore.serviceKey ) {
+		openComms();
+		return;
+	}
+	
+	service = new FService(
+		global.config.server.friendcore,
+		'FriendChat',
+	);
+	
+	const oId = service.on( 'ready', e => loadFromFC( e ));
+}
+
+async function loadFromFC( fcInfo ) {
+	let users = null;
+	let worgs = null;
+	try {
+		users = await service.getUserList();
+	} catch( ex ) {
+		log( 'loadFromFC - failed to get user list, ABORTING startup', ex );
+		process.exit( 1 );
+		return;
+	}
+	
+	await presence.users.refresh( users );
+	
+	try {
+		worgs = await service.getWorkgroupList();
+	} catch( ex ) {
+		log( 'loadFromFC - failed to get worg list, ABORTING startup', ex );
+		process.exit( 1 );
+		return;
+	}
+	
+	await presence.worgs.refresh( worgs );
 	
 	openComms();
 }
 
 function openComms() {
+	log( 'openComms' );
+	if ( presence.conn )
+		return;
+	
 	const fcReq = require( './component/FCRequest' )( global.config.server.friendcore );
 	presence.conn = new NML(
 		presence.db,
@@ -91,5 +111,5 @@ function openComms() {
 
 process.on( 'unhandledRejection', err => {
 	log( 'unhandled promise rejection - ERRPR', err, 3 );
-	//process.exit( 666 );
+	process.exit( 666 );
 });

@@ -101,7 +101,6 @@ ns.TinyAvatar.prototype.rescale = async function( imgStr ) {
 
 ns.TinyAvatar.prototype.init = function() {
 	const self = this;
-	log( 'conf???', global.config );
 	const conf = global.config.server.tinyAvatar;
 	if ( conf )
 		self.imageSide = conf.imageSidePX;

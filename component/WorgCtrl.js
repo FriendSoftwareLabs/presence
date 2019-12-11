@@ -84,12 +84,12 @@ ns.WorgCtrl.prototype.add = function( worg ) {
 	return cId;
 }
 
-ns.WorgCtrl.prototype.update = function( serviceWorgs ) {
+ns.WorgCtrl.prototype.refresh = function( fWorgList ) {
 	const self = this;
-	if ( !serviceWorgs || !serviceWorgs.length )
+	if ( !fWorgList || !fWorgList.length )
 		return;
 	
-	serviceWorgs.forEach( add );
+	fWorgList.forEach( add );
 	async function add( swg ) {
 		if ( !swg )
 			return;
@@ -108,10 +108,10 @@ ns.WorgCtrl.prototype.update = function( serviceWorgs ) {
 	}
 }
 
-ns.WorgCtrl.prototype.get = function( clientId ) {
+ns.WorgCtrl.prototype.get = function( worgId ) {
 	const self = this;
-	if ( clientId )
-		return self.cMap[ clientId ] || null;
+	if ( worgId )
+		return self.cMap[ worgId ] || null;
 	
 	return self.cMap;
 }
@@ -151,21 +151,24 @@ ns.WorgCtrl.prototype.remove = function( worgId ) {
 	delete self.cMap[ wId ];
 }
 
-ns.WorgCtrl.prototype.getByFId = function( fId ) {
+ns.WorgCtrl.prototype.getByFId = function( fWorgId ) {
 	const self = this;
-	if ( fId )
-		return self.fMap[ fId ] || null;
+	if ( fWorgId )
+		return self.fMap[ fWorgId ] || null;
 	
 	return self.fMap;
 }
 
 ns.WorgCtrl.prototype.getByFIdList = function( fIdList ) {
 	const self = this;
+	list = fIdList.map( fId => self.getByFId( fId ))
+		.filter( worg => !!worg );
+	return list;
 }
 
-ns.WorgCtrl.prototype.removeByFID = function( fId ) {
+ns.WorgCtrl.prototype.removeByFID = function( fWorgId ) {
 	const self = this;
-	log( 'removeByFID - NYI', fId );
+	log( 'removeByFID - NYI', fWorgId );
 }
 
 ns.WorgCtrl.prototype.cIdToFId = function( cId ) {
@@ -177,7 +180,7 @@ ns.WorgCtrl.prototype.cIdToFId = function( cId ) {
 	return worg.fId;
 }
 
-ns.WorgCtrl.prototype.fIdToCId = function( fId ) {
+ns.WorgCtrl.prototype.getFIdToCId = function( fId ) {
 	const self = this;
 	const worg = self.fMap[ fId ];
 	if ( !worg )
@@ -188,7 +191,7 @@ ns.WorgCtrl.prototype.fIdToCId = function( fId ) {
 
 ns.WorgCtrl.prototype.addUser = function( accId, worgs ) {
 	const self = this;
-	addNewWorgs( worgs );
+	//addNewWorgs( worgs );
 	addSupers( worgs.supergroups );
 	registerUser( accId, worgs );
 	
@@ -209,8 +212,10 @@ ns.WorgCtrl.prototype.addUser = function( accId, worgs ) {
 	}
 	
 	function registerUser( accId, worgs ) {
+		/*
 		if ( worgs.member )
 			self.updateUserWorgs( accId, worgs.member );
+		*/
 		
 		if ( worgs.stream )
 			self.updateStreamWorgs( accId, worgs.stream );
@@ -222,9 +227,9 @@ ns.WorgCtrl.prototype.getUserList = function( worgId ) {
 	return self.worgUsers[ worgId ] || [];
 }
 
-ns.WorgCtrl.prototype.getMemberOf = function( accId ) {
+ns.WorgCtrl.prototype.getMemberOf = function( userId ) {
 	const self = this;
-	return self.userWorgs[ accId ] || [];
+	return self.userWorgs[ userId ] || [];
 }
 
 ns.WorgCtrl.prototype.getMemberOfAsFID = function( accId ) {
@@ -376,26 +381,33 @@ ns.WorgCtrl.prototype.close = function() {
 
 ns.WorgCtrl.prototype.init = function( dbPool ) {
 	const self = this;
-	self.bindService();
 	log( 'WorgCtrl o7 o7 o8 o7' );
+	self.bindService();
+	//self.idc.on( 'update', e => self.handleIdUpdate( e ));
 	self.roomDb = new dFace.RoomDB( dbPool );
+	
+}
+
+ns.WorgCtrl.prototype.handleIdUpdate = function( update ) {
+	const self = this;
+	if ( 'fIsDisabled' !== update.type )
+		return;
+	
+	//log( 'handleIdUpdate', update );
 	
 }
 
 ns.WorgCtrl.prototype.bindService = function() {
 	const self = this;
-	const service = new FService();
-	if ( !service )
-		return;
-	
-	self.serviceConn = new events.EventNode( 'group', service, serviceSink );
+	self.service = new FService();
+	self.serviceConn = new events.EventNode( 'group', self.service, serviceSink );
 	self.serviceConn.on( 'create', e => self.handleGroupCreate( e ));
 	self.serviceConn.on( 'update', e => self.handleGroupUpdate( e ));
 	self.serviceConn.on( 'delete', e => self.handleGroupDelete( e ));
 	self.serviceConn.on( 'addusers', e => self.handleAddUsers( e ));
 	self.serviceConn.on( 'setusers', e => self.handleSetUsers( e ));
 	self.serviceConn.on( 'removeusers', e => self.handleRemoveUsers( e ));
-	//self.serviceConn.on( '')
+	//self.serviceConn.on( '' )
 	function serviceSink( ...args ) {
 		log( 'serviceSink - group', args, 3 );
 	}
@@ -476,10 +488,6 @@ ns.WorgCtrl.prototype.handleAddUsers = async function( event ) {
 		return;
 	
 	self.sendAddedTo( worgId, added );
-	
-	function get( fId ) {
-		return self.idc.getByFUserId( fId );
-	}
 }
 
 ns.WorgCtrl.prototype.handleSetUsers = async function( event ) {
@@ -596,7 +604,12 @@ ns.WorgCtrl.prototype.removeUsers = function( worgId, userList ) {
 	}
 	
 	const removed = userList.map( userId => {
-		return self.removeFromWorg( worgId, userId );
+		const removed = self.removeFromWorg( worgId, userId );
+		if ( removed )
+			return userId;
+		else
+			return null;
+		
 	}).filter( uId => !!uId );
 	return removed;
 }
@@ -790,7 +803,7 @@ ns.WorgCtrl.prototype.removeSuperChild = function( worgId ) {
 
 ns.WorgCtrl.prototype.updateUserWorgs = function( accId, worgs ) {
 	const self = this;
-	if ( !worgs || !worgs.length )
+	if ( !worgs )
 		return;
 	
 	const memberMap = {};
@@ -817,8 +830,7 @@ ns.WorgCtrl.prototype.updateUserWorgs = function( accId, worgs ) {
 	
 	return;
 	
-	function addTo( worg ) {
-		let wId = worg.clientId;
+	function addTo( wId ) {
 		memberMap[ wId ] = true;
 		let isMember =  self.checkIsMemberOf( wId, accId );
 		if ( !isMember )
@@ -827,26 +839,35 @@ ns.WorgCtrl.prototype.updateUserWorgs = function( accId, worgs ) {
 		return wId;
 	}
 	
-	function removeFrom( worgId ) {
-		if ( memberMap[ worgId ])
+	function removeFrom( wId ) {
+		if ( memberMap[ wId ])
 			return null;
 		
 		// not a member
-		let isInList = self.checkIsMemberOf( worgId, accId );
+		let isInList = self.checkIsMemberOf( wId, accId );
 		if ( !isInList )
 			return null;
 		
 		/*
-		let uList = self.worgUsers[ worgId ];
+		let uList = self.worgUsers[ wId ];
 		let index = uList.indexOf( accId );
 		
 		uList.splice( index, 1 );
 		*/
-		return self.removeFromWorg( worgId, accId );
+		const removed = self.removeFromWorg( wId, accId );
+		if ( removed )
+			return wId;
+		else
+			return null;
 	}
 	
 	function setAffUID( worgId ) {
 		const members = self.worgUsers[ worgId ];
+		if ( !members ) {
+			log( 'setAddUID - no membs?', worgId );
+			return;
+		}
+		
 		members.forEach( uid => {
 			affectedUIdMap[ uid ] = true;
 		});
@@ -967,30 +988,27 @@ ns.WorgCtrl.prototype.removeFromWorg = function( worgId, userId ) {
 	const self = this;
 	const worg = self.worgUsers[ worgId ];
 	const user = self.userWorgs[ userId ];
-	if ( !worg ) {
-		log( 'removeFromWorg - no worg', {
+	if ( !worg || !user ) {
+		log( 'removeFromWorg - no worg/user', {
 			wId  : worgId,
 			uId  : userId,
 			worg : worg,
 			user : user,
 		});
-		return null;
+		return false;
 	}
 	
 	const uIndex = worg.indexOf( userId );
 	if ( -1 != uIndex )
 		worg.splice( uIndex, 1 );
 	else
-		return null;
-	
-	if ( !user )
-		return userId;
+		return false;
 	
 	const wIndex = user.indexOf( worgId );
 	if ( -1 != wIndex )
 		user.splice( wIndex, 1 );
 	
-	return userId;
+	return true;
 }
 
 ns.WorgCtrl.prototype.sendRemovedFrom = function( worgId, removedUIds ) {
@@ -1053,12 +1071,18 @@ ns.WorgCtrl.prototype.getUIdsForFUsers = async function( fUsers ) {
 		return [];
 	
 	const users = await Promise.all( fUsers.map( fu => {
-		const fId = fu.uuid;
+		let fId = null;
+		if ( 'string' == typeof( fu ))
+			fId = fu;
+		else
+			fId = fu.userid || fu.uuid;
+		
 		return self.idc.getByFUserId( fId );
 	}));
 	
 	const uIds = users
 		.filter( u => !!u )
+		.filter( u => !u.fIsDisabled )
 		.map( u => u.clientId );
 	
 	return uIds;

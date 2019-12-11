@@ -150,7 +150,13 @@ util.inherits( ns.AccountDB, ns.DB );
 
 // Public
 
-ns.AccountDB.prototype.set = async function( fUserId, fUsername, name ) {
+ns.AccountDB.prototype.set = async function( 
+	fUserId,
+	fUsername,
+	fLastUpdate,
+	fIsDisabled,
+	name
+) {
 	const self = this;
 	if ( !fUsername ) {
 		accLog( 'set - fUsername is required', {
@@ -161,25 +167,36 @@ ns.AccountDB.prototype.set = async function( fUserId, fUsername, name ) {
 		throw new Error( 'db.account.set - missing parameters' );
 	}
 	
-	name = name || fUsername;
 	fUserId = fUserId || null;
-	var clientId = uuid.get( 'acc' );
-	var settings = null;
+	fLastUpdate = fLastUpdate || null;
+	fIsDisabled = fIsDisabled || null;
+	name = name || fUsername;
+	const clientId = uuid.get( 'acc' );
+	let settings = null;
 	try {
 		settings = JSON.stringify( global.config.server.account.settings );
 	} catch( e ) {
 		settings = '{}';
 	}
 	
-	var values = [
+	const values = [
 		clientId,
 		fUserId,
 		fUsername,
+		fLastUpdate,
+		fIsDisabled,
 		name,
 		settings,
 	];
 	
-	let res = await self.query( 'account_create', values );
+	let res = null;
+	try {
+		res = await self.query( 'account_create', values );
+	} catch( ex ) {
+		accLog( 'set - query failed', ex );
+		return false;
+	}
+	
 	return res[ 0 ];
 }
 
@@ -212,7 +229,7 @@ ns.AccountDB.prototype.getByFUsername = async function( fUsername ) {
 	try {
 		res = await self.query( 'account_read_fusername', values );
 	} catch ( err ) {
-		accLog( 'get err', err );
+		accLog( 'getByFUsername err', err );
 		return null;
 	}
 	
@@ -237,7 +254,7 @@ ns.AccountDB.prototype.getByFUserId = async function( fUserId ) {
 	try {
 		res = await self.query( 'account_read_fuserid', values );
 	} catch( err ) {
-		accLog( 'get err', err );
+		accLog( 'getByFUserId err', err );
 		return null;
 	}
 	
@@ -286,19 +303,19 @@ ns.AccountDB.prototype.getById = async function( accountId ) {
 
 ns.AccountDB.prototype.remove = function( clientId ) {
 	const self = this;
-	var values = [ clientId ];
+	const values = [ clientId ];
 	return self.query( 'account_delete', values );
 }
 
 ns.AccountDB.prototype.touch = function( clientId ) {
 	const self = this;
-	var values = [ clientId ];
+	const values = [ clientId ];
 	return self.query( 'account_touch', values );
 }
 
 ns.AccountDB.prototype.setPass = function( clientId, pass ) {
 	const self = this;
-	var values = [
+	const values = [
 		clientId,
 		pass,
 	];
@@ -307,12 +324,12 @@ ns.AccountDB.prototype.setPass = function( clientId, pass ) {
 
 ns.AccountDB.prototype.updateName = async function( clientId, name ) {
 	const self = this;
-	var values = [
+	const values = [
 		clientId,
 		name,
 	];
 	try {
-		await self.query( 'account_set_name', values );
+		await self.query( 'account_update_name', values );
 	} catch( err ) {
 		accLog( 'updateName - query failed', err );
 		return false;
@@ -323,7 +340,6 @@ ns.AccountDB.prototype.updateName = async function( clientId, name ) {
 
 ns.AccountDB.prototype.updateAvatar = async function( clientId, avatar ) {
 	const self = this;
-	accLog( 'updateAvatar', avatar ? avatar.slice( -10 ) : avatar );
 	const values = [
 		clientId,
 		avatar,
@@ -333,6 +349,38 @@ ns.AccountDB.prototype.updateAvatar = async function( clientId, avatar ) {
 		self.query( 'account_update_avatar', values );
 	} catch( err ) {
 		accLog( 'updateAvatar - query failed', err );
+		return false;
+	}
+	
+	return true;
+}
+
+ns.AccountDB.prototype.updateFIsDisabled = async function( clientId, isDisabled ) {
+	const self = this;
+	const values = [
+		clientId,
+		!!isDisabled,
+	];
+	try {
+		self.query( 'account_update_fisdisabled', values );
+	} catch( ex ) {
+		accLog( 'updateIsDisabled - query failed', err );
+		return false;
+	}
+	
+	return true;
+}
+
+ns.AccountDB.prototype.updateFLastUpdate = async function( clientId, updateTime ) {
+	const self = this;
+	const values = [
+		clientId,
+		updateTime,
+	];
+	try {
+		self.query( 'account_update_flastupdate', values );
+	} catch( ex ) {
+		accLog( 'updateFLastUpdate - query failed', ex );
 		return false;
 	}
 	
@@ -477,114 +525,101 @@ ns.RoomDB.prototype.setOwner = function( clientId, ownerId ) {
 
 // auth things
 
-ns.RoomDB.prototype.loadAuthorizations = function( roomId ) {
+ns.RoomDB.prototype.loadAuthorizationsForRoom = async function( roomId, includeDisabled ) {
 	const self = this;
 	if ( !roomId )
-		throw new Error( 'dbRoom.loadAuthorizations - roomId missing' );
+		throw new Error( 'dbRoom.loadAuthorizationsForRoom - roomId missing' );
 	
-	return new Promise( loadAuth );
-	function loadAuth( resolve, reject ) {
-		var values = [ roomId ];
-		self.query( 'auth_get_for_room', values )
-			.then( loadBack )
-			.catch( reject );
-			
-		function loadBack( res ) {
-			if ( !res ) {
-				reject( 'ERR_NO_ROWS_???', res );
-				return;
-			}
-			
-			resolve( res );
-		}
+	const values = [ roomId ];
+	let res = null;
+	try {
+		res = await self.query( 'auth_get_for_room', values );
+	} catch( ex ) {
+		roomLog( 'failed to load auths', {
+			roomId : roomId,
+			error  : ex,
+		});
+		return null;
 	}
+	
+	if ( !res )
+		throw new Error( 'ERR_NO_ROWS_???' );
+	
+	if ( includeDisabled )
+		return res.map( u => u.clientId );
+	else
+		return res
+			.filter( u => !u.fIsDisabled )
+			.map( u => u.clientId );
+	
 }
 
-ns.RoomDB.prototype.getForAccount = function( accountId, workgroups ) {
+ns.RoomDB.prototype.loadAuthorizationsForAccount = async function( accId ) {
+	const self = this;
+	const values = [ accId ];
+	let res = null;
+	try {
+		res = await self.query( 'auth_get_for_account', values );
+	} catch( ex ) {
+		roomLog( 'auth_get_for_account failed', ex );
+		return null;
+	}
+	
+	return res;
+}
+
+ns.RoomDB.prototype.getForAccount = async function( accountId, workgroups ) {
 	const self = this;
 	let wgIds = null;
 	if ( workgroups )
 		wgIds = workgroups.join( '|' );
 	
-	return new Promise( getRooms );
-	function getRooms( resolve, reject ) {
-		let accountRooms = [];
-		let workgroupRooms = [];
-		getAccountRooms( accRoomsBack );
-		function accRoomsBack( err, accRooms ) {
-			if ( err )
-				roomLog( 'accRoomsBack - err', err );
-			else
-				accountRooms = accRooms;
-			
-			if ( wgIds )
-				getWorkgroupRooms( wgRoomsBack );
-			else
-				done();
-		}
-		
-		function wgRoomsBack( err, wgRooms ) {
-			if ( err )
-				roomLog( 'wgRoomsBack - err', err );
-			else
-				workgroupRooms = wgRooms;
-			
-			done();
-		}
-		
-		function done() {
-			let rooms = accountRooms.concat( workgroupRooms );
-			resolve( rooms );
-		}
-		
-		function getAccountRooms( callback ) {
-			const values = [ accountId ];
-			self.query( 'auth_get_for_account', values )
-				.then( accBack )
-				.catch( accErr );
-			
-			function accBack( res ) { callback( null, res ); }
-			function accErr( err ) { callback( err, null ); }
-		}
-		
-		function getWorkgroupRooms( callback ) {
-			const values = [
-				accountId,
-				wgIds,
-			];
-			self.query( 'auth_get_for_workgroups', values )
-				.then( wgBack )
-				.catch( wgErr );
-				
-			function wgBack( res ) {
-				const rows = res;
-				const mapped = {};
-				rows.forEach( setInMap );
-				const ids = Object.keys( mapped );
-				const list = ids.map( rid => mapped[ rid ]);
-				callback( null, list );
-				
-				function setInMap( dbRoom ) {
-					let alreadySet = mapped[ dbRoom.clientId ];
-					if ( alreadySet ) {
-						alreadySet.wgs.push( dbRoom.fId );
-					}
-					else {
-						let room = {
-							clientId : dbRoom.clientId,
-							wgs      : [],
-						};
-						room.wgs.push( dbRoom.fId );
-						mapped[ dbRoom.clientId ] = room;
-					}
-				}
-			}
-			function wgErr( err ) { callback( err, null ); }
-		}
-	}
+	let accountRooms = await self.loadAuthorizationsForAccount( accountId );
+	let worgRooms = null;
+	if ( wgIds )
+		worgRooms = await getWorkgroupRooms( accountId, wgIds );
 	
-	function getId( wg ) {
-		return wg.fId;
+	let rooms = null;
+	if ( worgRooms )
+		rooms = accountRooms.concat( worgRooms );
+	else
+		rooms = accountRooms;
+	
+	return rooms;
+	
+	async function getWorkgroupRooms() {
+		const values = [
+			accountId,
+			wgIds,
+		];
+		let res = null;
+		try {
+			res = await self.query( 'auth_get_for_workgroups', values );
+		} catch( ex ) {
+			return null;
+		}
+		
+		const rows = res;
+		const mapped = {};
+		rows.forEach( setInMap );
+		const ids = Object.keys( mapped );
+		const list = ids.map( rid => mapped[ rid ]);
+		return list;
+		
+		function setInMap( dbRoom ) {
+			let alreadySet = mapped[ dbRoom.clientId ];
+			if ( alreadySet ) {
+				alreadySet.wgs.push( dbRoom.fId );
+			}
+			else {
+				let room = {
+					clientId : dbRoom.clientId,
+					wgs      : [],
+				};
+				room.wgs.push( dbRoom.fId );
+				mapped[ dbRoom.clientId ] = room;
+			}
+		}
 	}
 }
 
@@ -747,7 +782,7 @@ ns.RoomDB.prototype.getRelation = async function( accIdA, accIdB ) {
 		res = await self.query( 'user_relation_read', values );
 	} catch ( e ) {
 		roomLog( 'getRelation - query failed', e );
-		throw new Error( 'ERR_DB_FAILED' );
+		return null;
 	}
 	
 	if ( !res )
@@ -756,10 +791,11 @@ ns.RoomDB.prototype.getRelation = async function( accIdA, accIdB ) {
 	return self.rowsToRelation( res );
 }
 
-ns.RoomDB.prototype.getRelationsFor = async function( accId ) {
+ns.RoomDB.prototype.getRelationsFor = async function( accId, includeDisabled ) {
 	const self = this;
 	const values = [
 		accId,
+		!!includeDisabled,
 	];
 	let res = null;
 	try {

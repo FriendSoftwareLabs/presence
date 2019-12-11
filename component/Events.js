@@ -187,7 +187,13 @@ ns.Emitter.prototype.emitterClose = function() {
 */
 
 const nLog = require( './Log' )( 'EventNode' );
-ns.EventNode = function( type, conn, sink, proxyType, debug ) {
+ns.EventNode = function(
+	type,
+	conn,
+	sink,
+	proxyType,
+	debug
+) {
 	const self = this;
 	self._eventNodeType = type;
 	self._eventNodeConn = conn;
@@ -203,7 +209,7 @@ util.inherits( ns.EventNode, ns.Emitter );
 
 ns.EventNode.prototype.send = function( event, sourceId, altType ) {
 	const self = this;
-	var wrap = null;
+	let wrap = null;
 	if ( self._eventNodeProxyType )
 		wrap = event;
 	else
@@ -388,6 +394,7 @@ ns.RequestNode.prototype._handleRequest = async function( event, sourceId ) {
 	try {
 		response = await self._callListener( event, sourceId );
 	} catch( err ) {
+		log( 'RequestNode - error', err );
 		error = err;
 	}
 	

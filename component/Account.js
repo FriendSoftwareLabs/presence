@@ -52,6 +52,7 @@ ns.Account = function(
 	self.ids = {};
 	self.contacts = {};
 	self.contactIds = [];
+	self.hidden = {};
 	self.relations = {};
 	
 	return new Promise(( resolve, reject ) => {
@@ -74,6 +75,7 @@ ns.Account = function(
 
 ns.Account.prototype.close = function() {
 	const self = this;
+	self.closed = true;
 	self.logout( outBack );
 	function outBack() {
 		delete self.dbPool;
@@ -171,8 +173,13 @@ ns.Account.prototype.removeContact = function( contactId ) {
 	
 	const contacts = self.worgCtrl.getContactList( self.id );
 	const cIndex = contacts.indexOf( contactId );
-	if ( -1 != cIndex )
+	if ( -1 != cIndex ) {
+		self.log( 'removeContact - not removing because workgroup', {
+			cId    : contactId,
+			inworg : cIndex,
+		});
 		return;
+	}
 	
 	self.rooms.remove( contactId );
 	delete self.contacts[ contactId ];
@@ -199,6 +206,14 @@ ns.Account.prototype.updateContactStatus = function( type, contactId, data ) {
 
 ns.Account.prototype.updateIdentity = function( event ) {
 	const self = this;
+	if ( self.closed )
+		return;
+	
+	if ( 'fIsDisabled' == event.type ) {
+		self.handleDisableChange( event.data );
+		return;
+	}
+	
 	const update = {
 		type : 'identity-update',
 		data : event,
@@ -269,17 +284,20 @@ ns.Account.prototype.bindConn = function() {
 	self.conn.on( 'room-join', joinRoom );
 	self.conn.on( 'room-create', createRoom );
 	self.conn.on( 'contact', handleContact );
-	self.conn.on( 'avatar', ( e, cid ) => self.handleAvatarEvent( e, cid ));
-	self.conn.on( 'invite-response', ( e, cid ) => self.handleInviteResponse( e, cid ));
+	self.conn.on( 'avatar', ( e, cId ) => self.handleAvatarEvent( e, cId ));
+	self.conn.on( 'invite-response', ( e, cId ) => self.handleInviteResponse( e, cId ));
+	self.conn.on( 'hidden-list', ( e, cId ) => self.handleHiddenList( e, cId ));
+	self.conn.on( 'hidden-open', ( e, cId ) => self.handleHiddenOpen( e, cId ));
+	self.conn.on( 'hidden-close', ( e, cId ) => self.handleHiddenClose( e, cId ));
 	
 	function accEventSink() {} //self.log( 'accEventSink', arguments, 3 ); }
-	function init( e, cid ) { self.initializeClient( e, cid ); }
-	function handleSettings( e, cid ) { self.handleSettings( e, cid ); }
-	function handleRoomMsg( e, cid ) { self.log( 'roomMsg - nyi', msg ); }
-	function getRoom( e, cid ) { self.getRoom( e, cid ); }
-	function joinRoom( e, cid ) { self.joinRoom( e, cid ); }
-	function createRoom( e, cid ) { self.createRoom( e, cid ); }
-	function handleContact( e, cid ) { self.handleContactEvent( e, cid ); }
+	function init( e, cId ) { self.initializeClient( e, cId ); }
+	function handleSettings( e, cId ) { self.handleSettings( e, cId ); }
+	function handleRoomMsg( e, cId ) { self.log( 'roomMsg - nyi', msg ); }
+	function getRoom( e, cId ) { self.getRoom( e, cId ); }
+	function joinRoom( e, cId ) { self.joinRoom( e, cId ); }
+	function createRoom( e, cId ) { self.createRoom( e, cId ); }
+	function handleContact( e, cId ) { self.handleContactEvent( e, cId ); }
 	
 	//self.req = new events.RequestNode( self.conn, reqEventSink );
 	self.conn.on( 'friend-get', fGet );
@@ -410,6 +428,9 @@ ns.Account.prototype.handleWorkgroupJoin = async function( event, roomId ) {
 
 ns.Account.prototype.openContactChat = async function( event, contactId ) {
 	const self = this;
+	if ( self.closed )
+		return;
+	
 	if ( !contactId )
 		return;
 	
@@ -433,6 +454,7 @@ ns.Account.prototype.openContactChat = async function( event, contactId ) {
 	self.relations[ contactId ] = relation.clientId;
 	await self.joinedARoomHooray( room );
 	sendOpen();
+	
 	return room;
 	
 	function sendOpen() {
@@ -520,6 +542,9 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 
 ns.Account.prototype.getContactRelation = async function( contactId ) {
 	const self = this;
+	if ( self.closed )
+		return null;
+	
 	const msgDb = new dFace.MessageDB( self.dbPool );
 	if ( contactId )
 		return await getState( contactId );
@@ -591,6 +616,9 @@ ns.Account.prototype.loadTheThings = async function() {
 
 ns.Account.prototype.loadRooms = async function() {
 	const self = this;
+	if ( self.closed )
+		return null;
+	
 	const roomDb = new dFace.RoomDB( self.dbPool );
 	const memberWorgs = self.worgCtrl.getMemberOfAsFID( self.id );
 	let list = null;
@@ -628,6 +656,9 @@ ns.Account.prototype.loadRooms = async function() {
 
 ns.Account.prototype.loadRelations = async function() {
 	const self = this;
+	if ( self.closed )
+		return null;
+	
 	const roomDb = new dFace.RoomDB( self.dbPool );
 	let dbRelations = null;
 	try {
@@ -801,10 +832,9 @@ ns.Account.prototype.joinedARoomHooray = async function( room, reqId  ) {
 	const rId = conf.clientId;
 	self.clearConnecting( rId );
 	conf.req = reqId;
-	const list = self.rooms.add( room );
+	const currentRooms = self.rooms.add( room );
 	
-	self.sendJoined( conf, list );
-	//room.setIdentity( self.identity );
+	self.sendJoined( conf, currentRooms );
 }
 
 ns.Account.prototype.sendJoined = async function( roomConf, currentRooms, clientId ) {
@@ -869,6 +899,132 @@ ns.Account.prototype.handleInviteResponse = async function( res, clientId ) {
 		return;
 	
 	self.joinedARoomHooray( room );
+}
+
+ns.Account.prototype.handleHiddenList = async function( req, clientId ) {
+	const self = this;
+	if ( self.closed )
+		return;
+	
+	const roomDb = new dFace.RoomDB( self.dbPool );
+	const rels = await roomDb.getRelationsFor( self.id, true );
+	const disabled = rels.filter( rel => !!rel.fIsDisabled )
+		.map( rel => rel.contactId );
+		
+	const hiddenIds = await Promise.all( disabled.map( getId ));
+	const hidden = hiddenIds.map( id => {
+		return {
+			clientId    : id.clientId,
+			name        : id.name,
+			fIsDisabled : id.fIsDisabled,
+		};
+	});
+	
+	return hidden;
+	
+	function getId( cId ) {
+		return self.idCache.get( cId );
+	}
+}
+
+ns.Account.prototype.handleHiddenOpen = async function( contactId ) {
+	const self = this;
+	if ( self.contacts[ contactId ]) {
+		self.log( 'is in contacts', self.contacts, 3 );
+		return;
+	}
+	
+	if ( true === self.hidden[ contactId ])
+		return null;
+	
+	if ( self.hidden[ contactId ]) {
+		const conf = await hasRoom( contactId );
+		if ( conf )
+			return conf;
+	}
+	
+	self.hidden[ contactId ] = true;
+	const roomDb = new dFace.RoomDB( self.dbPool );
+	const rel = await roomDb.getRelation( self.id, contactId );
+	if ( null == rel ) {
+		self.log( 'no relation for' );
+		return null;
+	}
+	
+	const room = await self.roomCtrl.connectContact( self.id, contactId );
+	if ( !room ) {
+		self.log( 'openHiddenChat - failed to connect room', contactId );
+		return null;
+	}
+	
+	self.hidden[ contactId ] = rel.clientId;
+	self.rooms.add( room );
+	return await hasRoom( contactId );
+	
+	async function hasRoom( cId ) {
+		const room = self.rooms.get( cId );
+		if ( !room )
+			return null;
+		
+		const identity = await self.idCache.get( cId );
+		const conf = room.getConf();
+		conf.identity = identity;
+		
+		return conf;
+	}
+}
+
+ns.Account.prototype.handleHiddenClose = async function( contactId ) {
+	const self = this;
+	delete self.hidden[ contactId ];
+	self.rooms.remove( contactId );
+}
+
+ns.Account.prototype.handleDisableChange = function( id ) {
+	const self = this;
+	//self.log( 'handleDisableChange', id );
+	
+	const cId = id.clientId;
+	const isDisabled = !!id.fIsDisabled;
+	if ( isDisabled )
+		remove( cId );
+	else
+		add( cId );
+	
+	function remove( cId ) {
+		const contact = self.relations[ cId ];
+		self.log( 'handleDisableChange - remove', {
+			id  : cId,
+			rel : self.relations,
+		});
+		if ( !contact ) {
+			self.log( 'not a relation', {
+				cid : cId,
+				rel : self.relations,
+			});
+			return;
+		}
+		
+		delete self.relations[ cId ];
+		self.removeContact( cId );
+	}
+	
+	async function add( cId ) {
+		if ( self.relations[ cId ])
+			return;
+		
+		const roomDb = new dFace.RoomDB( self.dbPool );
+		const relation = await roomDb.getRelation( self.id, cId );
+		self.log( 'handleDisableChange - add', {
+			id  : cId,
+			rel : relation,
+		});
+		if ( !relation )
+			return;
+		
+		self.relations[ cId ] = relation.clientId;
+		self.addContact( cId );
+	}
 }
 
 ns.Account.prototype.sendContactEvent = function( type, event ) {
@@ -1026,6 +1182,7 @@ ns.Rooms.prototype.remove = function( roomId ) {
 	
 	delete self.rooms[ rid ];
 	self.list = Object.keys( self.rooms );
+	room.disconnect();
 }
 
 ns.Rooms.prototype.getRooms = function() {

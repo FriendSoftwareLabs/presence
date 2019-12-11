@@ -1970,10 +1970,6 @@ ns.Invite.prototype.authenticate = async function( token, targetId ) {
 		return false;
 	
 	if ( meta.targetId ) {
-		iLog( 'meta with target', {
-			token : meta,
-			tarid : targetId,
-		});
 		if ( targetId === meta.targetId ) {
 			delete self.tokens[ token ];
 			return true;
@@ -3131,7 +3127,7 @@ ns.Workgroup.prototype.removeUsers = function() {
 	
 	function checkNoAssigned( userId ) {
 		const wIds = self.users.getWorgsFor( userId );
-		wLog( 'checkNoAssigned - users worgs', [ userId, wIds ]);
+		//wLog( 'checkNoAssigned - users worgs', [ userId, wIds ]);
 		if ( !wIds || !wIds.length )
 			return true;
 		
@@ -3188,12 +3184,6 @@ ns.Settings.prototype.bind = function( userId ) {
 		return;
 	
 	user.on( 'settings', ( e, sourceId ) => {
-		sLog( 'settings event from user', {
-			e        : e,
-			sourceId : sourceId,
-			userId   : userId,
-		});
-		
 		self.events.handle( e, userId, sourceId );
 	});
 }
@@ -3324,10 +3314,6 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 	return self.setting;
 	
 	function onSend( event, userId ) {
-		sLog( 'onSend', {
-			event : event,
-			userId : userId,
-		}, 3 );
 		if ( userId )
 			self.send( event, userId );
 		else
@@ -3389,10 +3375,6 @@ ns.Settings.prototype.set = function( setting, value ) {
 
 ns.Settings.prototype.handleLoad = async function( event, userId ) {
 	const self = this;
-	sLog( 'handleLoad', {
-		event : event,
-		userId : userId,
-	});
 	const values = self.get();
 	if ( null != global.config.server.classroomProxy ) {
 		values.isClassroom = values.isStream;
@@ -3411,10 +3393,6 @@ ns.Settings.prototype.handleLoad = async function( event, userId ) {
 
 ns.Settings.prototype.saveSetting = function( event, userId ) {
 	const self = this;
-	sLog( 'saveSetting', {
-		event  : event,
-		userId : userId,
-	}, 3 );
 	const user = self.users.get( userId );
 	if ( !user )
 		return;
@@ -3537,10 +3515,6 @@ ns.Settings.prototype.handleWorgs = function( worg, userId ) {
 
 ns.Settings.prototype.handleAuthRemove = async function( event, userId ) {
 	const self = this;
-	sLog( 'handleAuthRemove', {
-		event : event,
-		userId : userId,
-	}, 3 );
 	self.emit( 'auth-remove', event.clientId );
 	self.sendSaved( 'authorized', event, true, userId );
 }

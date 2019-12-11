@@ -20,8 +20,10 @@ DROP PROCEDURE IF EXISTS account_update;
 DROP PROCEDURE IF EXISTS account_delete;
 DROP PROCEDURE IF EXISTS account_touch;
 DROP PROCEDURE IF EXISTS account_set_pass;
-DROP PROCEDURE IF EXISTS account_set_name;
+DROP PROCEDURE IF EXISTS account_update_name;
 DROP PROCEDURE IF EXISTS account_update_avatar;
+DROP PROCEDURE IF EXISTS account_update_fisdisabled;
+DROP PROCEDURE IF EXISTS account_update_flastupdate;
 DROP PROCEDURE IF EXISTS account_set_settings;
 DROP PROCEDURE IF EXISTS account_get_settings;
 DROP PROCEDURE IF EXISTS account_set_active;
@@ -148,23 +150,29 @@ END//
 #
 # CREATE
 CREATE PROCEDURE account_create(
-	IN `clientId`  VARCHAR( 191 ),
-	IN `fUserId`   VARCHAR( 191 ),
-	IN `fUsername` VARCHAR( 191 ),
-	IN `name`      VARCHAR( 191 ),
-	IN `settings`  TEXT
+	IN `clientId`    VARCHAR( 191 ),
+	IN `fUserId`     VARCHAR( 191 ),
+	IN `fUsername`   VARCHAR( 191 ),
+	IN `fLastUpdate` BIGINT,
+	IN `fIsDisabled` BOOLEAN,
+	IN `name`        VARCHAR( 191 ),
+	IN `settings`    TEXT
 )
 BEGIN
 	INSERT INTO `account` (
 		`clientId`,
 		`fUserId`,
 		`fUsername`,
+		`fLastUpdate`,
+		`fIsDisabled`,
 		`name`,
 		`settings`
 	) VALUES (
 		`clientId`,
 		`fUserId`,
 		`fUsername`,
+		`fLastUpdate`,
+		`fIsDisabled`,
 		`name`,
 		`settings`
 	);
@@ -243,52 +251,88 @@ CREATE PROCEDURE account_touch(
 	IN `clientId` VARCHAR( 191 )
 )
 BEGIN
-	UPDATE account 
-	SET lastLogin = NOW()
-	WHERE account.clientId = `clientId`;
+
+UPDATE account 
+SET lastLogin = NOW()
+WHERE account.clientId = `clientId`;
+
 END//
 
 #
 # SET PASS
 CREATE PROCEDURE account_set_pass(
 	IN `clientId` VARCHAR( 191 ),
-	IN `pass` TEXT
+	IN `pass`     TEXT
 )
 BEGIN
-	UPDATE account AS a
-	SET a.pass = `pass`
-	WHERE a.clientId = `clientId`;
+
+UPDATE account AS a
+SET a.pass = `pass`
+WHERE a.clientId = `clientId`;
+
 END//
 
 #
-# SET NAME
-CREATE PROCEDURE account_set_name(
+# UPDATE NAME
+CREATE PROCEDURE account_update_name(
 	IN `clientId` VARCHAR( 191 ),
-	IN `name` VARCHAR( 191 )
+	IN `name`     VARCHAR( 191 )
 )
 BEGIN
-	UPDATE account AS a
-	SET a.name = `name`
-	WHERE a.clientId = `clientId`;
+
+UPDATE account AS a
+SET a.name = `name`
+WHERE a.clientId = `clientId`;
+
 END//
 
 #
-# SET AVATAR
+# UPDATE AVATAR
 CREATE PROCEDURE account_update_avatar(
 	IN `clientId` VARCHAR( 191 ),
-	IN `avatar` TEXT
+	IN `avatar`   TEXT
 )
 BEGIN
-	UPDATE account AS a
-	SET a.avatar = `avatar`
-	WHERE a.clientId = `clientId`;
+
+UPDATE account AS a
+SET a.avatar = `avatar`
+WHERE a.clientId = `clientId`;
+
+END//
+
+#
+# UPDATE FISDISABLED
+CREATE PROCEDURE account_update_fisdisabled(
+	IN `clientId`   VARCHAR( 191 ),
+	IN `isDisabled` BOOLEAN
+)
+BEGIN
+
+UPDATE account AS a
+SET a.fIsDisabled = `isDisabled`
+WHERE a.clientId = `clientId`;
+
+END//
+
+#
+# UPDATE FLASTUPDATE
+CREATE PROCEDURE account_update_flastupdate(
+	IN `clientId`    VARCHAR( 191 ),
+	IN `fLastUpdate` BIGINT
+)
+BEGIN
+
+UPDATE account AS a
+SET a.fLastUpdate = `fLastUpdate`
+WHERE a.clientId = `clientId`;
+
 END//
 
 #
 # SET SETTINGS
 CREATE PROCEDURE account_set_settings(
 	IN `clientId` VARCHAR( 191 ),
-	IN `update` JSON
+	IN `update`   JSON
 )
 BEGIN
 	
@@ -300,7 +344,9 @@ CREATE PROCEDURE account_get_settings(
 	IN `clientId` VARCHAR( 191 )
 )
 BEGIN
+
 SELECT a.settings FROM account AS a;
+
 END//
 
 #
@@ -478,13 +524,7 @@ CREATE PROCEDURE auth_get_for_room(
 BEGIN
 SELECT 
 	a.clientId,
-	a.fUserId,
-	a.fUsername,
-	a.name,
-	a.avatar,
-	a.active,
-	a.lastLogin,
-	a.lastOnline 
+	a.fIsDisabled
 FROM `authorized_for_room` AS auth 
 LEFT JOIN `account` AS a 
 ON auth.accountId = a.clientId 
@@ -766,7 +806,8 @@ END//
 #
 # USER_RELATION_GET_FOR_USER
 CREATE PROCEDURE user_relation_read_all_for(
-	IN `accountId` VARCHAR( 191 )
+	IN `accountId`    VARCHAR( 191 ),
+	IN `loadDisabled` BOOLEAN
 )
 BEGIN
 SELECT
@@ -776,9 +817,21 @@ SELECT
 	r.roomId,
 	r.created,
 	r.lastReadId,
-	r.lastMsgId
+	r.lastMsgId,
+	c.fIsDisabled
 FROM user_relation AS r
-WHERE r.userId = `accountId`;
+LEFT JOIN account AS c
+	ON r.contactId = c.clientId
+WHERE r.userId = `accountId`
+AND (
+	( 0 = `loadDisabled` AND (
+			0 = c.fIsDisabled OR
+			null = c.fIsDisabled
+		)
+	)
+	OR
+	( 1 = `loadDisabled` )
+);
 END//
 
 #

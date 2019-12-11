@@ -1434,9 +1434,7 @@ ns.WorkChat.prototype.createMsgView = function( input, userId ) {
 
 ns.WorkChat.prototype.handleLogView = async function( event, userId ) {
 	const self = this;
-	cLog( 'handleLogView', event );
 	const res = await self.log.getForView( event, userId );
-	cLog( 'handleLogView - res', res );
 	send( res );
 	
 	/*
@@ -1745,10 +1743,6 @@ ns.WorkLog.prototype.getLastForView = function( userId, num ) {
 
 ns.WorkLog.prototype.getForView = async function( conf, userId ) {
 	const self = this;
-	llLog( 'getForView', {
-		conf : conf,
-		uid  : userId,
-	}, 3 );
 	if ( !conf )
 		conf = {
 			firstTime : Date.now(),
@@ -2010,10 +2004,6 @@ ns.WorkSettings.prototype.init = async function( dbPool, ignore ) {
 	return self.setting;
 	
 	function onSend( event, userId ) {
-		sLog( 'onSend', {
-			event : event,
-			userId : userId,
-		}, 3 );
 		if ( userId )
 			self.send( event, userId );
 		else

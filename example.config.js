@@ -73,7 +73,7 @@ const server = {
 		forceShowRead : false,
 	},
 	tinyAvatar : {
-		imageSidePX : 48,
+		imageSidePX : 128,
 	},
 	streamProxy    : null,
 	classroomProxy : null,

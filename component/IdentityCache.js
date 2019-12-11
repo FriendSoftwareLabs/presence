@@ -63,25 +63,50 @@ ns.IDC.prototype.close = function() {
 	delete self.IDs;
 }
 
-ns.IDC.prototype.set = async function( fcId ) {
+ns.IDC.prototype.set = async function( fUser ) {
 	const self = this;
+	const f = fUser;
+	if ( !f.fUserId || !f.fUsername ) {
+		log( 'set - user data missing, dropping', fUser );
+		return;
+	}
+	
+	const dbId = await self.accDB.set(
+		f.fUserId,
+		f.fUsername,
+		f.fLastUpdate,
+		f.fIsDisabled,
+		f.name
+	);
+	
+	if ( !dbId ) {
+		log( 'set - the id was not written to db for, probably, reasons', fUser );
+		return;
+	}
+	
+	const identity = await self.setDBID( dbId );
+	const cId = identity.clientId;
+	if ( null != fUser.avatar )
+		await self.setAvatar( cId, fUser.avatar );
+	
+	self.emit( 'add', identity );
+	return identity;
 }
 
-
-ns.IDC.prototype.get = async function( id ) {
+ns.IDC.prototype.get = async function( clientId ) {
 	const self = this;
-	if ( !id ) {
+	if ( !clientId ) {
 		try {
 			throw new Error( 'ERR_NO_ID' );
 		} catch( err ) {
 			log( 'IDC.get - missing id', err.stack || err );
 		}
 	}
-	let identity = self.getSync( id );
+	let identity = self.getSync( clientId );
 	if ( identity )
 		return identity;
 	
-	identity = await self.load( id );
+	identity = await self.load( clientId );
 	return identity;
 }
 
@@ -145,16 +170,59 @@ ns.IDC.prototype.getByFUserId = async function( fId ) {
 	return id || null;
 }
 
+ns.IDC.prototype.getByFUsername = async function( fUsername ) {
+	const self = this;
+	if ( !fUsername || 'string' !== typeof( fUsername ))
+		return null;
+	
+	const id = await self.accDB.getByFUsername( fUsername );
+	return id || null;
+}
+
 ns.IDC.prototype.update = async function( identity ) {
 	const self = this;
-	const cId = identity.clientId;
-	const cache = await self.get( cId );
-	cache.fLogin = identity.fLogin;
-	cache.isAdmin = !!identity.isAdmin;
-	cache.isGuest = !!identity.isGuest;
+	let cId = identity.clientId;
+	let cache = null;
+	if ( cId ) {
+		cache = await self.get( cId );
+	} else {
+		cache = await load( identity );
+		if ( cache ) {
+			identity.clientId = cache.clientId;
+			cId = cache.clientId;
+		}
+	}
+	
+	if ( !cache ) {
+		cache = await self.set( identity );
+		return cache;
+	}
+	/*
+	log( 'update', {
+		id : identity,
+		cache : {
+			clientId    : cache.clientId,
+			name        : cache.name,
+			fLastUpdate : cache.fLastUpdate,
+			fIsDisabled : cache.fIsDisabled,
+		},
+	}, 3 );
+	*/
+	
+	if ( null != identity.fLogin )
+		cache.fLogin = identity.fLogin;
+	if ( null != identity.isAdmin )
+		cache.isAdmin = !!identity.isAdmin;
+	if ( null != identity.isGuest )
+		cache.isGuest = !!identity.isGuest;
+	
 	const nameChange = await self.checkName( identity, cache );
 	const avaChange = await self.checkAvatar( identity, nameChange );
+	const disableChange = await self.checkDisabled( identity, cache );
 	//self.checkEmail( identity, cache );
+	
+	if ( identity.fLastUpdate )
+		await self.accDB.updateFLastUpdate( cId, identity.fLastUpdate );
 	
 	if ( nameChange )
 		self.sendUpdate( cId, 'name' );
@@ -162,7 +230,31 @@ ns.IDC.prototype.update = async function( identity ) {
 	if ( avaChange )
 		self.sendUpdate( cId, 'avatar' );
 	
+	if ( disableChange )
+		self.sendUpdate( cId, 'fIsDisabled' );
+	
 	return cache;
+	
+	async function load( id ) {
+		const fId = identity.fUserId;
+		const fName = identity.fUsername;
+		let cache = null;
+		if ( fId )
+			cache = await self.getByFUserId( fId );
+		
+		if ( cache )
+			return cache;
+		
+		if ( !fName )
+			return null;
+		
+		cache = await self.getByFUsername( fName );
+		if ( cache && fId ) {
+			await self.accDB.setFUserId( cache.clientId, fId );
+		}
+		
+		return cache;
+	}
 }
 
 ns.IDC.prototype.updateAvatar = async function( userId, avatar ) {
@@ -212,10 +304,12 @@ ns.IDC.prototype.init = async function( dbPool ) {
 	self.pixels = await tinyAvatar.generateGuest( 'roundel' );
 	
 	// trim every 24 hours
+	/*
 	self.trim = setInterval( trims, self.TIMEOUT );
 	function trims() {
 		self.trimIds();
 	}
+	*/
 }
 
 ns.IDC.prototype.trimIds = function() {
@@ -286,11 +380,14 @@ ns.IDC.prototype.setDBID = async function( dbId ) {
 		clientId    : cId,
 		fUserId     : dbId.fUserId,
 		fUsername   : dbId.fUsername,
+		fLastUpdate : dbId.fLastUpdate,
+		fIsDisabled : !!dbId.fIsDisabled || undefined,
 		name        : dbId.name,
 		avatar      : dbId.avatar,
 		isAdmin     : null,
 		isOnline    : false,
 	};
+	
 	self.add( identity );
 	if ( !identity.avatar )
 		await self.setPixelAvatar( cId );
@@ -316,6 +413,9 @@ ns.IDC.prototype.touch = function( id ) {
 
 ns.IDC.prototype.checkName = async function( id, c ) {
 	const self = this;
+	if ( null == id.name )
+		return false;
+	
 	if ( id.name === c.name )
 		return false;
 	
@@ -329,13 +429,12 @@ ns.IDC.prototype.checkName = async function( id, c ) {
 
 ns.IDC.prototype.checkAvatar = async function( id, nameChange ) {
 	const self = this;
-	const uId = id.clientId;
+	const cId = id.clientId;
 	let current = id.avatar;
 	if ( nameChange && ( null == current )) {
-		log( 'checkAvatar - namechange' );
-		const dbId = await self.accDB.getById( uId );
+		const dbId = await self.accDB.getById( cId );
 		if ( dbId && !dbId.avatar ) {
-			await self.setPixelAvatar();
+			await self.setPixelAvatar( cId );
 			return true;
 		} else
 			return false;
@@ -346,9 +445,9 @@ ns.IDC.prototype.checkAvatar = async function( id, nameChange ) {
 	
 	let change = false;
 	if ( false === current ) 
-		change = await self.resetAvatar( uId );
+		change = await self.resetAvatar( cId );
 	else
-		change = await self.setAvatar( uId, current );
+		change = await self.setAvatar( cId, current );
 	
 	return change;
 }
@@ -360,6 +459,9 @@ ns.IDC.prototype.setAvatar = async function( userId, avatar ) {
 		return false;
 	
 	const tiny = await tinyAvatar.rescale( avatar );
+	if ( !tiny )
+		return false;
+	
 	if ( dbId.avatar === tiny )
 		return true;
 	
@@ -400,6 +502,20 @@ ns.IDC.prototype.setPixelAvatar = async function( clientId ) {
 ns.IDC.prototype.checkEmail = async function( id, c ) {
 	const self = this;
 	log( 'checkEmail - NYI', id );
+	return true;
+}
+
+ns.IDC.prototype.checkDisabled = async function( id, c ) {
+	const self = this;
+	if ( null == id.fIsDisabled )
+		return false;
+	
+	if ( !!id.fIsDisabled == !!c.fIsDisabled )
+		return false;
+	
+	let isDisabled = !!id.fIsDisabled;
+	await self.accDB.updateFIsDisabled( c.clientId, isDisabled );
+	c.fIsDisabled = isDisabled;
 	return true;
 }
 

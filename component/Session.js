@@ -69,27 +69,24 @@ ns.Session.prototype.attach = function( conn ) {
 }
 
 // system detaches a ( most likely closed ) client connection
-ns.Session.prototype.detach = function( cid, callback ) {
+ns.Session.prototype.detach = async function( cid ) {
 	const self = this;
 	const conn = self.connections[ cid ];
 	if ( !conn ) {
 		log( 'detach - no conn for cid', cid );
-		if ( callback )
-			callback( null );
-		return;
+		return null;
 	}
 	
-	conn.unsetSession( setBack );
-	function setBack() {
-		conn.release( 'msg' );
-		delete self.connections[ cid ];
-		self.connIds = Object.keys( self.connections );
-		if ( !self.checkConnsTimeout )
-			self.checkConnsTimeout = setTimeout( checkConns, 250 );
-		
-		if ( callback )
-			callback( conn );
-	}
+	await conn.unsetSession();
+	conn.release( 'msg' );
+	delete self.connections[ cid ];
+	self.connIds = Object.keys( self.connections );
+	if ( null != self.checkConnsTimeout )
+		clearTimeout( self.checkConnsTimeout );
+	
+	self.checkConnsTimeout = setTimeout( checkConns, 250 );
+	
+	return conn;
 	
 	function checkConns() {
 		self.checkConns();
@@ -110,7 +107,7 @@ ns.Session.prototype.send = async function( event, clientId ) {
 
 // closes session, either from account( logout ), from lack of client connections
 // or from nomansland for whatever reason
-ns.Session.prototype.close = function() {
+ns.Session.prototype.close = async function() {
 	const self = this;
 	if ( self.checkConnsTimeout )
 		clearTimeout( self.checkConnsTimeout );
@@ -124,7 +121,7 @@ ns.Session.prototype.close = function() {
 	delete self.onclose;
 	
 	self.emitterClose();
-	self.clearConns();
+	await self.clearConns();
 	
 	if ( onclose )
 		onclose();
@@ -165,9 +162,11 @@ ns.Session.prototype.sendOnConn = async function( event, cid ) {
 		return 'ERR_NO_CLIENT';
 	}
 	
-	let err = await send( event, conn );
+	const err = await conn.send( event );
+	//let err = await send( event, conn );
 	return err;
 	
+	/*
 	function send( event, conn ) {
 		return new Promise(( resolve, reject ) => {
 			conn.send( event, sendBack );
@@ -176,6 +175,7 @@ ns.Session.prototype.sendOnConn = async function( event, cid ) {
 			}
 		});
 	}
+	*/
 	//conn.send( event, callback );
 }
 
@@ -186,7 +186,6 @@ ns.Session.prototype.checkConns = function() {
 		return;
 	
 	self.close();
-	return;
 	/*
 	self.sessionTimer = setTimeout( sessionTimedOut, self.sessionTimeout );
 	function sessionTimedOut() {
@@ -196,18 +195,32 @@ ns.Session.prototype.checkConns = function() {
 	*/
 }
 
-ns.Session.prototype.clearConns = function() {
+ns.Session.prototype.clearConns = async function() {
 	const self = this;
-	self.connIds.forEach( unsetSession );
+	const closing = self.connIds.map( unsetSession );
+	await Promise.all( closing );
+	self.connIds.forEach( close );
 	self.connections = {};
 	self.connIds = [];
 	
-	function unsetSession( cid ) {
-		const conn = self.connections[ cid ];
+	function unsetSession( cId ) {
+		const conn = self.connections[ cId ];
 		if ( !conn )
 			return;
 		
-		conn.unsetSession();
+		return conn.unsetSession();
+	}
+	
+	function close( cId ) {
+		const conn = self.connections[ cId ];
+		if ( !conn )
+			return;
+		
+		try{
+			conn.close();
+		} catch( ex ) {
+			
+		}
 	}
 }
 

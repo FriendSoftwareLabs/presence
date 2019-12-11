@@ -56,8 +56,10 @@ ns.ContactRoom.prototype.setRelation = async function( relation ) {
 ns.ContactRoom.prototype.connect = async function( userId ) {
 	const self = this;
 	const authed = self.checkIsAuthed( userId );
-	if ( !authed )
+	if ( !authed ) {
+		log( 'connect - no authed' );
 		return false;
+	}
 	
 	if ( !self.users.exists( userId ))
 		await self.addUser( userId );
@@ -139,14 +141,11 @@ ns.ContactRoom.prototype.loadUsers = async function() {
 	const self = this;
 	let auths = null;
 	try {
-		auths = await self.roomDb.loadAuthorizations( self.id );
+		auths = await self.roomDb.loadAuthorizationsForRoom( self.id, true );
 	} catch ( e ) {
 		log( 'loading auths failed', e.stack || e );
 		return false;
 	}
-	
-	if ( !auths || 2 !== auths.length )
-		return false;
 	
 	try {
 		await Promise.all( auths.map( add ));
@@ -156,10 +155,9 @@ ns.ContactRoom.prototype.loadUsers = async function() {
 	
 	return true;
 	
-	async function add( dbUser ) {
-		const cId = dbUser.clientId;
-		self.users.addAuthorized( cId );
-		await self.addUser( cId );
+	async function add( userId ) {
+		self.users.addAuthorized( userId );
+		await self.addUser( userId );
 	}
 }
 
@@ -536,6 +534,7 @@ ns.ContactLog.prototype.close = function() {
 
 ns.ContactLog.prototype.get = async function( conf ) {
 	const self = this;
+	llLog( 'get', conf );
 	if ( null == conf ) {
 		return await self.buildLogEvent( 'before', self.items );
 	} else {

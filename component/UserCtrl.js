@@ -49,6 +49,55 @@ ns.UserCtrl = function(
 
 // Public
 
+ns.UserCtrl.prototype.refresh = async function( fUserList ) {
+	const self = this;
+	if ( !fUserList || !fUserList.length )
+		return false;
+	
+	let checks = fUserList.map( needsUpdate );
+	checks = await Promise.all( checks );
+	let updateUsers = checks.filter( fU => !!fU );
+	if ( !updateUsers.length )
+		return true;
+	
+	const updates = updateUsers.map( fetchAndUpdate );
+	await Promise.all( updates );
+	
+	async function needsUpdate( fU ) {
+		const fId = fU.userid;
+		if ( !fId || !fId.length )
+			return false;
+		
+		if ( !fU.lastupdate )
+			return false;
+		
+		const dbUser = await self.idc.getByFUserId( fId );
+		if ( !dbUser )
+			return fU;
+		
+		if ( !dbUser.fLastUpdate )
+			return fU;
+		
+		if ( dbUser.fLastUpdate < fU.lastupdate )
+			return fU;
+		
+		return false;
+	}
+	
+	async function fetchAndUpdate( fU ) {
+		const fId = fU.userid;
+		let fUser = null;
+		try {
+			fUser = await self.service.getUser( fId );
+		} catch( ex ) {
+			log( 'refresh - fetch ex', ex );
+			return null;
+		}
+		
+		await self.update( fUser );
+	}
+}
+
 ns.UserCtrl.prototype.addAccount = async function( session, conf ) {
 	const self = this;
 	const accId = conf.clientId;
@@ -103,13 +152,33 @@ ns.UserCtrl.prototype.remove = function( accountId ) {
 	if ( !acc )
 		return;
 	
-	self.idc.setOnline( accountId, false );
-	self.broadcastOnlineStatus( accountId, false );
 	delete self.accounts[ accountId ];
 	self.accIds = Object.keys( self.accounts );
 	acc.close();
 	
+	self.idc.setOnline( accountId, false );
+	self.broadcastOnlineStatus( accountId, false );
+	
 	//self.worgs.removeUser( accountId );
+}
+
+ns.UserCtrl.prototype.update = async function( fUser ) {
+	const self = this;
+	if ( !fUser.userid ) {
+		log( 'update - invalid friend user', fUser );
+		return;
+	}
+	
+	const id = self.normalizeFUser( fUser );
+	if ( !id )
+		return;
+	
+	const identity = await self.idc.update( id );
+	if ( !identity )
+		return;
+	
+	if ( id.groups )
+		self.worgs.updateUserWorgs( identity.clientId, id.groups );
 }
 
 ns.UserCtrl.prototype.close = function() {
@@ -128,24 +197,20 @@ ns.UserCtrl.prototype.close = function() {
 ns.UserCtrl.prototype.init = function( dbPool ) {
 	const self = this;
 	log( ':3' );
-	const service = new FService();
-	self.serviceConn = new events.EventNode( 'user', service, serviceSink );
-	self.serviceConn.on( 'update', e => self.handleFUserUpdate );
+	self.service = new FService();
+	self.serviceConn = new events.EventNode( 'user', self.service, serviceSink );
+	self.serviceConn.on( 'update', e => self.update( e ));
 	function serviceSink( ...args ) {
 		log( 'serviceSink - user', args, 3 );
 	}
 	
+	self.idc.on( 'add', e => self.handleIdAdd( e ));
 	self.idc.on( 'update', e => self.handleIdUpdate( e ));
 	
 	self.worgs.on( 'users-added', ( worgId, accIds ) =>
 		self.handleWorgUsersAdded( worgId, accIds ));
 	self.worgs.on( 'regenerate', accIds => 
 		self.handleWorgRegenerate( accIds ));
-}
-
-ns.UserCtrl.prototype.handleFUserUpdate = function( update ) {
-	const self = this;
-	log( 'handleFUserUpdate - NYI', update );
 }
 
 ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds ) {
@@ -159,17 +224,37 @@ ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds
 	worgUserList.forEach( addTo );
 	function addTo( accId ) {
 		let acc = self.accounts[ accId ];
-		if ( !acc )
+		if ( !acc || acc.closed )
 			return;
 		
 		acc.addContacts( addedAccIds );
 	}
 }
 
+ns.UserCtrl.prototype.handleIdAdd = function( id ) {
+	const self = this;
+	if ( id.fIsDisabled )
+		return;
+	
+	log( 'handleIdAdd - NYI', id );
+	const worgs = self.worgs.getMemberOf( id.clientId );
+	const contacts = self.worgs.getContactList( id.clientId );
+}
+
 ns.UserCtrl.prototype.handleIdUpdate = function( update ) {
 	const self = this;
+	if ( 'fIsDisabled' == update.type ) {
+		const user = update.data;
+		if ( user.fIsDisabled )
+			self.remove( user.clientId );
+		
+	}
+	
 	self.accIds.forEach( id => {
 		const acc = self.accounts[ id ];
+		if ( !acc || acc.closed )
+			return;
+		
 		acc.updateIdentity( update );
 	});
 }
@@ -194,7 +279,7 @@ ns.UserCtrl.prototype.handleWorgRegenerate = function( affectedAccIds ) {
 	const self = this;
 	affectedAccIds.forEach( accId => {
 		const acc = self.accounts[ accId ];
-		if ( !acc )
+		if ( !acc || acc.closed )
 			return;
 		
 		acc.updateContacts();
@@ -203,12 +288,11 @@ ns.UserCtrl.prototype.handleWorgRegenerate = function( affectedAccIds ) {
 
 ns.UserCtrl.prototype.broadcastOnlineStatus = function( subjectId, isOnline ) {
 	const self = this;
-	const subject = self.accounts[ subjectId ];
-	const id = subject.getId();
+	const id = self.idc.getSync( subjectId );
 	const state = isOnline ? id : false;
 	self.accIds.forEach( cId => {
 		const acc = self.accounts[ cId ];
-		if ( !acc || !acc.updateContactStatus )
+		if ( !acc || acc.closed || !acc.updateContactStatus )
 			return;
 		
 		acc.updateContactStatus( 'online', subjectId, state );
@@ -224,11 +308,39 @@ ns.UserCtrl.prototype.updateOnlineStatus = function( accountId ) {
 	const contacts = account.getContactList() || [];
 	contacts.forEach( cId => {
 		let contact = self.accounts[ cId ];
-		if ( !contact )
+		if ( !contact || contact.closed )
 			return;
 		
 		account.updateContactStatus( 'online', cId, true );
 	});
+}
+
+ns.UserCtrl.prototype.normalizeFUser = function( fUser ) {
+	const self = this;
+	const id = {
+		clientId    : null,
+		fUserId     : fUser.userid || fUser.UniqueId || null,
+		fUsername   : fUser.name || fUser.Name || null,
+		fLastUpdate : fUser.lastupdate || null,
+		fIsDisabled : !!fUser.isdisabled,
+		isAdmin     : ( 'Admin' === fUser.Level ),
+		name        : fUser.fullname || fUser.FullName || null,
+		avatar      : null,
+	};
+	
+	if ( null == id.fUserId && null == id.fUsername ) {
+		log( 'normalizeUser - invalid friend user', fUser );
+		return null;
+	}
+	
+	if ( fUser.groups ) {
+		id.groups = fUser.groups.map( fId => self.worgs.getFIdToCId( fId ))
+			.filter( cId => !!cId );
+		
+		log( 'normalize, groups', id.groups );
+	}
+	
+	return id;
 }
 
 module.exports = ns.UserCtrl;

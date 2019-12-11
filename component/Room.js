@@ -226,6 +226,29 @@ ns.Room.prototype.removeUser = async function( userId, worgId ) {
 	return true;
 }
 
+ns.Room.prototype.setUserDisabled = function( userId, isDisabled ) {
+	const self = this;
+	if ( isDisabled )
+		remove( userId );
+	else
+		add( userId );
+	
+	async function remove( uId ) {
+		await self.releaseUser( uId );
+		self.users.remove( uId );
+		const leave = {
+			type : 'leave',
+			data : uId,
+		};
+		self.users.broadcast( null, leave, userId );
+	}
+	
+	function add( uId ) {
+		self.users.addAuthorized( uId );
+		self.addUser( uId );
+	}
+}
+
 ns.Room.prototype.authenticateInvite = async function( token, userId ) {
 	const self = this;
 	let valid = false;
@@ -391,24 +414,24 @@ ns.Room.prototype.loadUsers = async function() {
 	const self = this;
 	let auths = null;
 	try {
-		auths = await self.roomDb.loadAuthorizations( self.id );
+		auths = await self.roomDb.loadAuthorizationsForRoom( self.id );
 	} catch( err ) {
 		log( 'loadUsers - db fail', err );
 		return false;
 	}
 	
-	if ( !auths || !auths.length )
-		return false;
+	if ( auths && auths.length )
+		await Promise.all( auths.map( addFromDb ));
 	
-	await Promise.all( auths.map( addFromDb ));
 	const uListBy = self.worgs.getUserList();
-	await Promise.all( uListBy.map( addWorgUser ));
+	if ( uListBy && uListBy.length )
+		await Promise.all( uListBy.map( addWorgUser ));
+	
 	return true;
 	
-	async function addFromDb( dbUser ) {
-		let cId = dbUser.clientId;
-		self.users.addAuthorized( cId );
-		await self.addUser( cId );
+	async function addFromDb( userId ) {
+		self.users.addAuthorized( userId );
+		await self.addUser( userId );
 	}
 	
 	async function addWorgUser( uId ) {
@@ -713,7 +736,6 @@ ns.Room.prototype.handleRename = async function( name, userId ) {
 
 ns.Room.prototype.handleAuthRemove = function( userId ) {
 	const self = this;
-	log( 'handleAuthRemove', userId );
 	self.unAuthUser( userId );
 }
 

@@ -1,5 +1,5 @@
 # !!!
-# !!! REMEBER TO UPDATE TABLE VERSION, OR THE PATCHER WILL CRASH
+# !!! REMEBER TO UPDATE TABLE VERSION WHEN ADDING A PATCH, OR THE PATCHER WILL CRASH
 # !!!
 
 ALTER DATABASE CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
@@ -16,17 +16,19 @@ DROP TABLE IF EXISTS `room`;
 DROP TABLE IF EXISTS `db_history`;
 
 CREATE TABLE `account` (
-	`_id`        INT UNSIGNED NOT NULL auto_increment,
-	`clientId`   VARCHAR( 191 ) NOT NULL UNIQUE,
-	`fUserId`    VARCHAR( 191 ) NULL,
-	`fUsername`  VARCHAR( 191 ) NOT NULL UNIQUE,
-	`name`       VARCHAR( 191 ) NOT NULL,
-	`avatar`     TEXT,
-	`settings`   JSON NOT NULL,
-	`active`     BOOLEAN NOT NULL DEFAULT 1,
-	`created`    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	`lastLogin`  TIMESTAMP NULL,
-	`lastOnline` TIMESTAMP NULL,
+	`_id`         INT UNSIGNED NOT NULL auto_increment,
+	`clientId`    VARCHAR( 191 ) NOT NULL UNIQUE,
+	`fUserId`     VARCHAR( 191 ) NULL,
+	`fUsername`   VARCHAR( 191 ) NOT NULL UNIQUE,
+	`fLastUpdate` BIGINT NULL,
+	`fIsDisabled` BOOLEAN NULL
+	`name`        VARCHAR( 191 ) NOT NULL,
+	`avatar`      TEXT,
+	`settings`    JSON NOT NULL,
+	`active`      BOOLEAN NOT NULL DEFAULT 1,
+	`created`     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	`lastLogin`   TIMESTAMP NULL,
+	`lastOnline`  TIMESTAMP NULL,
 	PRIMARY KEY( _id )
 ) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -214,6 +216,6 @@ INSERT INTO `db_history`(
 	`version`,
 	`comment`
 ) VALUES (
-	30,
+	32,
 	'tables.sql'
 );

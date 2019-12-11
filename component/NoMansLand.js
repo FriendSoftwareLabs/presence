@@ -83,13 +83,13 @@ ns.NoMansLand.prototype.handleClient = function( client ) {
 	client.on( 'session', checkSession );
 	
 	// send authentication challenge
-	var auth = {
+	const auth = {
 		type : 'authenticate',
 	};
 	client.sendCon( auth );
 	
 	// close connection if theres no auth reply within timeout
-	var authTimeout = setTimeout( authTimedOut, self.authTimeoutMS );
+	let authTimeout = setTimeout( authTimedOut, self.authTimeoutMS );
 	function authTimedOut() {
 		log( 'client auth timeout hit' );
 		authTimeout = null;
@@ -119,6 +119,7 @@ ns.NoMansLand.prototype.handleClient = function( client ) {
 	function checkSession( sid ) {
 		if ( authTimeout )
 			clearTimeout( authTimeout );
+		
 		
 		client.release();
 		const cid = self.addClient( client );
@@ -178,7 +179,7 @@ ns.NoMansLand.prototype.loginGuest = function( identity, roomId, cId ) {
 	self.sendAccountReady( cId, accId );
 }
 
-ns.NoMansLand.prototype.setClientAuthenticated = function( success, cid, callback ) {
+ns.NoMansLand.prototype.setClientAuthenticated = function( success, cid ) {
 	const self = this;
 	const client = self.getClient( cid );
 	if ( !client )
@@ -188,7 +189,7 @@ ns.NoMansLand.prototype.setClientAuthenticated = function( success, cid, callbac
 		type : 'authenticate',
 		data : !!success,
 	};
-	client.sendCon( auth, callback );
+	client.sendCon( auth );
 }
 
 ns.NoMansLand.prototype.setClientAccountStage = function( friendData, cid ) {
@@ -326,11 +327,19 @@ ns.NoMansLand.prototype.clientLogin = async function( clientAuth, cid ) {
 	}
 	
 	let dbAcc = await getAccount( fData );
+	/*
 	if ( !dbAcc )
 		dbAcc = await createAccount( fData, clientAuth );
+	*/
 	
 	if ( !dbAcc ) {
 		log( 'clientLogin - failed to load or create account', clientAuth );
+		loginFailed( 'ERR_NO_ACCOUNT', clientAuth );
+		return null;
+	}
+	
+	if ( dbAcc.fIsDisabled ) {
+		loginFailed( 'ERR_ACCOUNT_DISABLED', clientAuth );
 		return null;
 	}
 	
@@ -339,7 +348,7 @@ ns.NoMansLand.prototype.clientLogin = async function( clientAuth, cid ) {
 	
 	identity.clientId = accId;
 	identity.isGuest = false;
-	identity.avatar = clientAuth.avatar;
+	identity.avatar = clientAuth.avatar || null;
 	self.unsetClientAccountStage( cid );
 	const session = self.getSessionForAccount( accId );
 	if ( session ) // already logged in
@@ -400,14 +409,17 @@ ns.NoMansLand.prototype.clientLogin = async function( clientAuth, cid ) {
 	}
 	
 	async function createAccount( fData, cData ) {
-		log( 'createAccount', {
-			fData : fData,
-			cData : cData,
-		}, 3 );
 		const fId = fData.fUserId || null;
 		const fName = fData.fUsername;
 		const name = fData.name;
-		await self.accDb.set( fId, fName, name );
+		await self.accDb.set(
+			fId,
+			fName,
+			null,
+			null,
+			name
+		);
+		
 		if ( fId )
 			await self.accDb.getByFUserId( fId );
 		else
@@ -477,13 +489,13 @@ ns.NoMansLand.prototype.validateAuthId = async function( data ) {
 	
 	async function authRequest( authId ) {
 		return new Promise(( resolve, reject ) => {
-			var data = {
+			const data = {
 				module  : 'system',
 				command : 'userinfoget',
 				authid  : authId,
 			};
 			
-			var req = {
+			const req = {
 				path    : '/system.library/module/',
 				data    : data,
 				success : success,
@@ -505,13 +517,14 @@ ns.NoMansLand.prototype.validateAuthId = async function( data ) {
 ns.NoMansLand.prototype.transformFUser = function( fUser ) {
 	const self = this;
 	const user = {
-		fUserId    : fUser.UniqueID || null,
-		fUsername  : fUser.Name,
-		name       : fUser.FullName,
-		email      : fUser.Email || '',
-		avatar     : fUser.Image || '',
-		isAdmin    : !!( 'Admin' === fUser.Level ),
-		workgroups : getWGList( fUser.Workgroup ),
+		fUserId     : fUser.UniqueID ||  fUser.userid || null,
+		fUsername   : fUser.Name,
+		fIsDisabled : null,
+		name        : fUser.FullName,
+		email       : null, //fUser.Email || '',
+		avatar      : null,
+		isAdmin     : !!( 'Admin' === fUser.Level ),
+		workgroups  : getWGList( fUser.Workgroup ),
 	};
 	
 	if ( !user.fUsername )
@@ -540,6 +553,7 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 	let allWgs = [];
 	let streamWgs = null;
 	let pSettings = null;
+	/*
 	try {
 		allWgs = await getWorkGroups( authId );
 	} catch( err ) {
@@ -547,6 +561,7 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 		user.workgroups = {};
 		return user;
 	}
+	*/
 	
 	try {
 		streamWgs = await getStreamWorkgroupSetting( authId );
@@ -562,8 +577,8 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 	
 	allWgs = allWgs.map( normalize );
 	const worgs = {
-		available : allWgs,
-		member    : getUserWGs( user.workgroups, allWgs ),
+		//available : allWgs,
+		//member    : getUserWGs( user.workgroups, allWgs ),
 	};
 	
 	if ( streamWgs )
@@ -759,7 +774,9 @@ ns.NoMansLand.prototype.addClient = function( client ) {
 	client.on( 'close', closed );
 	return cid;
 	
-	function closed( e ) { self.removeClient( cid ); }
+	function closed( e ) {
+		self.removeClient( cid );
+	}
 }
 
 ns.NoMansLand.prototype.removeClient = function( cid ) {
@@ -775,7 +792,9 @@ ns.NoMansLand.prototype.removeClient = function( cid ) {
 	
 	// release session / account
 	if ( client.sessionId )
-		self.removeFromSession( client.sessionId, client.id, thenTheSocket );
+		self.removeFromSession( client.sessionId, client.id )
+			.then( thenTheSocket )
+			.catch( thenTheSocket );
 	else
 		thenTheSocket(); // remove socket
 	
@@ -848,8 +867,12 @@ ns.NoMansLand.prototype.restoreSession = function( sessionId, clientId ) {
 			type : 'session',
 			data : false,
 		};
-		client.sendCon( sessFail, failSent );
+		client.sendCon( sessFail )
+			.then( failSent )
+			.catch( e => { log( 'failsend fail', e ) });
+			
 		function failSent() {
+			log( 'failSent' );
 			self.removeClient( clientId );
 		}
 	}
@@ -860,15 +883,16 @@ ns.NoMansLand.prototype.restoreSession = function( sessionId, clientId ) {
 	}
 }
 
-ns.NoMansLand.prototype.removeFromSession = function( sessionId, clientId, callback ) {
+ns.NoMansLand.prototype.removeFromSession = async function( sessionId, clientId ) {
 	const self = this;
 	const session = self.getSession( sessionId );
 	if ( !session ) {
 		log( 'removeFromSession - no session for', sessionId );
-		return;
+		return null;
 	}
 	
-	session.detach( clientId, callback );
+	const conn = await session.detach( clientId );
+	return conn;
 }
 
 ns.NoMansLand.prototype.sessionClosed = function( sessionId ) {

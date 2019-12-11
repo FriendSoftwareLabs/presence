@@ -57,35 +57,35 @@ ns.TCPClient = function( tcpSocket ) {
 */
 util.inherits( ns.TCPClient, Emitter );
 
-ns.TCPClient.prototype.send = function( msg, callback ) {
+ns.TCPClient.prototype.send = function( msg ) {
 	const self = this;
-	var wrap = {
+	const wrap = {
 		type : 'msg',
 		data : msg,
 	};
-	self.sendOnSocket( wrap, callback );
+	return self.sendOnSocket( wrap );
 }
 
-ns.TCPClient.prototype.setSession = function( sid, callback ) {
+ns.TCPClient.prototype.setSession = function( sid ) {
 	const self = this;
 	if ( sid )
 		self.sessionId = sid;
 	
-	var set = {
+	const set = {
 		type : 'session',
 		data : self.sessionId,
 	};
-	self.sendCon( set, callback );
+	return self.sendCon( set );
 }
 
-ns.TCPClient.prototype.unsetSession = function( callback ) {
+ns.TCPClient.prototype.unsetSession = function() {
 	const self = this;
 	self.sessionId = null;
-	var unset = {
+	const unset = {
 		type : 'session',
 		data : null,
 	};
-	self.sendCon( unset, callback );
+	return self.sendCon( unset );
 }
 
 ns.TCPClient.prototype.close = function() {
@@ -355,17 +355,16 @@ ns.TCPClient.prototype.handlePing = function( timestamp ) {
 	self.sendCon( pong );
 }
 
-ns.TCPClient.prototype.sendCon = function( msg, callback ) {
+ns.TCPClient.prototype.sendCon = function( msg ) {
 	const self = this;
-	self.sendOnSocket( msg, callback );
+	return self.sendOnSocket( msg );
 }
 
-ns.TCPClient.prototype.sendOnSocket = function( msg, callback ) {
+ns.TCPClient.prototype.sendOnSocket = async function( msg ) {
 	const self = this;
 	if ( !self.socket ) {
-		if ( callback )
-			callback( 'ERR_NO_SOCKET' );
-		return;
+		//callback( 'ERR_NO_SOCKET' );
+		return false;
 	}
 	
 	var str = null;
@@ -376,27 +375,37 @@ ns.TCPClient.prototype.sendOnSocket = function( msg, callback ) {
 			e   : e,
 			msg : msg,
 		}, 12 );
-		return;
-	}
-	
-	self.writeToSocket( str, callback );
-}
-
-ns.TCPClient.prototype.writeToSocket = function( msg, callback ) {
-	const self = this;
-	if ( !self.socket || self.socket.destroyed ) {
-		if ( callback )
-			callback( true );
-		return;
+		return e;
 	}
 	
 	try {
-		self.socket.write( msg, callback );
-	} catch( e ) {
-		log( 'tcpClient.writeToSocket err', e.stack || e );
-		if ( callback )
-			callback( e );
+		await self.writeToSocket( str );
+	} catch( ex ) {
+		return ex;
 	}
+	
+	 return null;
+}
+
+ns.TCPClient.prototype.writeToSocket = function( msg ) {
+	const self = this;
+	return new Promise(( resolve, reject ) => {
+		if ( !self.socket || self.socket.destroyed ) {
+			reject( 'ERR_NO_SOCKET' );
+			return;
+		}
+		
+		try {
+			self.socket.write( msg, writeBack );
+		} catch( e ) {
+			log( 'tcpClient.writeToSocket err', e.stack || e );
+			reject( e );
+		}
+		
+		function writeBack( e ) {
+			resolve();
+		}
+	});
 }
 
 
@@ -432,16 +441,23 @@ ns.WSClient.prototype.bindSocketData = function() {
 
 ns.WSClient.prototype.writeToSocket = function( msg, callback ) {
 	const self = this;
-	if ( !self.socket )
-		return;
-	
-	try {
-		self.socket.send( msg, callback );
-	} catch( e ) {
-		log( 'wsClient.writeToSocket err', e.stack || e );
-		if ( callback )
-			callback( e );
-	}
+	return new Promise(( resolve, reject ) => {
+		if ( !self.socket ) {
+			reject( 'ERR_NO_SOCKET' );
+			return;
+		}
+
+		try {
+			self.socket.send( msg, writeBack );
+		} catch( e ) {
+			log( 'wsClient.writeToSocket err', e.stack || e );
+			reject( e );
+		}
+		
+		function writeBack( e ) {
+			resolve( e );
+		}
+	});
 }
 
 module.exports = ns;

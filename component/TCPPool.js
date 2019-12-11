@@ -109,7 +109,6 @@ ns.TCPPool.prototype.setupPool = function() {
 
 ns.TCPPool.prototype.closePool = function() {
 	const self = this;
-	log( 'closePool' );
 	if ( !self.pool )
 		return;
 	
