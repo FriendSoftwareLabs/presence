@@ -982,8 +982,6 @@ ns.Account.prototype.handleHiddenClose = async function( contactId ) {
 
 ns.Account.prototype.handleDisableChange = function( id ) {
 	const self = this;
-	//self.log( 'handleDisableChange', id );
-	
 	const cId = id.clientId;
 	const isDisabled = !!id.fIsDisabled;
 	if ( isDisabled )
@@ -993,17 +991,8 @@ ns.Account.prototype.handleDisableChange = function( id ) {
 	
 	function remove( cId ) {
 		const contact = self.relations[ cId ];
-		self.log( 'handleDisableChange - remove', {
-			id  : cId,
-			rel : self.relations,
-		});
-		if ( !contact ) {
-			self.log( 'not a relation', {
-				cid : cId,
-				rel : self.relations,
-			});
+		if ( !contact )
 			return;
-		}
 		
 		delete self.relations[ cId ];
 		self.removeContact( cId );
@@ -1015,10 +1004,6 @@ ns.Account.prototype.handleDisableChange = function( id ) {
 		
 		const roomDb = new dFace.RoomDB( self.dbPool );
 		const relation = await roomDb.getRelation( self.id, cId );
-		self.log( 'handleDisableChange - add', {
-			id  : cId,
-			rel : relation,
-		});
 		if ( !relation )
 			return;
 		

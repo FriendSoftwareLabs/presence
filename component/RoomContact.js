@@ -165,7 +165,7 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 	const self = this;
 	const id = self.users.get( userId );
 	if ( id.close ) {
-		log( 'bindUser - user already bound' );
+		//log( 'bindUser - user already bound' );
 		return;
 	}
 	
@@ -534,7 +534,6 @@ ns.ContactLog.prototype.close = function() {
 
 ns.ContactLog.prototype.get = async function( conf ) {
 	const self = this;
-	llLog( 'get', conf );
 	if ( null == conf ) {
 		return await self.buildLogEvent( 'before', self.items );
 	} else {

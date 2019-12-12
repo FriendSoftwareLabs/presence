@@ -233,10 +233,12 @@ ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds
 
 ns.UserCtrl.prototype.handleIdAdd = function( id ) {
 	const self = this;
+	log( 'handleIdAdd - NYI' );
+	return;
+	
 	if ( id.fIsDisabled )
 		return;
 	
-	log( 'handleIdAdd - NYI', id );
 	const worgs = self.worgs.getMemberOf( id.clientId );
 	const contacts = self.worgs.getContactList( id.clientId );
 }
@@ -336,8 +338,6 @@ ns.UserCtrl.prototype.normalizeFUser = function( fUser ) {
 	if ( fUser.groups ) {
 		id.groups = fUser.groups.map( fId => self.worgs.getFIdToCId( fId ))
 			.filter( cId => !!cId );
-		
-		log( 'normalize, groups', id.groups );
 	}
 	
 	return id;

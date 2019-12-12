@@ -67,10 +67,6 @@ ns.RoomCtrl.prototype.checkActive = function( roomId ) {
 
 ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
 	const self = this;
-	log( 'connectContact', {
-		accId : accId,
-		conId : contactId,
-	});
 	if ( accId === contactId )
 		return null;
 	
@@ -82,7 +78,6 @@ ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
 		return null;
 	}
 	
-	log( 'connectContact - room?', !!room );
 	if ( !room )
 		return null;
 	
@@ -355,7 +350,6 @@ ns.RoomCtrl.prototype.handleIdUpdate = async function( update ) {
 	const userId = id.clientId;
 	const isDisabled = !!id.fIsDisabled;
 	const rooms = await self.roomDb.loadAuthorizationsForAccount( userId );
-	log( 'handleIdUpdate - rooms', rooms );
 	rooms.forEach( r => {
 		const rId = r.clientId;
 		const room = self.rooms[ rId ];
@@ -411,10 +405,12 @@ ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {
 	wRoom.setSuper( parent );
 	
 	function updateSubs( worgId, subs ) {
+		/*
 		log( 'updateSubs - NYI', {
 			super : worgId,
 			subs  : subs,
 		});
+		*/
 	}
 	
 	async function openSub( subId ) {

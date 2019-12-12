@@ -188,7 +188,7 @@ ns.Users.prototype.remove = function( userId ) {
 		return user;
 	}
 	
-	uLog( 'remove - not found in things', userId );
+	//uLog( 'remove - not found in things', userId );
 	return null;
 }
 
