@@ -21,7 +21,7 @@ CREATE TABLE `account` (
 	`fUserId`     VARCHAR( 191 ) NULL,
 	`fUsername`   VARCHAR( 191 ) NOT NULL UNIQUE,
 	`fLastUpdate` BIGINT NULL,
-	`fIsDisabled` BOOLEAN NULL
+	`fIsDisabled` BOOLEAN NULL,
 	`name`        VARCHAR( 191 ) NOT NULL,
 	`avatar`      TEXT,
 	`settings`    JSON NOT NULL,
