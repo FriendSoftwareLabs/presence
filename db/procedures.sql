@@ -823,14 +823,15 @@ FROM user_relation AS r
 LEFT JOIN account AS c
 	ON r.contactId = c.clientId
 WHERE r.userId = `accountId`
-AND (
-	( 0 = `loadDisabled` AND (
-			0 = c.fIsDisabled OR
-			null = c.fIsDisabled
+AND
+(
+	( 0 = `loadDisabled` AND
+		(
+			0    = c.fIsDisabled OR
+			c.fIsDisabled IS NULL
 		)
-	)
-	OR
-	( 1 = `loadDisabled` )
+	) OR
+	( 1 = `loadDisabled` AND 1 )
 );
 END//
 
