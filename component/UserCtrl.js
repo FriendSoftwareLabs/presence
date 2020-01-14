@@ -199,7 +199,7 @@ ns.UserCtrl.prototype.init = function( dbPool ) {
 	log( ':3' );
 	self.service = new FService();
 	self.serviceConn = new events.EventNode( 'user', self.service, serviceSink );
-	self.serviceConn.on( 'update', e => self.update( e ));
+	self.serviceConn.on( 'update', e => update( e ));
 	function serviceSink( ...args ) {
 		log( 'serviceSink - user', args, 3 );
 	}
@@ -211,6 +211,12 @@ ns.UserCtrl.prototype.init = function( dbPool ) {
 		self.handleWorgUsersAdded( worgId, accIds ));
 	self.worgs.on( 'regenerate', accIds => 
 		self.handleWorgRegenerate( accIds ));
+	
+	async function update( fU ) {
+		const fUser = await self.service.getUser( fU.userid );
+		fUser.groups = fU.groups || [];
+		self.update( fUser );
+	}
 }
 
 ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds ) {
@@ -233,7 +239,7 @@ ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds
 
 ns.UserCtrl.prototype.handleIdAdd = function( id ) {
 	const self = this;
-	log( 'handleIdAdd - NYI' );
+	//log( 'handleIdAdd, aborted', id );
 	return;
 	
 	if ( id.fIsDisabled )
