@@ -549,6 +549,9 @@ ns.WorgCtrl.prototype.handleRemoveUsers = async function( event ) {
 	const affected = [ ...members ];
 	const uIds = await self.getUIdsForFUsers( event.userids );
 	const removed = self.removeUsers( worgId, uIds );
+	if ( !removed || !removed.length )
+		return;
+	
 	self.sendRemovedFrom( worgId, removed );
 	self.sendRegenerate( affected );
 }
@@ -584,26 +587,27 @@ ns.WorgCtrl.prototype.addUsers = function( worgId, userList ) {
 	return added;
 }
 
-ns.WorgCtrl.prototype.removeUsers = function( worgId, userList ) {
+ns.WorgCtrl.prototype.removeUsers = function( worgId, removeList ) {
 	const self = this;
-	if ( !worgId || ( !userList || !userList.length )) {
-		log( 'removeUsers - invalid things', {
-			worgId   : worgId,
-			userList : userList,
+	if ( !removeList || !removeList.length ) {
+		log( 'removeUsers - empty remove list fucko', {
+			worgId : worgId,
+			worgs  : self.cMap,
+			list   : removeList,
 		});
-		return null;
+		return [];
 	}
 	
 	const worg = self.get( worgId );
 	if ( !worg ) {
-		log( 'removeUsers - no worg found', {
+		log( 'removeUsers - no worg for', {
 			worgId : worgId,
-			worgs  : self.cMap,	
+			worgs  : self.cMap,
 		}, 3 );
-		return;
+		return [];
 	}
 	
-	const removed = userList.map( userId => {
+	const removed = removeList.map( userId => {
 		const removed = self.removeFromWorg( worgId, userId );
 		if ( removed )
 			return userId;
@@ -1040,9 +1044,24 @@ ns.WorgCtrl.prototype.cId_to_fId_list = function( cId_list ) {
 	const self = this;
 	return cId_list.map( cId => {
 		let wg = self.cMap[ cId ];
+		if ( !wg ) {
+			log( 'cId_to_fId_list - no wg for', {
+				cId_list : cId_list,
+				cId      : cId,
+				cMap     : self.cMap,
+			}, 4 );
+			try {
+				throw new Error( 'no wg!?' );
+			} catch( ex ) {
+				log( 'cId_to_fId_list - no wg trace', ex.trace || ex );
+			}
+			
+			return null;
+		}
+		
 		let fId = wg.fId;
 		return fId;
-	});
+	}).filter( id => !!id );
 }
 
 ns.WorgCtrl.prototype.normalizeServiceWorg = function( swg ) {

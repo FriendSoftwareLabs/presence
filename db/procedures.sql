@@ -31,6 +31,7 @@ DROP PROCEDURE IF EXISTS account_set_active;
 # ROOM
 DROP PROCEDURE IF EXISTS room_create;
 DROP PROCEDURE IF EXISTS room_read;
+DROP PROCEDURE IF EXISTS room_read_all;
 DROP PROCEDURE IF EXISTS room_update;
 DROP PROCEDURE IF EXISTS room_delete;
 DROP PROCEDURE IF EXISTS room_touch;
@@ -396,12 +397,65 @@ END//
 
 #
 # READ
+# reads basic room data required to intialize a room in presence
 CREATE PROCEDURE room_read(
 	IN `clientId` VARCHAR( 191 )
 )
 BEGIN
 	SELECT * FROM room
 	WHERE room.clientId = `clientId`;
+END//
+
+#
+# ROOM_READ_ALL
+# collect all db data related to a room
+CREATE PROCEDURE room_read_all(
+	IN `clientId` VARCHAR( 191 )
+)
+BEGIN
+# room
+SELECT
+	r.clientId,
+	r.workgroupId,
+	r.name,
+	r.ownerId,
+	r.settings,
+	r.isPrivate,
+	r.created,
+	r.lastActivity
+FROM room AS r
+WHERE r.clientId = `clientId`;
+
+# authorized
+SELECT
+	a.accountId
+FROM authorized_for_room AS a
+WHERE a.roomId = `clientId`;
+
+# workgroups
+SELECT wg.fId FROM workgroup_rooms AS wg
+WHERE wg.roomId = `clientId`;
+
+# invites
+SELECT
+	i.token,
+	i.singleUse
+FROM invite_token AS i
+WHERE i.isValid = 1
+AND i.roomId = `clientId`;
+
+# messages
+SELECT
+	(
+		SELECT COUNT(*) FROM message AS m
+		WHERE m.roomId = `clientId`
+	) AS 'total',
+	(
+		SELECT COUNT(*) FROM message_edit AS me
+		LEFT JOIN message AS m ON me.msgId = m.msgId
+		WHERE m.roomId = `clientId`
+	) AS 'edits';
+
 END//
 
 #

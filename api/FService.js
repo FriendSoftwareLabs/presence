@@ -635,6 +635,7 @@ ns.FCWS.prototype.handleNotify = function( event ) {
 ns.FCWS.prototype.startPing = function() {
 	const self = this;
 	self.pinger = setInterval( send, self.pingRate );
+	
 	function send() {
 		if ( null == self.pinger )
 			return;
@@ -813,6 +814,9 @@ ns.FCWS.prototype.handleFCEvent = function( msgStr ) {
 	if ( !event )
 		return;
 	
+	if (( 'ping' != event.type ) && ( 'pong' != event.type ))
+		wsLog( 'FCEvent', msgStr );
+	
 	self.emit( event.type, event.data );
 }
 
@@ -830,6 +834,9 @@ ns.FCWS.prototype.sendOnWS = async function( event ) {
 	
 	if ( !str || !str.length )
 		return ns.FSError( 'ERR_COULD_NOT_STRINGIFY', event );
+	
+	if (( 'ping' != event.type ) && ( 'pong' != event.type ))
+		wsLog( 'sendOnWs', str );
 	
 	let err = await send( str );
 	if ( err )

@@ -22,8 +22,9 @@
 const log = require( './Log')( 'RoomCtrl' );
 const uuid = require( './UuidPrefix' )( 'room' );
 const ContactRoom = require( './RoomContact' );
+const FService = require( '../api/FService' );
 const WorkRoom = require( './RoomWork' );
-const Emitter = require( './Events' ).Emitter;
+const events = require( './Events' );
 const dFace = require( './DFace' );
 const Room = require( './Room' );
 const tiny = require( './TinyAvatar' );
@@ -34,7 +35,7 @@ var ns = {};
 ns.RoomCtrl = function( dbPool, idCache, worgs ) {
 	const self = this;
 	
-	Emitter.call( self );
+	events.Emitter.call( self );
 	
 	self.dbPool = dbPool;
 	self.idCache = idCache;
@@ -56,7 +57,7 @@ ns.RoomCtrl = function( dbPool, idCache, worgs ) {
 	self.init();
 }
 
-util.inherits( ns.RoomCtrl, Emitter );
+util.inherits( ns.RoomCtrl, events.Emitter );
 
 // Public
 
@@ -98,18 +99,28 @@ ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
 ns.RoomCtrl.prototype.createRoom = async function( accountId, conf ) {
 	const self = this;
 	conf = conf || {};
+	let room = null;
 	if ( null == conf.name )
-		return await self.createAnonRoom( accountId );
+		room = await self.createAnonRoom( accountId );
 	else
-		return await self.createNamedRoom( accountId, conf );
+		room = await self.createNamedRoom( accountId, conf );
+	
+	if ( !room )
+		return null;
+	
+	const user = await room.connect( accountId );
+	return user;
 }
 
 ns.RoomCtrl.prototype.joinRoom = async function( accountId, conf ) {
 	const self = this;
+	let user = null;
 	if ( conf.token )
-		return await self.joinWithInvite( accountId, conf );
+		user = await self.joinWithInvite( accountId, conf );
 	else
-		return await self.joinWithAuth( accountId, conf );
+		user = await self.joinWithAuth( accountId, conf );
+	
+	return user;
 }
 
 ns.RoomCtrl.prototype.getWorkRooms = function( accountId ) {
@@ -291,6 +302,14 @@ ns.RoomCtrl.prototype.close = function() {
 	const self = this;
 	// TODO : close rooms
 	
+	if ( self.service )
+		delete self.service;
+	
+	if ( self.serviceConn ) {
+		self.serviceConn.close();
+		delete self.serviceConn;
+	}
+	
 	if ( self.roomDb )
 		self.roomDb.close();
 	
@@ -324,6 +343,15 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.accDb = new dFace.AccountDB( self.dbPool );
 	self.invDb = new dFace.InviteDB( self.dbPool );
 	
+	self.service = new FService();
+	self.serviceConn = new events.RequestNode( 'room', self.service, serviceSink );
+	self.serviceConn.on( 'create', r => self.handleServiceCreate( r ));
+	self.serviceConn.on( 'get'   , r => self.handleServiceGet( r ));
+	
+	function serviceSink( ...args ) {
+		log( 'serviceSink', args );
+	}
+	
 	try {
 		self.guestAvatar = await tiny.generateGuest( 'roundel' );
 	} catch ( err ) {
@@ -331,12 +359,12 @@ ns.RoomCtrl.prototype.init = async function() {
 		log( 'init - failed to generate guest avatar', err );
 	}
 	
-	self.worgs.on( 'users-added', ( wId, users ) => self.handleWorkgroupUserAdds( wId, users ));
+	self.worgs.on( 'users-added'  , ( wId, users ) => self.handleWorkgroupUserAdds( wId, users ));
 	self.worgs.on( 'users-removed', ( wId, users ) => self.handleWorkgroupUserRemoved( wId, users ));
-	self.worgs.on( 'super-added', ( s, c ) => self.superAdded( s, c ));
+	self.worgs.on( 'super-added'  , ( s, c ) => self.superAdded( s, c ));
 	self.worgs.on( 'super-removed', ( s, c ) => self.superRemoved( s, c ));
-	self.worgs.on( 'sub-added', ( c, s ) => self.subAdded( c, s ));
-	self.worgs.on( 'sub-removed', ( c, s ) => self.subRemoved( c, s ));
+	self.worgs.on( 'sub-added'    , ( c, s ) => self.subAdded( c, s ));
+	self.worgs.on( 'sub-removed'  , ( c, s ) => self.subRemoved( c, s ));
 	
 	self.idCache.on( 'update', e => self.handleIdUpdate( e ));
 }
@@ -358,6 +386,79 @@ ns.RoomCtrl.prototype.handleIdUpdate = async function( update ) {
 		
 		room.setUserDisabled( userId, isDisabled );
 	});
+}
+
+ns.RoomCtrl.prototype.handleServiceCreate = async function( req ) {
+	const self = this;
+	log( 'handleServiceCreate', req );
+	const origin = await self.idCache.getByFUserId( req.originUserId );
+	if ( !origin )
+		throw 'ERR_NO_ORIGIN';
+	
+	log( 'handleServiceCreate - origin', {
+		cId     : origin.clientId,
+		fId     : origin.fUserId,
+		name    : origin.name,
+		isAdmin : origin.isAdmin,
+	});
+	
+	let owner = null;
+	/*
+	if ( req.ownerUserId )
+		owner = await self.idCache.getByFUserId( req.ownerUserId );
+	
+	if ( owner && !origin.isAdmin )
+		throw 'ERR_NOT_ADMIN';
+	*/
+	
+	const roomName = req.name;
+	if ( null == roomName || ( 'string' != typeof( roomName )) || !roomName.length  )
+		throw 'ERR_INVALID_NAME';
+	
+	let oId = origin.clientId;
+	if ( owner )
+		oId = owner.clientId;
+	
+	const conf = {
+		name : roomName,
+	};
+	const room = await self.createNamedRoom( oId, conf );
+	const pub = await room.getPublicToken( oId );
+	const reply = {
+		roomId  : room.id,
+		ownerId : room.ownerId,
+		name    : room.name,
+		invite  : pub,
+	};
+	log( 'handleServiceCreate - reply', reply, 3 );
+	
+	return reply;
+}
+
+ns.RoomCtrl.prototype.handleServiceGet = async function( roomId ) {
+	const self = this;
+	log( 'handleServiceGet', roomId );
+	const rId = roomId;
+	const dbInfo = await self.roomDb.getInfo( roomId );
+	if ( dbInfo.workgroups )
+		dbInfo.workgroups = dbInfo.workgroups.map( addWGUserInfo );
+	
+	log( 'dbInfo', dbInfo, 4 );
+	return dbInfo;
+	
+	function addWGUserInfo( g ) {
+		if ( !g || !g.fId )
+			return null;
+		
+		const wg = self.worgs.getByFId( g.fId );
+		if ( !wg )
+			return null;
+		
+		const users = self.worgs.getUserList( wg.clientId ) || [];
+		wg.users = users.length;
+		//log( 'wg', wg );
+		return wg;
+	}
 }
 
 ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {
@@ -587,29 +688,44 @@ ns.RoomCtrl.prototype.createWorkRoom = async function( worgId ) {
 	return roomConf;
 }
 
-ns.RoomCtrl.prototype.createNamedRoom = function( accId, conf ) {
+ns.RoomCtrl.prototype.createNamedRoom = async function( ownerId, conf ) {
 	const self = this;
-	log( 'createNamedRoom - NYI', conf );
+	log( 'createNamedRoom', conf );
+	const roomId = uuid.get();
+	const name = conf.name;
+	const roomConf = await self.roomDb.set(
+		roomId,
+		name,
+		ownerId,
+		false,
+		null
+	);
+	
+	log( 'createNamedRoom - rconf', roomConf );
+	const room = await self.setRoom( roomConf );
+	if ( !room )
+		return null;
+	
+	await room.authorizeUser( ownerId );
+	
+	return room;
 }
 
-ns.RoomCtrl.prototype.createAnonRoom = async function( accId ) {
+ns.RoomCtrl.prototype.createAnonRoom = async function( ownerId ) {
 	const self = this;
-	const ownerId = accId;
 	const roomId = uuid.get();
-	const acc = await self.idCache.get( accId );
-	let room = null;
+	const acc = await self.idCache.get( ownerId );
 	const roomConf = {
 		clientId   : roomId,
 		ownerId    : ownerId,
 		name       : '[ temp ] created by: ' + acc.name,
 	};
 	
-	room = await self.setRoom( roomConf );
+	const room = await self.setRoom( roomConf );
 	if ( !room )
 		return null;
 	
-	const user = await room.connect( accId );
-	return user;
+	return room;
 }
 
 ns.RoomCtrl.prototype.joinWithInvite = async function( accountId, conf ) {
@@ -639,51 +755,58 @@ ns.RoomCtrl.prototype.joinWithAuth = async function( accountId, conf ) {
 	return false;
 }
 
-ns.RoomCtrl.prototype.setRoom = function( roomConf ) {
+ns.RoomCtrl.prototype.setRoom = async function( roomConf ) {
 	const self = this;
 	const roomId = roomConf.clientId;
+	if ( !roomConf.avatar )
+		roomConf.avatar = await tiny.generate( roomConf.name, 'block' );
+	
 	const isContactRoom = checkIsContactRoom( roomConf.ownerId );
 	if ( isContactRoom )
-		return new Promise( openContactRoom );
+		return await openContactRoom( roomConf );
 	else
-		return new Promise( openRoom );
+		return await openRoom( roomConf );
 	
-	function openContactRoom( resolve, reject ) {
-		const roomId = roomConf.clientId;
-		const room = new ContactRoom(
-			roomConf,
-			self.dbPool,
-			self.idCache,
-		);
-		
-		room.once( 'open', onOpen );
-		self.bindContactRoom( room );
-		
-		function onOpen() {
-			self.rooms[ roomId ] = room;
-			self.roomIds = Object.keys( self.rooms );
-			resolve( self.rooms[ roomId ]);
-		}
+	function openContactRoom( roomConf ) {
+		return new Promise(( resolve, reject ) => {
+			const roomId = roomConf.clientId;
+			const room = new ContactRoom(
+				roomConf,
+				self.dbPool,
+				self.idCache,
+			);
+			
+			room.once( 'open', onOpen );
+			self.bindContactRoom( room );
+			
+			function onOpen() {
+				self.rooms[ roomId ] = room;
+				self.roomIds = Object.keys( self.rooms );
+				resolve( self.rooms[ roomId ]);
+			}
+		});
 	}
 	
-	function openRoom( resolve, reject ) {
-		roomConf.guestAvatar = self.guestAvatar;
-		const roomId = roomConf.clientId;
-		const room = new Room(
-			roomConf,
-			self.dbPool,
-			self.idCache,
-			self.worgs
-		);
-		
-		room.once( 'open', onOpen );
-		self.bindRoom( room );
-		
-		function onOpen() {
-			self.rooms[ roomId ] = room;
-			self.roomIds = Object.keys( self.rooms );
-			resolve( self.rooms[ roomId ]);
-		}
+	function openRoom( roomConf ) {
+		return new Promise(( resolve, reject ) => {
+			roomConf.guestAvatar = self.guestAvatar;
+			const roomId = roomConf.clientId;
+			const room = new Room(
+				roomConf,
+				self.dbPool,
+				self.idCache,
+				self.worgs
+			);
+			
+			room.once( 'open', onOpen );
+			self.bindRoom( room );
+			
+			function onOpen() {
+				self.rooms[ roomId ] = room;
+				self.roomIds = Object.keys( self.rooms );
+				resolve( self.rooms[ roomId ]);
+			}
+		});
 	}
 	
 	function checkIsContactRoom( ownerId ) {
@@ -966,6 +1089,7 @@ ns.RoomCtrl.prototype.getRoom = async function( rid ) {
 	loader = loadRoom( rid );
 	self.roomLoads[ rid ] = loader;
 	room = await loadDone( loader );
+	//await self.handleServiceGet( rid );
 	return room || null;
 	
 	async function loadDone( loader ) {
@@ -996,9 +1120,6 @@ ns.RoomCtrl.prototype.getRoom = async function( rid ) {
 		
 		if ( !roomConf )
 			return null;
-		
-		if ( !roomConf.avatar )
-			roomConf.avatar = await tiny.generate( roomConf.name, 'block' );
 		
 		roomConf.persistent = true;
 		let room = null;

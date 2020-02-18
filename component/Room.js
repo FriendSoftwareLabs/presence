@@ -88,6 +88,11 @@ ns.Room.prototype.getClientId = function() {
 	return self.id;
 }
 
+ns.Room.prototype.getPublicToken = async function( userId ) {
+	const self = this;
+	return await self.invite.getPublicToken( userId );
+}
+
 // when users come online
 ns.Room.prototype.connect = async function( userId ) {
 	const self = this;

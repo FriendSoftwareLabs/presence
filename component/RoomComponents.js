@@ -2116,15 +2116,15 @@ ns.Invite.prototype.handleState = function( event, userId ) {
 	self.send( state, userId );
 }
 
-ns.Invite.prototype.handlePublic = function( event, userId ) {
+ns.Invite.prototype.getPublicToken = async function( userId ) {
 	const self = this;
-	event = event || {};
+	iLog( 'getPublicToken', userId );
 	if ( !self.publicToken )
-		setPublicToken( event.reqId, userId );
+		return await setPublicToken( userId );
 	else
-		returnToken( event.reqId );
+		return returnToken();
 	
-	async function setPublicToken( reqId, userId ) {
+	async function setPublicToken( userId ) {
 		const token = await self.createToken( false, userId );
 		if ( !token )
 			return;
@@ -2133,20 +2133,31 @@ ns.Invite.prototype.handlePublic = function( event, userId ) {
 			value : token,
 			by    : userId,
 		};
-		returnToken( reqId );
+		const pub = returnToken();
+		self.broadcast( pub );
+		return pub;
 	}
 	
-	function returnToken( reqId ) {
+	function returnToken() {
 		const pub = {
 			type : 'public',
 			data : {
 				token : self.publicToken.value,
 				host  : self.getInviteHost(),
-				reqId : reqId || null,
 			},
 		};
-		self.broadcast( pub );
+		
+		return pub;
 	}
+}
+
+ns.Invite.prototype.handlePublic = async function( event, userId ) {
+	const self = this;
+	const pub = await self.getPublicToken( userId );
+	if ( event && event.reqId )
+		pub.data.reqId = event.reqId;
+	
+	self.send( pub, userId );
 }
 
 ns.Invite.prototype.handlePrivate = async function( event, userId ) {
@@ -3078,9 +3089,13 @@ ns.Workgroup.prototype.handleWorgRemoved = function( worg ) {
 ns.Workgroup.prototype.handleUsersRemoved = function( worgId, removed ) {
 	const self = this;
 	//const fId = self.worgCtrl.cIdToFid( worgId );
+	if ( !removed || !removed.length )
+		return;
+	
 	removed.forEach( uId => {
 		self.users.removeFromWorg( worgId, uId );
 	});
+	
 	self.removeUsers();
 }
 

@@ -437,18 +437,19 @@ util.inherits( ns.RoomDB, ns.DB );
 
 // Public
 
-ns.RoomDB.prototype.set = function(
+ns.RoomDB.prototype.set = async function(
 	clientId,
 	name,
 	ownerId,
-	isPrivate
+	isPrivate,
+	settings
 ) {
 	const self = this;
 	if ( !name || !ownerId )
 		throw new Error( 'Room.db.set - invalid params' );
 	
 	clientId = clientId || uuid.get( 'room' );
-	const settings = '{}';
+	settings = settings || '{}';
 	if ( null == isPrivate )
 		isPrivate = false;
 	
@@ -459,37 +460,66 @@ ns.RoomDB.prototype.set = function(
 		settings,
 		isPrivate,
 	];
-	return new Promise( insertRoom );
-	function insertRoom( resolve, reject ) {
-		self.query( 'room_create', values )
-			.then( roomBack )
-			.catch( reject );
-		
-		function roomBack( res ) {
-			if ( !res )
-				reject( 'ERR_ROOM_SET_NO_ROWS' );
-			
-			resolve( res[ 0 ] );
-		}
+	
+	let res = null;
+	try {
+		res = await self.query( 'room_create', values );
+	} catch( ex ) {
+		roomLog( 'set query ex', ex );
+		return null;
 	}
+	
+	if ( !res )
+		return null;
+	
+	const conf = res[ 0 ];
+	conf.persistent = true;
+	
+	return conf;
 }
 
-ns.RoomDB.prototype.get = function( clientId ) {
+ns.RoomDB.prototype.get = async function( clientId ) {
 	const self = this;
-	return new Promise( loadRoom );
-	function loadRoom( resolve, reject ) {
-		const values = [ clientId ];
-		self.query( 'room_read', values )
-			.then( loaded )
-			.catch( reject );
+	const values = [ clientId ];
+	let res = null;
+	try {
+		res = await self.query( 'room_read', values );
 		
-		function loaded( res ) {
-			if ( res )
-				resolve( res[ 0 ] || null );
-			else
-				reject( 'ERR_NO_ROOM_???' );
-		}
+	} catch( ex ) {
+		roomLog( 'get query ex', ex );
+		return null;
 	}
+	
+	if ( !res )
+		return null;
+	
+	return res[ 0 ];
+}
+
+ns.RoomDB.prototype.getInfo = async function( clientId ) {
+	const self = this;
+	const values = [ clientId ];
+	let res = null;
+	try {
+		res = await self.query( 'room_read_all', values );
+	} catch( ex ) {
+		roomLog( 'getInfo query ex', ex );
+		return null;
+	}
+	
+	if ( !res )
+		return null;
+	
+	//roomLog( 'getInfo - res', res, 2 );
+	const info = {
+		room        : res[ 0 ][ 0 ],
+		authorized  : res[ 1 ],
+		workgroups  : res[ 2 ],
+		invites     : res[ 3 ],
+		messages    : res[ 4 ][ 0 ],
+	};
+	
+	return info;
 }
 
 ns.RoomDB.prototype.remove = function( clientId ) {

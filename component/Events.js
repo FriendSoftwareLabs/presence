@@ -221,9 +221,10 @@ ns.EventNode.prototype.send = function( event, sourceId, altType ) {
 		wrap = event;
 	else
 		wrap = {
-		type : altType || self._eventNodeType,
-		data : event,
-	};
+			type : altType || self._eventNodeType,
+			data : event,
+		};
+	
 	self.sendEvent( wrap, sourceId );
 }
 
@@ -261,11 +262,14 @@ ns.EventNode.prototype._eventNodeInit = function() {
 	}
 	
 	function fnSend( ...args ) {
-		nLog( 'fnSend', args );
+		if ( self._eventsDebug )
+			nLog( 'fnSend', args );
 		self._eventNodeConn( ...args, self._eventNodeProxyType );
 	}
 	
 	function connSend( e, sId ) {
+		if ( self._eventsDebug )
+			nLog( 'connSend', e );
 		self._eventNodeConn.send( e, sId, self._eventNodeProxyType );
 	}
 	
@@ -405,6 +409,13 @@ ns.RequestNode.prototype._handleRequest = async function( event, sourceId ) {
 		error = err;
 	}
 	
+	if ( undefined === response ) {
+		rLog( '_hanleRequest - warning : response is undefined, not sending reply', {
+			request : event
+		});
+		return;
+	}
+	
 	const res = {
 		requestId : reqId,
 		response  : response,
@@ -412,6 +423,7 @@ ns.RequestNode.prototype._handleRequest = async function( event, sourceId ) {
 	};
 	if ( self._eventsDebug )
 		rLog( '_handleRequest - response', response );
+	
 	self.send( res, sourceId );
 }
 
@@ -435,7 +447,7 @@ ns.RequestNode.prototype._callListener = async function( req, sourceId ) {
 	try {
 		return listener( req.data, sourceId );
 	} catch( err ) {
-		throw new Error( err );
+		throw err;
 	}
 }
 
