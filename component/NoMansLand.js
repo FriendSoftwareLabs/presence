@@ -671,7 +671,7 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 			self.fcReq.post( req );
 			function success( data ) {
 				if ( !data || !data.length ) {
-					reject( 'ERR_NO_DATA' );
+					resolve( null );
 					return;
 				}
 				
@@ -724,7 +724,7 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 			self.fcReq.post( req );
 			function success( data ) {
 				if ( !data || !data.length ) {
-					reject( 'ERR_NO_DATA' );
+					resolve( null );
 					return;
 				}
 				

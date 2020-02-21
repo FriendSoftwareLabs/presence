@@ -81,7 +81,7 @@ ns.FService = function( fcConf, destinationApp ) {
 	return self;
 	
 	function FSink( ...args ) {
-		log( 'FSink', args, 4 );
+		//log( 'FSink', args, 4 );
 	}
 }
 
@@ -287,10 +287,10 @@ ns.FService.prototype.connect = function() {
 		self.fcc.useTLS,
 	);
 	
-	self.conn.on( 'open',    e => self.handleConnOpen( e ));
-	self.conn.on( 'error',   e => self.handleConnError( e ));
-	self.conn.on( 'closed',  e => self.handleConnClosed( e ));
-	self.conn.on( 'reply',   e => self.handleReply( e ));
+	self.conn.on( 'open'   , e => self.handleConnOpen( e ));
+	self.conn.on( 'error'  , e => self.handleConnError( e ));
+	self.conn.on( 'closed' , e => self.handleConnClosed( e ));
+	self.conn.on( 'reply'  , e => self.handleReply( e ));
 	self.conn.on( 'service', e => self.handleService( e ));
 }
 
@@ -460,42 +460,6 @@ ns.FService.prototype.checkString = function( str ) {
 ns.FService.prototype.checkArray = function( list ) {
 	
 }
-
-/*
- standalone somewhat useful logging
-*/
-
-/*
-const pre = 'Service > ';
-function log( msg, obj ) {
-	const now = new Date();
-	const minutes = now.getMinutes();
-	const seconds = now.getSeconds();
-	const millis = now.getMilliseconds();
-	const time = pad( minutes ) + ':' + pad( seconds ) + ':' + pad( millis, true );
-	const message = time + ' : ' + pre + msg;
-	if ( obj )
-		console.log( message, obj );
-	else
-		console.log( message );
-	
-	function pad( arg, millis ) {
-		var int = parseInt( arg );
-		if ( millis ) {
-			if ( int < 10 )
-				return '00' + int;
-			if ( int < 100 )
-				return '0' + int;
-		}
-		
-		if ( int < 10 )
-			return '0' + int;
-		
-		return arg;
-	}
-}
-
-*/
 
 module.exports = ns.FService;
 

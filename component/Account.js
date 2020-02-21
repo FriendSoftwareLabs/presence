@@ -446,6 +446,11 @@ ns.Account.prototype.openContactChat = async function( event, contactId ) {
 	room = await self.roomCtrl.connectContact( self.id, contactId );
 	if ( !room ) {
 		self.log( 'openContactChat - failed to connect to room', contactId );
+		try {
+			throw Error( 'openContactChat trace' );
+		} catch( ex ) {
+			self.log( 'openContactChat - could not connect, trace', ex );
+		}
 		return null;
 	}
 	
@@ -506,6 +511,8 @@ ns.Account.prototype.handleWorkgroupAssigned = function( addedWorg, roomId ) {
 ns.Account.prototype.initializeClient = async function( event, clientId ) {
 	const self = this;
 	const rooms = self.rooms.getRooms();
+	const ids = await getIds();
+	const contacts = await getContactRelations();
 	const state = {
 		type : 'initialize',
 		data : {
@@ -514,9 +521,9 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 				clientId : self.id,
 				identity : self.identity,
 			},
-			identities : await getIds(),
+			identities : ids,
 			rooms      : rooms,
-			contacts   : await getContactRelations(),
+			contacts   : contacts,
 		},
 	};
 	self.conn.send( state, clientId );
@@ -542,8 +549,10 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 
 ns.Account.prototype.getContactRelation = async function( contactId ) {
 	const self = this;
-	if ( self.closed )
+	if ( self.closed ) {
+		self.log( 'getContactRelation - closed???', self );
 		return null;
+	}
 	
 	const msgDb = new dFace.MessageDB( self.dbPool );
 	if ( contactId )

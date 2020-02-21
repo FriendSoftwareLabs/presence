@@ -84,7 +84,10 @@ ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
 	
 	const user = await room.connect( accId );
 	if ( !user ) {
-		log( 'connectContact - no user' );
+		log( 'connectContact - could not connect user', {
+			accId     : accId,
+			contactId : contactId,
+		});
 		return null;
 	}
 	
