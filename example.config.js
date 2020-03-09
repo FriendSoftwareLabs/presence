@@ -54,7 +54,7 @@ const server = {
 		wsPort      : 6498,
 		wsProxy     : null,
 		serviceKey  : null,
-		serviceName : null,
+		serviceName : 'presence',
 	},
 	account : {
 		settings : {
