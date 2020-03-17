@@ -126,10 +126,14 @@ ns.Account.prototype.addContact = async function( accId ) {
 	await self.addIdentity( accId );
 	const rel = await self.getContactRelation( accId );
 	
+	if ( !self.isLoaded )
+		return accId;
+	
 	const contact = {
 		clientId : accId,
 		relation : rel.relation,
 	};
+	
 	const cAdd = {
 		type : 'contact-add',
 		data : contact,
@@ -595,6 +599,9 @@ ns.Account.prototype.addIdentity = async function( clientId ) {
 		return false;
 	
 	self.ids[ clientId ] = clientId;
+	if ( !self.isLoaded )
+		return;
+	
 	const idAdd = {
 		type : 'add',
 		data : identity,
