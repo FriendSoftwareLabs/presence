@@ -268,12 +268,10 @@ ns.TCPClient.prototype.kill = function() {
 
 ns.TCPClient.prototype.handleSocketData = function( str ) {
 	const self = this;
-	//log( 'handleSocketData', shtStr( str ));
 	let event = parse( str );
 	if ( event )
 		self.rcvBuffer = [];
 	else {
-		//log( 'buff part, l: ', str.length );
 		self.rcvBuffer.push( str );
 	}
 	
@@ -293,16 +291,12 @@ ns.TCPClient.prototype.handleSocketData = function( str ) {
 	self.handleConnMsg( event );
 	
 	function tryBuffer() {
-		//log( 'tryBuffer', self.rcvBuffer.map( str => shtStr( str )));
 		const buffStr = self.rcvBuffer.join( '' );
-		//log( 'buffStr', shtStr( buffStr ) );
 		const event = parse( buffStr );
 		if ( !event ) {
-			//log( 'tryBuffer - failed', buffStr );
 			return null;
 		}
 		
-		//log( 'tryBuffer - parsed', event );
 		self.rcvBuffer = [];
 		return event;
 	}
@@ -312,7 +306,6 @@ ns.TCPClient.prototype.handleSocketData = function( str ) {
 		try {
 			event = JSON.parse( str );
 		} catch( e ) {
-			//log( 'could not parse', shtStr( str ));
 			return null;
 		}
 		

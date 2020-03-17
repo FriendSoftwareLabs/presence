@@ -178,10 +178,12 @@ ns.Account.prototype.removeContact = function( contactId ) {
 	const contacts = self.worgCtrl.getContactList( self.id );
 	const cIndex = contacts.indexOf( contactId );
 	if ( -1 != cIndex ) {
+		/*
 		self.log( 'removeContact - not removing because workgroup', {
 			cId    : contactId,
 			inworg : cIndex,
 		});
+		*/
 		return;
 	}
 	

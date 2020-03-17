@@ -164,7 +164,6 @@ ns.UserCtrl.prototype.remove = function( accountId ) {
 
 ns.UserCtrl.prototype.update = async function( fUser ) {
 	const self = this;
-	log( 'update', fUser, 3 );
 	if ( !fUser.userid ) {
 		log( 'update - invalid friend user', fUser );
 		return;

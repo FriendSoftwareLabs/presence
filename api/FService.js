@@ -619,7 +619,6 @@ ns.FCWS.prototype.sendPing = function() {
 	self.pingMap[ time ] = setTimeout( timeout, self.pingTimeout );
 	
 	function timeout() {
-		wsLog( 'ping timeout hit', time );
 		self.stopPing();
 		self.state = 'error';
 		self.tryReconnect();
@@ -778,8 +777,10 @@ ns.FCWS.prototype.handleFCEvent = function( msgStr ) {
 	if ( !event )
 		return;
 	
+	/*
 	if (( 'ping' != event.type ) && ( 'pong' != event.type ))
 		wsLog( 'FCEvent', msgStr );
+	*/
 	
 	self.emit( event.type, event.data );
 }
@@ -799,8 +800,10 @@ ns.FCWS.prototype.sendOnWS = async function( event ) {
 	if ( !str || !str.length )
 		return ns.FSError( 'ERR_COULD_NOT_STRINGIFY', event );
 	
+	/*
 	if (( 'ping' != event.type ) && ( 'pong' != event.type ))
 		wsLog( 'sendOnWs', str );
+	*/
 	
 	let err = await send( str );
 	if ( err )
