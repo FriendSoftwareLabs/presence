@@ -417,11 +417,16 @@ ns.WorgCtrl.prototype.bindService = function() {
 ns.WorgCtrl.prototype.handleGroupCreate = function( swg ) {
 	const self = this;
 	const wg = self.normalizeServiceWorg( swg );
+	log( 'handleGroupCreate', {
+		swg : swg,
+		wg  : wg,
+	}, 3 );
 	self.add( wg );
 }
 
 ns.WorgCtrl.prototype.handleGroupUpdate = function( swg ) {
 	const self = this;
+	log( 'handleGroupUpdate', swg );
 	const uptd = self.normalizeServiceWorg( swg );
 	const curr = self.get( uptd.clientId );
 	if ( !curr ) {
@@ -463,6 +468,11 @@ ns.WorgCtrl.prototype.handleGroupDelete = function( swg ) {
 	const self = this;
 	const fId = self.makeFId( swg.id );
 	const wId = self.makeClientId( fId );
+	log( 'handleGroupDelete', {
+		swg : swg,
+		fId : fId,
+		wId : wId,
+	}, 3 );
 	self.remove( wId );
 }
 
@@ -477,7 +487,7 @@ ns.WorgCtrl.prototype.handleAddUsers = async function( event ) {
 		log( 'handleAddUsers - no worg found for', {
 			event : event,
 			worgs : self.cMap,
-		}, 3 );
+		}, 4 );
 		return;
 	}
 	
@@ -500,7 +510,10 @@ ns.WorgCtrl.prototype.handleSetUsers = async function( event ) {
 	const fId = self.makeFId( event.groupid );
 	const worg = self.getByFId( fId );
 	if ( !worg ) {
-		log( 'handleSetUsers - no worg for', event );
+		log( 'handleSetUsers - no worg for', {
+			event : event,
+			worgs : self.cMap,
+		}, 3 );
 		return;
 	}
 	
@@ -810,6 +823,10 @@ ns.WorgCtrl.prototype.updateUserWorgs = function( accId, worgs ) {
 	if ( !worgs )
 		return;
 	
+	log( 'updateUserWorgs', {
+		accId : accId,
+		worgs : worgs,
+	}, 3 );
 	const memberMap = {};
 	const addedTo = worgs.map( addTo )
 		.filter( wId => !!wId );
@@ -1101,7 +1118,7 @@ ns.WorgCtrl.prototype.getUIdsForFUsers = async function( fUsers ) {
 	
 	const uIds = users
 		.filter( u => !!u )
-		.filter( u => !u.fIsDisabled )
+		//.filter( u => !u.fIsDisabled )
 		.map( u => u.clientId );
 	
 	return uIds;

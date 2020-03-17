@@ -164,6 +164,7 @@ ns.UserCtrl.prototype.remove = function( accountId ) {
 
 ns.UserCtrl.prototype.update = async function( fUser ) {
 	const self = this;
+	log( 'update', fUser, 3 );
 	if ( !fUser.userid ) {
 		log( 'update - invalid friend user', fUser );
 		return;
@@ -199,7 +200,8 @@ ns.UserCtrl.prototype.init = function( dbPool ) {
 	log( ':3' );
 	self.service = new FService();
 	self.serviceConn = new events.EventNode( 'user', self.service, serviceSink );
-	self.serviceConn.on( 'update', e => update( e ));
+	self.serviceConn.on( 'update', e => self.handleFUserUpdate( e ));
+	
 	function serviceSink( ...args ) {
 		log( 'serviceSink - user', args, 3 );
 	}
@@ -212,9 +214,29 @@ ns.UserCtrl.prototype.init = function( dbPool ) {
 	self.worgs.on( 'regenerate', accIds => 
 		self.handleWorgRegenerate( accIds ));
 	
-	async function update( fU ) {
-		const fUser = await self.service.getUser( fU.userid );
-		fUser.groups = fU.groups || [];
+}
+
+ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
+	const self = this;
+	const fUId = fUpdate.userid;
+	const id = await self.idc.getByFUserId( fUId );
+	if ( !id ) {
+		update( fUId );
+		return;
+	}
+	
+	if ( fUpdate.groups ) {
+		const groups = fUpdate.groups
+			.map( fId => self.worgs.getFIdToCId( fId ))
+			.filter( cId => !!cId );
+		
+		self.worgs.updateUserWorgs( id.clientId, groups );
+	}
+	
+	update( fUId );
+	
+	async function update( fUId ) {
+		const fUser = await self.service.getUser( fUId );
 		self.update( fUser );
 	}
 }
@@ -339,11 +361,6 @@ ns.UserCtrl.prototype.normalizeFUser = function( fUser ) {
 	if ( null == id.fUserId && null == id.fUsername ) {
 		log( 'normalizeUser - invalid friend user', fUser );
 		return null;
-	}
-	
-	if ( fUser.groups ) {
-		id.groups = fUser.groups.map( fId => self.worgs.getFIdToCId( fId ))
-			.filter( cId => !!cId );
 	}
 	
 	return id;
