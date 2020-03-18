@@ -26,7 +26,6 @@ const FService = require( '../api/FService' );
 const Signal = require( './Signal' );
 const events = require( './Events' );
 const dFace = require( './DFace' );
-const Janus = require( './Janus' );
 const Room = require( './Room' );
 const util = require( 'util' );
 

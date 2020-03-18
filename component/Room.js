@@ -26,7 +26,6 @@ const WebRTCProxy = require( './WebRTCProxy' );
 const components = require( './RoomComponents' );
 const Signal = require( './Signal' );
 const dFace = require( './DFace' );
-const Janus = require( './Janus' );
 const util = require( 'util' );
 const FService = require( '../api/FService' );
 

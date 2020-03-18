@@ -221,7 +221,7 @@ ns.IDC.prototype.update = async function( identity ) {
 	const disableChange = await self.checkDisabled( identity, cache );
 	//self.checkEmail( identity, cache );
 	
-	if ( identity.fLastUpdate )
+	if ( null != identity.fLastUpdate )
 		await self.accDB.updateFLastUpdate( cId, identity.fLastUpdate );
 	
 	if ( nameChange )

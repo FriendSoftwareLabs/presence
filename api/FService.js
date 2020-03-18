@@ -136,6 +136,8 @@ ns.FService.prototype.sendNotification = async function(
 		},
 	};
 	
+	log( 'sendNotification', notie, 4 );
+	
 	let err = await self.send( notie );
 	if ( err )
 		throw err;
@@ -599,6 +601,18 @@ ns.FCWS.prototype.handleNotify = function( event ) {
 ns.FCWS.prototype.startPing = function() {
 	const self = this;
 	self.pinger = setInterval( send, self.pingRate );
+	
+	/*
+	const pEvent = {
+		path      : '/service/room/create',
+		requestId : 'asdasdasdasd',
+		data      : {
+			originUserId : '09d93096949105a095e91a31b0733674',
+			name         : 'boopies',
+		},
+	};
+	self.handleFCEvent( JSON.stringify( pEvent ));
+	*/
 	
 	function send() {
 		if ( null == self.pinger )
