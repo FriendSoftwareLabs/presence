@@ -791,12 +791,57 @@ ns.FCWS.prototype.handleFCEvent = function( msgStr ) {
 	if ( !event )
 		return;
 	
-	/*
+	if ( event.path )
+		event = self.parseToEvent( event );
+	
 	if (( 'ping' != event.type ) && ( 'pong' != event.type ))
 		wsLog( 'FCEvent', msgStr );
-	*/
 	
 	self.emit( event.type, event.data );
+}
+
+
+ns.FCWS.prototype.parseToEvent = function( p ) {
+	const self = this;
+	const path = p.path;
+	const reqId = p.requestId;
+	const payload = p.data;
+	const parts = path.split( '/' );
+	wsLog( 'parseToEvent', {
+		p       : p,
+		path    : path,
+		parts   : parts,
+		reqId   : reqId,
+		payload : payload,
+	}, 3 );
+	let event = null;
+	const inner = {
+		type  : parts.pop(),
+		data  : payload,
+	};
+	if ( reqId )
+		inner.requestId = reqId;
+	
+	let layer = parts.pop();
+	if ( !layer )
+		return inner;
+	
+	event = wrap( layer, inner );
+	layer = parts.pop();
+	while( layer ) {
+		event = wrap( layer, event );
+		layer = parts.pop();
+	}
+	
+	wsLog( 'parseToEvent - event', event, 4 );
+	return event;
+	
+	function wrap( type, data ) {
+		return {
+			type : type,
+			data : data,
+		};
+	}
 }
 
 ns.FCWS.prototype.sendOnWS = async function( event ) {
