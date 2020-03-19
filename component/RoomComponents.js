@@ -1096,7 +1096,7 @@ ns.Live = function(
 	
 	self.mode = null;
 	self.quality = {
-		level : 'medium',
+		level : 'normal',
 		scale : 1,
 	};
 	self.lastScaleUpdate = null;
