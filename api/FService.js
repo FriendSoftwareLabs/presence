@@ -800,7 +800,6 @@ ns.FCWS.prototype.handleFCEvent = function( msgStr ) {
 	self.emit( event.type, event.data );
 }
 
-
 ns.FCWS.prototype.parseToEvent = function( p ) {
 	const self = this;
 	const path = p.path;
