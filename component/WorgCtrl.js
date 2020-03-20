@@ -192,7 +192,7 @@ ns.WorgCtrl.prototype.getFIdToCId = function( fId ) {
 ns.WorgCtrl.prototype.addUser = function( accId, worgs ) {
 	const self = this;
 	//addNewWorgs( worgs );
-	addSupers( worgs.supergroups );
+	addSupers( worgs.superGroups );
 	registerUser( accId, worgs );
 	
 	function addNewWorgs( worgs ) {
@@ -217,8 +217,8 @@ ns.WorgCtrl.prototype.addUser = function( accId, worgs ) {
 			self.updateUserWorgs( accId, worgs.member );
 		*/
 		
-		if ( worgs.stream )
-			self.updateStreamWorgs( accId, worgs.stream );
+		if ( worgs.streamGroups )
+			self.updateStreamWorgs( accId, worgs.streamGroups );
 	}
 }
 
