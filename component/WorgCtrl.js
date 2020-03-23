@@ -285,6 +285,11 @@ ns.WorgCtrl.prototype.removeUser = function( userId ) {
 ns.WorgCtrl.prototype.checkUserIsStreamerFor = function( accId, worgList ) {
 	const self = this;
 	const streamer = self.streamers[ accId ];
+	log( 'checkUserIsStreamerFor', {
+		accId    : accId,
+		worgList : worgList,
+		steamer  : streamer,
+	});
 	if ( !streamer )
 		return false;
 	

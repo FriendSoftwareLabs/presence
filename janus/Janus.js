@@ -206,6 +206,7 @@ ns.Janus.prototype.send = function( event, callback ) {
 	if ( !self.conn )
 		return;
 	
+	log( 'to janus', event, 4 );
 	const eventStr = JSON.stringify( event );
 	self.conn.send( eventStr, callback );
 }
@@ -224,6 +225,7 @@ ns.Janus.prototype.handleConnMsg = function( msg ) {
 		return;
 	}
 	
+	log( 'from janus', event, 4 );
 	let handler = self.conn_map[ event.type ];
 	if ( !handler ) {
 		log( 'handleConnMsg - no handler for', event );

@@ -626,6 +626,7 @@ function trickle( event ) {
 */
 
 function set_source( source_id ) {
+	log( 'set_source', source_id );
 	GLOBAL_source_id = source_id;
 	if ( !GLOBAL_source_id ) {
 		source_is_streaming = false;
