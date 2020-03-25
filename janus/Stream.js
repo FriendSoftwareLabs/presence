@@ -689,7 +689,7 @@ function remove_user( user_id ) {
 }
 
 function handle_signal( data ) {
-	const event = data.event;
+	const event = data.event.data;
 	const user_id = data.user_id;
 	const handler = signal_map[ event.type ];
 	if ( !handler ) {

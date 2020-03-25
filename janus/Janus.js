@@ -225,7 +225,6 @@ ns.Janus.prototype.handleConnMsg = function( msg ) {
 		return;
 	}
 	
-	log( 'from janus', event, 4 );
 	let handler = self.conn_map[ event.type ];
 	if ( !handler ) {
 		log( 'handleConnMsg - no handler for', event );
@@ -238,6 +237,7 @@ ns.Janus.prototype.handleConnMsg = function( msg ) {
 // emit to parent system
 ns.Janus.prototype.emitSignal = function( conf ) {
 	const self = this;
+	log( 'emitsignal', conf, 4 );
 	self.emit(
 		'signal',
 		conf.event,
