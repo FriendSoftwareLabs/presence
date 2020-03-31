@@ -26,7 +26,7 @@ If it complains about missing dependencies, and glib is one of them, install tha
 
 glib requires 'meson' to build ( see below )
 
-glib on apt-get is version is 2.48, and does not work with libnice. You may have to build it yourself:
+glib on apt-get might be version is 2.48, and does not work with libnice. You may have to build it yourself:
 http://linuxfromscratch.org/blfs/view/svn/general/glib2.html
 
 if  you already have glib wrong version, it must be removed. This error message is a
@@ -203,5 +203,5 @@ server : {
 }
 ```
 
-friend must have server settings to enable streaming workgroups.
+Friend must have server settings to enable streaming workgroups.
 How this is done is left as an exercise to the reader.
