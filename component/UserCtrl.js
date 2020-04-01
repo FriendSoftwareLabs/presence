@@ -218,6 +218,10 @@ ns.UserCtrl.prototype.init = function( dbPool ) {
 ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 	const self = this;
 	const fUId = fUpdate.userid;
+	const fUser = await self.service.getUser( fUId );
+	self.update( fUser );
+	
+	/*
 	const id = await self.idc.getByFUserId( fUId );
 	if ( !id ) {
 		update( fUId );
@@ -238,6 +242,7 @@ ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 		const fUser = await self.service.getUser( fUId );
 		self.update( fUser );
 	}
+	*/
 }
 
 ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds ) {
@@ -360,6 +365,12 @@ ns.UserCtrl.prototype.normalizeFUser = function( fUser ) {
 	if ( null == id.fUserId && null == id.fUsername ) {
 		log( 'normalizeUser - invalid friend user', fUser );
 		return null;
+	}
+	
+	if ( fUser.groups ) {
+		id.groups = fUser.groups
+			.map( fId => self.worgs.getFIdToCId( fId ))
+			.filter( cId => !!cId );
 	}
 	
 	return id;
