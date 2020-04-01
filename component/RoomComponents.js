@@ -1135,15 +1135,12 @@ ns.Live.prototype.add = async function( userId ) { //adds user to existing room
 		isRecording : self.isRecording,
 	});
 	if ( self.isRecording ) {
-		if ( null == self.proxy ) {
-			self.setupStreamProxy();
-		}
+		self.setupStreamProxy();
 	}
 	
 	if ( self.isStream ) {
-		if ( null == self.proxy ) {
-			self.setupStreamProxy();
-		}
+		lLog( 'isStream' );
+		self.setupStreamProxy();
 		
 		if ( !self.sourceId && self.worgs ) {
 			let isStreamer = self.worgs.isStreamer( userId );

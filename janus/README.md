@@ -168,12 +168,14 @@ To enable janus as a webRTC bridge
 ```
 server : {
 	...
-	webRTCProxy : 'janus',
+	live : {
+		...
+		webRTCProxy : 'janus',
+	},
 	janus       : {
 		domain     : 'localhost',
 		port       : 13131,
 	},
-	...
 }
 ```
 
@@ -181,9 +183,11 @@ To record audio/video server side
 ```
 server : {
 	...
-	recordLive   : true,
-	recordFolder : '/full/path/to/folder/',
-	...
+	live : {
+		...
+		recordLive   : true,
+		recordFolder : '/full/path/to/folder/',
+	},
 }
 ```
 
@@ -196,10 +200,10 @@ in presence config
 server : {
 	...
 	janus : {
+		...
 		api_url    : <must match janus.transport.http config>,
 		api_secret : <must match janus config>,
 	},
-	...
 }
 ```
 
