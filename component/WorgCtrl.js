@@ -1021,6 +1021,9 @@ ns.WorgCtrl.prototype.removeStreamer = function( worgId, accId ) {
 		worgId : worgId,
 		accId  : accId,
 	});
+	const streamer = self.streamers[ accId ];
+	if ( !streamer )
+		return;
 }
 
 ns.WorgCtrl.prototype.removeStreamWorg = function( worgId ) {
