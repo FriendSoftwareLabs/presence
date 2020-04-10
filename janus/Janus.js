@@ -40,47 +40,43 @@
 'use strict';
 
 const child = require( 'child_process' );
-const log = require( './Log' )( 'Janus' );
-const Emitter = require( './Events' ).Emitter;
+const log = require( '../component/Log' )( 'Janus' );
+const Emitter = require( '../component/Events' ).Emitter;
 const util = require( 'util' );
 
 const ns = {};
 
-ns.Janus = function( conf ) {
+ns.Janus = function( type, jConf, pConf ) {
 	const self = this;
 	Emitter.call( self );
-	log( 'conf', conf );
+	const mod = self.modules[ type ];
+	
+	log( 'Janus', {
+		type  : type,
+		jConf : jConf,
+		pConf : pConf,
+		mod   : mod,
+	});
+	const jConfStr = JSON.stringify( jConf );
+	const pConfStr = JSON.stringify( pConf );
 	
 	try {
-		self.conn = child.fork( './component/Janus_child.js', [
-			conf.api_url,
-			conf.api_key,
+		self.conn = child.fork( mod, [
+			jConfStr,
+			pConfStr,
 		]);
 	} catch ( ex ) {
 		log( 'subprocess start expcetion ', ex );
+		return;
 	}
 	
 	self.open = true;
-	self.conn.on( 'exit', on_exit );
 	self.conn.on( 'error', on_error );
-	self.conn.on( 'message', on_message );
-	
-	function on_exit( e ) {
-		self.cleanup( 'PROCESS_EXIT' );
-	}
+	self.conn.on( 'message', e => self.handleConnMsg( e ));
+	self.conn.on( 'exit', e => self.cleanup( 'PROCESS_EXIT' ));
 	
 	function on_error( err ) {
 		log( 'conn error', err );
-	}
-	
-	function on_message( str ) {
-		let msg = null;
-		try {
-			msg = JSON.parse( str );
-		} catch ( ex ) {
-			log( 'on_message - invalid data', str );
-		}
-		self.handle_conn_msg( msg );
 	}
 	
 	self.conn_map = {
@@ -88,17 +84,22 @@ ns.Janus = function( conf ) {
 		'close'  : close,
 	}
 	
-	function to_signal( e ) { self.emit_signal( e ); }
-	function close( e ) { self.handle_close( e ); }
+	function to_signal( e ) { self.emitSignal( e ); }
+	function close( e ) { self.handleClose( e ); }
 }
 
 util.inherits( ns.Janus, Emitter );
 
+ns.Janus.prototype.modules = {
+	'star'   : './janus/Star.js',
+	'stream' : './janus/Stream.js',
+}
+
 // Public
 
-ns.Janus.prototype.set_source = function( source_id ) {
+ns.Janus.prototype.setSource = function( source_id ) {
 	const self = this;
-	log( 'set_source', source_id );
+	log( 'setSource', source_id );
 	const set_source = {
 		type : 'set_source',
 		data : source_id,
@@ -106,9 +107,19 @@ ns.Janus.prototype.set_source = function( source_id ) {
 	self.send( set_source );
 }
 
-ns.Janus.prototype.add_user = function( user_id ){
+ns.Janus.prototype.setRecording = function( is_recording ) {
 	const self = this;
-	log( 'add_user', user_id );
+	log( 'setRecording', is_recording );
+	const rec = {
+		type : 'set_recording',
+		data : is_recording,
+	};
+	self.send( rec );
+}
+
+ns.Janus.prototype.addUser = function( user_id ){
+	const self = this;
+	log( 'addUser', user_id );
 	const add = {
 		type : 'add_user',
 		data : user_id,
@@ -117,17 +128,18 @@ ns.Janus.prototype.add_user = function( user_id ){
 	
 }
 
-ns.Janus.prototype.remove_user = function ( user_id ){
+ns.Janus.prototype.removeUser = function ( user_id ){
 	const self = this;
+	log( 'removeUser', user_id );
 	self.send({
 		type : 'remove_user',
 		data : user_id,
 	});
 }
 
-ns.Janus.prototype.handle_signal = function( event, user_id ) {
+ns.Janus.prototype.handleSignal = function( event, user_id ) {
 	const self = this;
-	log( 'handle_signal', event );
+	//log( 'handleSignal', event );
 	const signal = {
 		type : 'signal',
 		data : {
@@ -135,33 +147,30 @@ ns.Janus.prototype.handle_signal = function( event, user_id ) {
 			user_id : user_id,
 		},
 	};
+	
 	self.send( signal );
 }
 
-ns.Janus.prototype.close = function( callback ) {
+ns.Janus.prototype.close = function() {
 	const self = this;
-	if ( !self.conn || !self.open ) {
-		if ( callback )
-			callback( true );
-		
+	if ( !self.conn || !self.open )
 		return;
-	}
 	
 	self.open = false;
-	self.close_callback = callback;
+	self.closing = true;
 	self.send({
 		type : 'close',
 	});
 	
 	self.close_timeout = setTimeout( cleanup, 1000 * 5 );
 	function cleanup() {
-		self.cleanup();
+		self.cleanup( 'CLOSE_TIMEOUT_HIT' );
 	}
 }
 
 // Private
 
-ns.Janus.prototype.handle_close = function( reason ) {
+ns.Janus.prototype.handleClose = function( reason ) {
 	const self = this;
 	self.open = false;
 	self.cleanup( reason );
@@ -169,30 +178,26 @@ ns.Janus.prototype.handle_close = function( reason ) {
 
 ns.Janus.prototype.cleanup = function( reason ) {
 	const self = this;
+	self.open = false;
 	reason = reason || 'CLEANUP_NO_REASON_GIVEN';
-	if ( null != self.close_timeout )
+	log( 'cleanup', reason );
+	if ( null != self.close_timeout ) {
 		clearTimeout( self.close_timeout );
+		delete self.close_timeout;
+	}
 	
-	delete self.close_timeout;
-	
-	let closed = self.close_callback;
-	if ( !closed )
-		self.emit( 'closed', reason );
-	
-	delete self.close_callback;
-	
+	self.emit( 'closed', reason );
 	self.emitterClose();
+	
 	if ( self.conn ) {
 		try {
 			self.conn.removeAllListeners();
+			self.conn.on( 'error', e => {});
 			self.conn.disconnect();
 		} catch( e ) {}
 	}
 	
 	delete self.conn;
-	
-	if ( closed )
-		closed( reason );
 }
 
 //send data to child process
@@ -201,26 +206,38 @@ ns.Janus.prototype.send = function( event, callback ) {
 	if ( !self.conn )
 		return;
 	
+	log( 'to janus', event, 4 );
 	const eventStr = JSON.stringify( event );
 	self.conn.send( eventStr, callback );
 }
 
-ns.Janus.prototype.handle_conn_msg = function( event ) {
+// handle data from child process
+ns.Janus.prototype.handleConnMsg = function( msg ) {
 	const self = this;
 	if ( !self.open )
 		return;
 	
+	let event = null;
+	try {
+		event = JSON.parse( msg );
+	} catch ( ex ) {
+		log( 'handleConnMsg - invalid data', msg );
+		return;
+	}
+	
 	let handler = self.conn_map[ event.type ];
 	if ( !handler ) {
-		log( 'handle_conn_msg - no handler for', event );
+		log( 'handleConnMsg - no handler for', event );
 		return;
 	}
 	
 	handler( event.data );
 }
 
-ns.Janus.prototype.emit_signal = function( conf ) {
+// emit to parent system
+ns.Janus.prototype.emitSignal = function( conf ) {
 	const self = this;
+	log( 'emitsignal', conf, 4 );
 	self.emit(
 		'signal',
 		conf.event,

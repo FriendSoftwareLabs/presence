@@ -192,7 +192,7 @@ ns.WorgCtrl.prototype.getFIdToCId = function( fId ) {
 ns.WorgCtrl.prototype.addUser = function( accId, worgs ) {
 	const self = this;
 	//addNewWorgs( worgs );
-	addSupers( worgs.supergroups );
+	addSupers( worgs.superGroups );
 	registerUser( accId, worgs );
 	
 	function addNewWorgs( worgs ) {
@@ -217,8 +217,8 @@ ns.WorgCtrl.prototype.addUser = function( accId, worgs ) {
 			self.updateUserWorgs( accId, worgs.member );
 		*/
 		
-		if ( worgs.stream )
-			self.updateStreamWorgs( accId, worgs.stream );
+		if ( worgs.streamGroups )
+			self.updateStreamWorgs( accId, worgs.streamGroups );
 	}
 }
 
@@ -285,6 +285,11 @@ ns.WorgCtrl.prototype.removeUser = function( userId ) {
 ns.WorgCtrl.prototype.checkUserIsStreamerFor = function( accId, worgList ) {
 	const self = this;
 	const streamer = self.streamers[ accId ];
+	log( 'checkUserIsStreamerFor', {
+		accId    : accId,
+		worgList : worgList,
+		steamer  : streamer,
+	});
 	if ( !streamer )
 		return false;
 	
@@ -950,15 +955,51 @@ ns.WorgCtrl.prototype.addStreamWorg = function( worgId ) {
 	const self = this;
 	self.streamWorgs.push( worgId );
 	let userList = self.getUserList( worgId );
-	userList.forEach( accId => self.setStreamer( accId, worgId ));
+	userList.forEach( accId => self.setStreamer( worgId, accId ));
 }
 
-ns.WorgCtrl.prototype.setStreamer = function( accId, worgId ) {
+ns.WorgCtrl.prototype.checkAddStreamer = function( worgId, accId ) {
 	const self = this;
+	const isStreamWorg = self.streamWorgs.some( sId => sId === worgId );
+	log( 'checkAddStreamer', {
+		accId   : accId,
+		worgId  : worgId,
+		sWorgs  : self.streamWorgs,
+		isSworg : isStreamWorg,
+	});
+	if ( !isStreamWorg )
+		return false;
+	
+	self.setStreamer( worgId, accId );
+}
+
+ns.WorgCtrl.prototype.checkRemoveStreamer = function( worgId, accId ) {
+	const self = this;
+	const isStreamWorg = self.streamWorgs.some( sId => sId === worgId );
+	log( 'checkRemoveStreamer', {
+		accId   : accId,
+		worgId  : worgId,
+		sWorgs  : self.streamWorgs,
+		isSworg : isStreamWorg,
+	});
+	if ( !isStreamWorg )
+		return;
+	
+	self.removeStreamer( worgId, accId );
+}
+
+ns.WorgCtrl.prototype.setStreamer = function( worgId, accId ) {
+	const self = this;
+	log( 'setStreamer', {
+		worgId : worgId,
+		accId  : accId,
+	});
 	if ( !self.streamers[ accId ])
 		setNew( accId, worgId );
 	else
 		addToExistingMaybe( accId, worgId );
+	
+	log( 'setStreamer - post', self.streamers );
 	
 	function setNew( accId, worgId ) {
 		self.streamers[ accId ] = [
@@ -974,6 +1015,53 @@ ns.WorgCtrl.prototype.setStreamer = function( accId, worgId ) {
 		
 		streamer.push( worgId );
 	}
+}
+
+ns.WorgCtrl.prototype.removeStreamer = function( worgId, accId ) {
+	const self = this;
+	const streamer = self.streamers[ accId ];
+	log( 'removeStreamer', {
+		worgId   : worgId,
+		accId    : accId,
+		streamer : streamer,
+		streems  : self.streamers,
+	});
+	if ( !streamer )
+		return;
+	
+	const wIndex = streamer.indexOf( worgId );
+	if ( -1 === wIndex )
+		return;
+	
+	streamer.splice( wIndex, 1 );
+	if ( 0 === streamer.length )
+		delete self.streamers[ accId ];
+	
+	log( 'removeStreamer - post', {
+		streamer : streamer,
+		steems   : self.streamers,
+	});
+}
+
+ns.WorgCtrl.prototype.removeStreamWorg = function( worgId ) {
+	const self = this;
+	log( 'removeStreamWorg', {
+		worgId      : worgId,
+		streamWorgs : self.streamWorgs,
+	});
+	const wIndex = self.streamWorgs.indexOf( worgId );
+	if ( -1 === wIndex )
+		return;
+	
+	const uList = self.getUserList( worgId );
+	uList.forEach( uId => self.removeStreamer( worgId, uId ));
+	self.streamWorgs.splice( wIndex, 1 );
+	log( 'removeStreamWorg - post', {
+		worgId      : worgId,
+		wIndex      : wIndex,
+		streamWorgs : self.streamWorgs,
+		streamers   : self.streamers,
+	});
 }
 
 ns.WorgCtrl.prototype.addToWorg = function( worgId, userId ) {
@@ -997,6 +1085,9 @@ ns.WorgCtrl.prototype.addToWorg = function( worgId, userId ) {
 	
 	worg.push( userId );
 	user.push( worgId );
+	
+	self.checkAddStreamer( worgId, userId );
+	
 	return userId;
 }
 
@@ -1018,6 +1109,8 @@ ns.WorgCtrl.prototype.removeFromWorg = function( worgId, userId ) {
 		});
 		return false;
 	}
+	
+	self.checkRemoveStreamer( worgId, userId );
 	
 	const uIndex = worg.indexOf( userId );
 	if ( -1 != uIndex )

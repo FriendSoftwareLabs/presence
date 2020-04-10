@@ -23,7 +23,7 @@ const uuid = require( './UuidPrefix' )( 'msg' );
 const events = require( './Events' );
 const WebRTCProxy = require( './WebRTCProxy' );
 const dFace = require( './DFace' );
-const Janus = require( './Janus' );
+const Janus = require( '../janus/Janus' );
 const util = require( 'util' );
 
 var ns = {};
@@ -1130,25 +1130,34 @@ ns.Live.prototype.add = async function( userId ) { //adds user to existing room
 		return;
 	}
 	
+	lLog( 'add', {
+		userId      : userId,
+		isRecording : self.isRecording,
+	});
+	if ( self.isRecording ) {
+		self.setupStreamProxy();
+	}
+	
 	if ( self.isStream ) {
-		if ( null == self.proxy ) {
-			self.setupStreamProxy();
-		}
+		lLog( 'isStream' );
+		self.setupStreamProxy();
 		
 		if ( !self.sourceId && self.worgs ) {
 			let isStreamer = self.worgs.isStreamer( userId );
+			lLog( 'isStreamer', isStreamer );
 			if ( isStreamer ) {
 				self.sourceId = userId;
-				self.proxy.set_source( userId );
+				self.proxy.setSource( userId );
 				self.broadcast({
 					type : 'source',
 					data : self.sourceId,
 				});
 			}
 		}
-		
-		self.proxy.add_user( userId );
-		
+	}
+	
+	if ( self.proxy ) {
+		self.proxy.addUser( userId );
 	}
 	
 	self.peers[ pid ] = user;
@@ -1192,7 +1201,7 @@ ns.Live.prototype.remove = function( peerId, isReAdd ) { // userId
 	if ( peerId === self.sourceId ) {
 		self.sourceId = null;
 		if ( self.proxy )
-			self.proxy.set_source( null );
+			self.proxy.setSource( null );
 		
 		self.broadcast({
 			type : 'source',
@@ -1201,9 +1210,7 @@ ns.Live.prototype.remove = function( peerId, isReAdd ) { // userId
 	}
 	
 	if ( self.proxy ) {
-		if ( false == self.proxy.remove_user( peerId )) { //room is empty
-			self.closeStreamProxy();
-		}
+		self.proxy.removeUser( peerId );
 	}
 	
 	const peer = self.getPeer( peerId );
@@ -1246,10 +1253,13 @@ ns.Live.prototype.close = function( callback ) {
 	}
 	
 	if ( self.proxy )
-		self.closeStreamProxy();
+		self.closeProxy();
 	
 	if ( self.settings && self.onStreamEventId )
 		self.settings.off( self.onStreamEventId );
+	
+	if ( self.settings && self.onRecordEventId )
+		self.settings.off( self.onRecordEventId );
 	
 	delete self.isStream;
 	delete self.users;
@@ -1268,24 +1278,14 @@ ns.Live.prototype.close = function( callback ) {
 
 ns.Live.prototype.init = function() {
 	const self = this;
+	self.isRecording = self.settings.get( 'isRecording' );
 	self.isStream = self.settings.get( 'isStream' );
-	self.onStreamEventId = self.settings.on( 'isStream', isStreamUpdated );
-	function isStreamUpdated( isStream ) {
-		self.isStream = isStream;
-		if ( !isStream ) {
-			self.closeStreamProxy();
-			self.sourceId = null;
-		}
-		
-		self.broadcast({
-			type : 'source',
-			data : self.sourceId,
-		});
-	}
+	self.onStreamEventId = self.settings.on( 'isStream', e => self.isStreamChanged );
+	self.onRecordEventId = self.settings.on( 'isRecording', e => self.isRecordingChanged );
 	
 	self.eventMap = {
 		'pong'           : pong,
-		'stream'         : stream,
+		'proxy'          : proxy,
 		'broadcast'      : broadcast,
 		'speaking'       : speaking,
 		'quality'        : quality,
@@ -1294,12 +1294,35 @@ ns.Live.prototype.init = function() {
 	};
 	
 	function pong(      e, pid ) { self.handlePong(      e, pid ); }
-	function stream(    e, pid ) { self.handleStream(    e, pid ); }
+	function proxy(     e, pid ) { self.handleProxy(     e, pid ); }
 	function broadcast( e, pid ) { self.handleBroadcast( e, pid ); }
 	function quality(   e, pid ) { self.handleQuality(   e, pid ); }
 	function mode(      e, pid ) { self.handleMode(      e, pid ); }
 	function speaking(  e, pid ) { self.handleSpeaking(  e, pid ); }
 	function leave(     e, pid ) { self.handleLeave(     e, pid ); }
+	
+}
+
+ns.Live.prototype.isStreamChanged = function( isStream ) {
+	const self = this;
+	self.isStream = isStream;
+	if ( !isStream ) {
+		self.closeProxy();
+		self.sourceId = null;
+	}
+	
+	self.broadcast({
+		type : 'source',
+		data : self.sourceId,
+	});
+}
+
+ns.Live.prototype.isRecordingChanged = function( isRecording ) {
+	const self = this;
+	lLog( 'isRecordingChanged', isRecording );
+	self.isRecording = isRecording;
+	if ( self.proxy )
+		self.proxy.setRecording( self.isRecording );
 	
 }
 
@@ -1476,14 +1499,15 @@ ns.Live.prototype.handlePeerEvent = function( event, peerId ) {
 
 // handlers
 
-ns.Live.prototype.handleStream = function( event, peerId ) {
+ns.Live.prototype.handleProxy = function( event, peerId ) {
 	const self = this;
+	//lLog( 'handleProxy', [ event, peerId ]);
 	if ( !self.proxy ) {
-		lLog( 'handleStream - no proxy', event );
+		lLog( 'handleProxy - no proxy', event );
 		return;
 	}
 	
-	self.proxy.handle_signal( event, peerId );
+	self.proxy.handleSignal( event, peerId );
 }
 
 ns.Live.prototype.handlePong = function( timestamp, peerId ) {
@@ -1521,28 +1545,54 @@ ns.Live.prototype.setupStreamProxy = function() {
 		return;
 	
 	const jConf = global.config.server.janus;
-	self.proxy = new Janus( jConf );
-	self.proxy.on( 'signal', toSignal );
-	self.proxy.on( 'closed', closed );
+	let type = 'star';
+	if ( self.isStream )
+		type = 'stream';
 	
-	function toSignal( e, uid ) { self.send( e, uid ); }
+	lLog( 'setupStreamProxy', {
+		isRec : self.isRecording,
+		isStr : self.isStream,
+		type  : type,
+		jConf : jConf,
+	});
+	const pConf = {
+		roomId      : self.users.roomId,
+		isRecording : self.isRecording,
+	};
+	self.proxy = new Janus( type, jConf, pConf );
+	self.proxy.on( 'signal', toSignal );
+	self.proxy.on( 'closed', e => self.proxyClosed( e ));
+	
+	function toSignal( e, uid ) {
+		/*
+		lLog( 'toSignal', {
+			e   : e,
+			uid : uid,
+		});
+		*/
+		const proxy = {
+			type : 'proxy',
+			data : e,
+		};
+		self.send( proxy, uid );
+	}
+	
 	function closed( e ) { self.proxyClosed( e ); }
 }
 
-ns.Live.prototype.closeStreamProxy = function() {
+ns.Live.prototype.closeProxy = async function() {
 	const self = this;
 	if ( !self.proxy )
 		return;
 	
-	self.proxy.close( proxyClosed );
+	const proxy = self.proxy;
 	delete self.proxy;
-	function proxyClosed( reason ) {
-		self.proxyClosed( reason );
-	}
+	proxy.close();
 }
 
 ns.Live.prototype.proxyClosed = function( reason ) {
 	const self = this;
+	lLog( 'proxyClosed', reason );
 	if ( self.proxy ) {
 		self.proxy.close();
 		delete self.proxy;
@@ -1792,18 +1842,24 @@ ns.Live.prototype.sendJoin = function( joinedId ) {
 
 ns.Live.prototype.sendOpen  = function( pid, liveId ) {
 	const self = this;
+	let topology = 'peer';
+	if ( self.proxy )
+		topology = 'star';
+	
 	const open = {
 		type : 'open',
 		data : {
 			liveId   : liveId,
 			liveConf : {
-				ICE      : global.config.shared.rtc.iceServers,
-				userId   : pid,
-				sourceId : self.sourceId,
-				peerList : self.peerIds,
-				quality  : self.quality,
-				mode     : self.mode,
-				logTail  : self.log.getLast( 20 ),
+				ICE         : global.config.shared.rtc.iceServers,
+				userId      : pid,
+				sourceId    : self.sourceId,
+				peerList    : self.peerIds,
+				quality     : self.quality,
+				mode        : self.mode,
+				topology    : topology,
+				isRecording : self.isRecording,
+				logTail     : self.log.getLast( 20 ),
 			},
 		},
 	};
@@ -3291,7 +3347,7 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 		'roomName'    : roomName,
 		'userLimit'   : userLimit,
 		'isStream'    : isStream,
-		'isClassroom' : isClassroom,
+		'isRecording' : isRecording,
 		'workgroups'  : worgs,
 		'authorized'  : authRemove,
 	};
@@ -3299,7 +3355,7 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 	function roomName( e, uid ) { self.handleRoomName( e, uid ); }
 	function userLimit( e, uid ) { self.handleUserLimit( e, uid ); }
 	function isStream( e, uid  ) { self.handleStream( e, uid ); }
-	function isClassroom( e, uid ) { self.handleClassroom( e, uid ); }
+	function isRecording( e, uid ) { self.handleRecording( e, uid ); }
 	function worgs( e, uid ) { self.handleWorgs( e, uid ); }
 	function authRemove( e, uid ) { self.handleAuthRemove( e, uid ); }
 	
@@ -3309,13 +3365,14 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 	try {
 		dbSetts = await self.db.getSettings();
 	} catch ( err ) {
-		self.setDefaults();
+		
 	}
 	
-	if ( dbSetts )
-		self.setDbSettings( dbSetts );
-	
-	self.set( 'roomName', name );
+	await self.normalizeSettings( dbSetts );
+	if ( !dbSetts )
+		self.set( 'roomName', name );
+	else
+		self.set( 'roomName', dbSetts.roomName );
 	
 	self.events = new events.RequestNode( null, onSend, sSink, true );
 	self.events.on( 'get', ( ...args ) => {
@@ -3340,46 +3397,66 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 	}
 }
 
-ns.Settings.prototype.setDbSettings = function( settings ) {
+ns.Settings.prototype.normalizeSettings = async function( db ) {
 	const self = this;
-	if ( settings.isClassroom ) {
-		settings.isStream = settings.isClassroom;
-		delete settings.isClassroom;
-		self.db.removeSetting( 'isClassroom' );
+	if ( db && ( null != db.isClassroom )) {
+		if ( null == db.isStream )
+			db.isStream = db.isClassroom;
+		
+		delete db.isClassroom;
+		await self.db.removeSetting( 'isClassroom' );
+		await self.db.setSetting( 'isStream', db.isStream );
 	}
 	
-	settings.userLimit = settings.userLimit == null ? 0 : settings.userLimit;
-	if ( streamingEnabled( global.config.server )) {
-		settings.isStream = settings.isStream == null ? false : settings.isStream;
-	}
-	else {
-		delete settings.isStream;
+	const roomConf = global.config.server.room;
+	const liveConf = global.config.server.live;
+	const settings = {};
+	const canRecord = self.checkHasProxy();
+	if ( !canRecord ) {
+		settings.isStream = undefined;
+		settings.isRecording = undefined;
+	} else {
+		settings.isStream = checkNullValue( 'isStream', db, liveConf );
+		settings.isRecording = checkNullValue( 'isRecording', db, liveConf );
 	}
 	
-	let keys = Object.keys( settings );
-	keys.forEach( add );
+	settings.userLimit = checkUserLimit( db, liveConf );
+	
+	const keys = Object.keys( settings );
+	sLog( 'normalizeSettings', {
+		db       : db,
+		live     : liveConf,
+		room     : roomConf,
+		settings : settings,
+		keys     : keys,
+	});
+	
+	keys.forEach( k => {
+		const v = settings[ k ];
+		self.setting[ k ] = v;
+	});
 	self.settingStr = JSON.stringify( self.setting );
 	
-	function add( key ) {
-		let value = settings[ key ];
-		self.setting[ key ] = value;
+	function checkNullValue( type, db, conf ) {
+		let value = null;
+		if ( db && ( null != db[ type ] ))
+			value = db[ type ];
+		else
+			value = conf[ type ];
+			
+		if ( null == value )
+			return undefined;
+		
+		return value;
 	}
 	
-	function streamingEnabled( conf ) {
-		if ( conf.streamProxy && conf.streamProxy.length )
-			return true;
-		
-		if ( conf.classroomProxy && conf.classroomProxy.length )
-			return true;
-		
-		return false;
+	function checkUserLimit( db, conf ) {
+		let limit;
+		if ( db && ( null != db.userLimit ))
+			return db.userLimit;
+		else
+			return conf.userLimit || 0;
 	}
-}
-
-ns.Settings.prototype.setDefaults = function() {
-	const self = this;
-	self.set( 'userLimit', 0 );
-	self.set( 'isStream', false );
 }
 
 ns.Settings.prototype.set = function( setting, value ) {
@@ -3424,6 +3501,19 @@ ns.Settings.prototype.saveSetting = function( event, userId ) {
 	}
 	
 	handler( event.value, userId );
+}
+
+ns.Settings.prototype.checkHasProxy = function() {
+	const self = this;
+	const live = global.config.server.live;
+	//sLog( 'checkHasProxy', conf );
+	if ( live.webRTCProxy && live.webRTCProxy.length )
+		return true;
+	
+	sLog( 'checkHasProxy - no proxy defined, cannot enable recording',
+		global.config.server );
+	
+	return false;
 }
 
 ns.Settings.prototype.checkIsAdminOrOwner = function( userId ) {
@@ -3495,6 +3585,12 @@ ns.Settings.prototype.handleUserLimit = function( value, userId ) {
 
 ns.Settings.prototype.handleStream = function( value, userId, isClassroom ) {
 	const self = this;
+	const canStream = self.checkHasProxy();
+	if ( !canStream ) {
+		sendErr( 'ERR_NO_PROXY' );
+		return;
+	}
+	
 	self.db.setSetting( 'isStream', value )
 		.then( dbOk )
 		.catch( dbErr );
@@ -3509,15 +3605,38 @@ ns.Settings.prototype.handleStream = function( value, userId, isClassroom ) {
 	
 	function dbErr( err ) {
 		sLog( 'handleStream.dbErr', err );
+		sendErr( err );
+		
+	}
+	
+	function sendErr( err ) {
 		self.sendError( 'isStream', err, userId );
 		if ( isClassroom )
 			self.sendError( 'isClassroom', err, userId );
 	}
 }
 
-ns.Settings.prototype.handleClassroom = function( value, userId ) {
+ns.Settings.prototype.handleRecording = function( value, userId ) {
 	const self = this;
-	self.handleStream( value, userId, 'isClassroom' ) ;
+	const canRecord = self.checkHasProxy();
+	if ( !canRecord ) {
+		sendErr( 'ERR_NO_PROXY' );
+		return;
+	}
+	
+	self.db.setSetting( 'isRecording', value )
+		.then( dbOk )
+		.catch( dbErr );
+	
+	function dbOk() {
+		self.set( 'isRecording', value );
+		self.emit( 'isRecording', value );
+		self.sendSaved( 'isRecording', value, true, userId );
+	}
+	
+	function sendErr( err ) {
+		self.sendError( 'isRecording', err, userId );
+	}
 }
 
 ns.Settings.prototype.handleWorgs = function( worg, userId ) {

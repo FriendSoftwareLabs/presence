@@ -25,13 +25,26 @@
  * request queue.
  */
 
-const log = require('./Log')('Janus-child');
-const uuid = require('uuid');
-const https = require('https');
-const querystring = require('querystring');
+const log = require( '../component/Log' )( 'Janus-child' );
+const uuid = require( 'uuid' );
+const https = require( 'https' );
+const querystring = require( 'querystring' );
 
-const API_URL = process.argv[2];
-const API_KEY = process.argv[3];
+
+const jConfStr = process.argv[ 2 ];
+const pConfStr = process.argv[ 3 ];
+const jConf = JSON.parse( jConfStr );
+const pConf = JSON.parse( pConfStr );
+
+const confStr = process.argv[2];
+const conf = JSON.parse( confStr );
+log( 'confs', {
+	j : jConf,
+	p : pConf,
+});
+
+const API_URL = jConf.api_url;
+const API_KEY = jConf.api_key;
 
 //TODO: new room has to be created somehow - study how Janus videoroom demo does it
 //For testing a long-running Janus instance has room 1234 created by the demo code.
@@ -613,6 +626,7 @@ function trickle( event ) {
 */
 
 function set_source( source_id ) {
+	log( 'set_source', source_id );
 	GLOBAL_source_id = source_id;
 	if ( !GLOBAL_source_id ) {
 		source_is_streaming = false;
@@ -675,7 +689,7 @@ function remove_user( user_id ) {
 }
 
 function handle_signal( data ) {
-	const event = data.event;
+	const event = data.event.data;
 	const user_id = data.user_id;
 	const handler = signal_map[ event.type ];
 	if ( !handler ) {

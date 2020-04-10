@@ -68,15 +68,12 @@ ns.UserCtrl.prototype.refresh = async function( fUserList ) {
 		if ( !fId || !fId.length )
 			return false;
 		
-		if ( !fU.lastupdate )
-			return false;
-		
 		const dbUser = await self.idc.getByFUserId( fId );
 		if ( !dbUser )
 			return fU;
 		
-		if ( !dbUser.fLastUpdate )
-			return fU;
+		if ( null == fU.lastupdate )
+			return false;
 		
 		if ( dbUser.fLastUpdate < fU.lastupdate )
 			return fU;
@@ -173,6 +170,7 @@ ns.UserCtrl.prototype.update = async function( fUser ) {
 	if ( !id )
 		return;
 	
+	log( 'update', id );
 	const identity = await self.idc.update( id );
 	if ( !identity )
 		return;
@@ -355,7 +353,7 @@ ns.UserCtrl.prototype.normalizeFUser = function( fUser ) {
 		clientId    : null,
 		fUserId     : fUser.userid || fUser.UniqueId || null,
 		fUsername   : fUser.name || fUser.Name || null,
-		fLastUpdate : fUser.lastupdate || null,
+		fLastUpdate : ( fUser.lastupdate != null ) ? parseInt( fUser.lastupdate ) : null,
 		fIsDisabled : !!fUser.isdisabled,
 		isAdmin     : ( 'Admin' === fUser.Level ),
 		name        : fUser.fullname || fUser.FullName || null,

@@ -24,7 +24,6 @@ const log = require( './Log' )( 'ContactRoom' );
 const components = require( './RoomComponents' );
 const Signal = require( './Signal' );
 const dFace = require( './DFace' );
-const Janus = require( './Janus' );
 const Room = require( './Room' );
 const util = require( 'util' );
 

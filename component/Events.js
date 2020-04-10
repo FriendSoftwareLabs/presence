@@ -54,9 +54,6 @@ const uuid = require( './UuidPrefix' )( 'listener' );
 const ns = {};
 
 ns.Emitter = function( eventSink, debug ) {
-	if ( !( this instanceof ns.Emitter ))
-		return new ns.Emitter( eventSink );
-	
 	const self = this;
 	self._emitterEvent2ListenerId = {};
 	self._emitterListeners = {};

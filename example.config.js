@@ -75,11 +75,18 @@ const server = {
 	tinyAvatar : {
 		imageSidePX : 128,
 	},
-	streamProxy    : null,
-	classroomProxy : null,
+	live : {
+		userLimit   : 0,
+		webRTCProxy : null,
+		isStream    : null,
+		isRecording : null,
+		recordPath  : null,
+	},
 	janus : {
 		api_url    : null,
 		api_secret : null,
+		domain     : 'localhost',
+		port       : 13131,
 	},
 };
 
@@ -95,7 +102,7 @@ const shared = {
 				urls : [
 					"turn:turn_url.com",
 				],
-				username : 'turn_username',
+				username   : 'turn_username',
 				credential : 'turn_password',
 			},
 		],

@@ -168,7 +168,6 @@ ns.AccountDB.prototype.set = async function(
 	}
 	
 	fUserId = fUserId || null;
-	fLastUpdate = fLastUpdate || null;
 	fIsDisabled = fIsDisabled || null;
 	name = name || fUsername;
 	const clientId = uuid.get( 'acc' );

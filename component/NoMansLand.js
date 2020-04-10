@@ -551,23 +551,7 @@ ns.NoMansLand.prototype.transformFUser = function( fUser ) {
 ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 	const self = this;
 	let allWgs = [];
-	let streamWgs = null;
 	let pSettings = null;
-	/*
-	try {
-		allWgs = await getWorkGroups( authId );
-	} catch( err ) {
-		log( 'addWorkgroups - getWorkGroups err', err );
-		user.workgroups = {};
-		return user;
-	}
-	*/
-	
-	try {
-		streamWgs = await getStreamWorkgroupSetting( authId );
-	} catch( err ) {
-		log( 'addWorkgroups - getStreamWorkgroupSetting err', err );
-	}
 	
 	try {
 		pSettings = await getPresenceSettings( authId );
@@ -581,12 +565,9 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 		//member    : getUserWGs( user.workgroups, allWgs ),
 	};
 	
-	if ( streamWgs )
-		worgs.stream = streamWgs;
-	
 	if ( pSettings ) {
-		worgs.supergroups = pSettings.supergroups;
-		worgs.streamgroups = pSettings.streamgroups;
+		worgs.superGroups = pSettings.superGroups;
+		worgs.streamGroups = pSettings.streamGroups;
 	}
 	
 	user.workgroups = worgs;
@@ -651,59 +632,6 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 		});
 	}
 	
-	function getStreamWorkgroupSetting( authId ) {
-		return new Promise(( resolve, reject ) => {
-			const data = {
-				module  : 'system',
-				command : 'getsystemsetting',
-				authid  : authId,
-				args    : JSON.stringify({
-					type : 'presence',
-					key  : 'systemsettings',
-				}),
-			};
-			const req = {
-				path    : '/system.library/module',
-				data    : data,
-				success : success,
-				error   : error,
-			};
-			self.fcReq.post( req );
-			function success( data ) {
-				if ( !data || !data.length ) {
-					resolve( null );
-					return;
-				}
-				
-				let wgs = data.map( item => {
-					let setting = null;
-					try {
-						setting = JSON.parse( item.Data );
-					} catch( e ) {
-						log( 'error parsing system setting', item );
-						return null;
-					}
-					
-					if ( setting && setting.classroom_teachers )
-						return setting.classroom_teachers;
-					
-					if ( setting && setting.stream_source )
-						return setting.stream_source;
-					
-					return null;
-				});
-				
-				wgs = wgs.filter( item => !!item );
-				resolve( wgs );
-			}
-			
-			function error( err ) {
-				log( 'getStreamWorkgroupSetting - error', err );
-				reject( err );
-			}
-		});
-	}
-	
 	function getPresenceSettings( authId ) {
 		return new Promise(( resolve, reject ) => {
 			const data = {
@@ -728,9 +656,10 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 					return;
 				}
 				
+				log( 'pres settings', data );
 				const settings = {
-					supergroups  : [],
-					streamgroups : [],
+					superGroups  : [],
+					streamGroups : [],
 				};
 				let wgs = data.map( item => {
 					let setting = null;
@@ -745,17 +674,20 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 						return null;
 					
 					if ( setting.supergroups )
-						settings.supergroups = setting.supergroups.split( ',' );
+						settings.superGroups = setting.supergroups.split( ',' );
 					
-					if ( setting.streamgroups )
-						settings.streamgroups = setting.streamgroups.split( ',' );
+					if ( setting.super_groups )
+						settings.superGroups = setting.super_groups.split( ',' );
+					
+					if ( setting.stream_groups )
+						settings.streamGroups = setting.stream_groups.split( ',' );
 				});
 				
 				resolve( settings );
 			}
 			
 			function error( err ) {
-				log( 'getPresenceSettings - error', err );
+				log( 'getPresenceSettings - err', err );
 				reject( err );
 			}
 			
