@@ -5,7 +5,7 @@ allowing many to many text chat and video / audio calls. It integrates
 closely with ( and is a service of ) Friend, allowing anyone 
 logged into Friend to use it, showing up with their Friend name, 
 with no need to set up an account or remember a password. A pixel 
-avatar is generated for every ones amusement.
+avatar is generated for everyones amusement.
 
 ### Live
 
@@ -43,7 +43,6 @@ be single-use or public. The public ones can be used by any number of people
 until it is canceled through the interface or the room empties and is removed
 from server memory.
 
-
 ### Immediate response
 
 Persistent connections are used to ensure all events are promptly delivered. Both
@@ -51,51 +50,67 @@ vanilla TCP and websockets are used, depending on client needs. For mobile users
 these connections are seamlessly reestablished when switching networks, ie
 wifi -> mobile data.
 
-### Limitations
+## Installing and configuration
 
-In a slightly odd position, presence is currently only available through
-Friend Chat. You start out with no rooms, but can create a room, invite
-someone into it or join other rooms. To send or receive an invite
-having an active IRC ( you should start with one as default ) or Treeroot
-module is currently a requirement. Friend workgroup and users integration
-will happen shortly to fix much of this. Only users on the local Friend
-node can be saved to a room, but guest invites are open to anyone.
-
-## Setup
-
-We suggest to install Presence through the Friend Chat installer. It will
-take all the parameters into account, and configure Friend Core, Friend Chat and
-Presence accordingly.
+Presence installer is called by the Friend Chat installer. It will collect some
+info, and configure Friend Core, Friend Chat and Presence accordingly. Not everything 
+is handled by the install script ( becuase its old and needs to be rewritten in not-bash ).
 
 To run the Friend Chat installer, go to the friendchat folder you cloned from GIT
-and type ./install.sh
+and run `./install.sh`
 
-We will provide in the near future a Presence specific installer.
+After install process, a few things need to be set manually. Only edit `config.js` in
+install folder. If a value is not found in config.js it falls back to example.config.js
+for a default value.
+
+For presence to talk to FriendCore, it must establish a connection and indentify itself.
+In FriendCore cfg.ini, there must be a header `[SerivceKeys]` with a key/value pair
+`presence = <your secret key>`. This must also be added to Presence config.js under
+`server -> friendcore` as `serviceKey : '<your secret key>'`. The secret key can be any string.
+
+### Streaming / Janus
+
+As the number of participants in a Live call increases the resource use ( encoding / upload bandwidth )
+of a peer-to-peer mesh becomes prohibitive. To solve this we use a central webRTC bridge
+that receives a stream from one peer and distrbutes it the other participants. We use Janus for
+this.
+
+To install Janus, go into the Janus folder in the Presence install folder. Here there is a readme
+with probably useful info and an install script. The readme contains solutions to known issues
+enconuntered when bulding Janus. It also has configuration specifics.
+
+For the time being, each streaming room requires static configuration in Janus config, check
+janus readme.
+
+To set up a room for streaming, a streaming workgroup must be specified and assigned to a room.
+This is currently done with a Friend setting:
+
+1. open Server app
+2. Add item, `type: 'presence'`, `key: 'systemsettings'`
+3. Edit the added item and add property, `key: 'stream_groups', value: '<name of workgroup>'`
+
+Next time someone logs into presence this setting will be read. Assigning this workgroup
+to a room will now cause any live session to be in a streaming mode. Any participant who is
+not in the specified workgroup can only watch. Users assigned to the streaming workgroup
+who join the live session will be set as the streamer/source and their audio/video 
+distributed to all participants over Janus. Only the first member of the streaming workgroup
+to join will be set as streamer.
+
+Recording can be enabled in janus static room config.
 
 ## Running the Presence server
 
-Presence is automatically launched when Friend Core is launched if you have used
-the Friend Chat installer. If you kill Friend Core instead of quitting, you will
-have to kill it manually (look for node tasks).
+Presence can run as a service if this option was chosen during installation, or 
+the provided auto restart script can be used.
 
-### Development
+As a service: `sudo service presence-server start`
+By script from Presence install folder: `nohup sh phoenix_presence.sh &`
 
-For development purposes, it is probably better to clone this repo to a
-more convenient place and use the provided update.sh script to move files to
-the appropriate Friend folder and perform the necessary 'npm install' command.
+Running the update.sh script from the git folder will also attempt to (re)start
+presence as a service, unless some additional argument is passed.
 
-### Running
-
-While in the Presence folder, the server can be run directly with `node presence.js`,
-or FriendCore can autostart it when it starts up. It can also be run through the
-provided phoenix script, which will write to error.log and restart.log and pick
-it back up if it falls down.
-
-## SDK / API
-
-A SDK is coming, allowing easy embedding of the presence service in apps or websites.
-It should come with some predefined widgets to get things up and running quickly, but
-also expose base classes to allow greater customization.
+When running on the restart script, logs will be written to error.log and restart.log
+in the Presence install folder.
 
 ## License
 

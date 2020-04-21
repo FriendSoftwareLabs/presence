@@ -128,7 +128,7 @@ plugins : {
 }
 ```
 
-If janus is also to be used for streaming, dont disable http:
+Websocket is used for normal sessions, http is used for streaming. All other can be disabled:
 ```
 transports : {
 	disable = "libjanus_http.so,libjanus_pfunix.so,libjanus_nanomsg.so"
@@ -145,7 +145,7 @@ nat : {
 }
 ```
 
-If not, make sure Janus has a public ip to bind to.
+If not, make sure Janus has a public ip for peer webRTC to connect to.
 
 ### janus.transports.websockets.jcfg
 
@@ -159,6 +159,13 @@ general : {
 	...
 }
 ```
+
+### janus.plugins.videoroom.jcfg
+
+For streaming, for each room that can be a streaming room, there must be a room added to janus cfg.
+These are called room-<number> in config. The excact name isnt important as it is not assigned to
+a specific streaming room, but there must be enough rooms defined to cover max number of streaming
+sessions in presence.
 
 ## presence configuration
 
@@ -202,7 +209,6 @@ server : {
 	janus : {
 		...
 		api_url    : <must match janus.transport.http config>,
-		api_secret : <must match janus config>,
 	},
 }
 ```
