@@ -42,9 +42,9 @@ const server = {
 		proxy : null,
 	},
 	ws : {
-		port : 27970,
-		proxy : null,
-		// proxy : '/presence/guest/',
+		port  : 27970,
+		//proxy : null,
+		proxy : '/presence/guest/',
 	},
 	friendcore : {
 		useTLS      : true,
