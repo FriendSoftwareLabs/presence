@@ -656,7 +656,6 @@ ns.NoMansLand.prototype.addWorkgroups = async function( user, authId ) {
 					return;
 				}
 				
-				log( 'pres settings', data );
 				const settings = {
 					superGroups  : [],
 					streamGroups : [],

@@ -1095,6 +1095,12 @@ ns.Live = function(
 	self.peerIds = [];
 	
 	self.mode = null;
+	self.modePri = [ 'presentation', 'follow-speaker' ];
+	self.modesSet = {};
+	self.followSpeakerLimit = 3;
+	self.currentSpeaker = null;
+	self.lastSpeaker = null;
+	
 	self.quality = {
 		level : 'normal',
 		scale : 1,
@@ -1107,7 +1113,6 @@ ns.Live = function(
 	self.pingTimeout = 1000 * 2;
 	self.peerTimeout = 1000 * 31;
 	self.peerAddTimeouts = {};
-	
 	
 	//Emitter.call( self );
 	
@@ -1130,21 +1135,15 @@ ns.Live.prototype.add = async function( userId ) { //adds user to existing room
 		return;
 	}
 	
-	lLog( 'add', {
-		userId      : userId,
-		isRecording : self.isRecording,
-	});
 	if ( self.isRecording ) {
 		self.setupStreamProxy();
 	}
 	
 	if ( self.isStream ) {
-		lLog( 'isStream' );
 		self.setupStreamProxy();
 		
 		if ( !self.sourceId && self.worgs ) {
 			let isStreamer = self.worgs.isStreamer( userId );
-			lLog( 'isStreamer', isStreamer );
 			if ( isStreamer ) {
 				self.sourceId = userId;
 				self.proxy.setSource( userId );
@@ -1166,12 +1165,15 @@ ns.Live.prototype.add = async function( userId ) { //adds user to existing room
 	
 	const liveId = uuid.get( 'live' );
 	user.liveId = liveId;
+	self.updateSpeakers();
+	self.updateQualityScale();
+	self.updateModeFollowSpeaker();
+	
 	// tell everyone
 	self.sendJoin( pid );
 	// tell peer
 	self.sendOpen( pid, liveId );
 	
-	self.updateQualityScale();
 	// tell user who else is in live
 	//self.sendPeerList( pid );
 	
@@ -1196,7 +1198,7 @@ ns.Live.prototype.remove = function( peerId, isReAdd ) { // userId
 	//peerId is the same as userId
 	const self = this;
 	if ( self.mode && self.mode.data.owner === peerId )
-		self.clearMode();
+		self.clearPresenter();
 	
 	if ( peerId === self.sourceId ) {
 		self.sourceId = null;
@@ -1231,6 +1233,8 @@ ns.Live.prototype.remove = function( peerId, isReAdd ) { // userId
 	
 	self.sendClose( peerId, peer.liveId );
 	self.updateQualityScale();
+	self.updateSpeakers();
+	self.updateModeFollowSpeaker();
 }
 
 ns.Live.prototype.getPeers = function() {
@@ -1608,77 +1612,133 @@ ns.Live.prototype.handleQuality = function( level, peerId ) {
 	self.updateQualityScale();
 }
 
-ns.Live.prototype.handleMode = function( event, peerId ) {
+ns.Live.prototype.handleMode = function( mode, peerId ) {
 	const self = this;
-	if ( 'presentation' === event.mode )
-		self.togglePresentationMode( event, peerId );
+	if ( 'presentation' === mode.type )
+		self.toggleModePresentation( mode, peerId );
+	
+	if ( 'show-speaker' === mode.type )
+		self.toggleModeFollowSpeaker( null, mode, peerId );
+	
+	self.updateMode( peerId );
 }
 
-ns.Live.prototype.clearMode = function() {
+ns.Live.prototype.clearPresenter = function() {
 	const self = this;
-	if ( !self.mode ) {
-		self.sendMode({
-			type : '',
-		});
-		return;
+	const type = self.mode.type;
+	if ( 'presentation' === type )
+		self.toggleModePresentation();
+	
+	self.updateMode();
+}
+
+ns.Live.prototype.toggleModeFollowSpeaker = function( setActive, conf, peerId ) {
+	const self = this;
+	const modeType = 'follow-speaker';
+	const mode = self.modesSet[ modeType ];
+	if ( setActive && !mode )
+		set( conf, peerId );
+	
+	if ( !setActive && mode )
+		unset();
+	
+	function unset() {
+		delete self.modesSet[ modeType ];
 	}
 	
-	if ( 'presentation' === self.mode.type )
-		self.togglePresentationMode();
+	function set( conf, peerId ) {
+		const mode = {
+			type : modeType,
+			data : {
+				owner : peerId || null,
+			},
+		};
+		self.modesSet[ modeType ] = mode;
+	}
 }
 
-ns.Live.prototype.togglePresentationMode = function( event, peerId ) {
+ns.Live.prototype.toggleModePresentation = function( conf, peerId ) {
 	const self = this;
+	const modeType = 'presentation';
 	if ( !peerId ) {
 		unset();
 		return;
 	}
 	
-	if ( !allowChange( peerId ))
+	const allow = allowChange( peerId );
+	if ( !allow )
 		return;
 	
-	if ( !self.mode )
+	const mode = self.modesSet[ modeType ];
+	if ( !mode )
 		set( peerId );
 	else
 		unset();
 	
+	function unset() {
+		delete self.modesSet[ modeType ];
+	}
+	
 	function set( presenterId ) {
-		self.mode = {
+		const mode = {
 			type : 'presentation',
 			data : {
 				owner : presenterId,
 			},
 		};
-		self.sendMode( self.mode );
-	}
-	
-	function unset() {
-		self.mode = null;
-		const update = {
-			type : '',
-		};
-		self.sendMode( update );
+		self.modesSet[ modeType ] = mode;
 	}
 	
 	function allowChange( peerId ) {
-		if ( !self.mode )
+		const pMode = self.modesSet[ modeType ];
+		if ( !pMode )
 			return true;
 		
-		if ( 'presentation' !== self.mode.type )
-			return false;
-		
-		if ( self.mode.data.owner !== peerId )
+		if ( peerId !== pMode.data.owner )
 			return false;
 		
 		return true;
 	}
 }
 
-ns.Live.prototype.sendMode = function( event, peerId ) {
+ns.Live.prototype.updateMode = function() {
+	const self = this;
+	let update = false;
+	const hasMode = self.modePri.some( type => {
+		const mode = self.modesSet[ type ];
+		if ( null == mode )
+			return false;
+		
+		if ( null == self.mode ) {
+			self.mode = mode;
+			update = true;
+			return true;
+		}
+		
+		if ( mode.type === self.mode.type )
+			return true;
+		
+		self.mode = mode;
+		update = true;
+		return true;
+	});
+	
+	if ( !hasMode && self.mode ) {
+		self.mode = null;
+		update = true;
+	}
+	
+	if ( !update )
+		return;
+	
+	self.sendMode();
+}
+
+ns.Live.prototype.sendMode = function( peerId ) {
 	const self = this;
 	const mode = {
 		type : 'mode',
-		data : event,
+		data : self.mode || null,
 	};
 	if ( peerId )
 		self.send( mode, peerId );
@@ -1698,13 +1758,11 @@ ns.Live.prototype.handleSpeaking = function( event, peerId ) {
 			return;
 		
 		self.speakerTimeout = setTimeout( clear, 1000 * 2 );
+		if ( null != self.currentSpeaker )
+			self.lastSpeaker = self.currentSpeaker;
+		
 		self.currentSpeaker = peerId;
-		const speaking = {
-			time       : event.time,
-			peerId     : peerId,
-			isSpeaking : true,
-		};
-		send( speaking );
+		self.sendSpeaking();
 	}
 	
 	function handleStoppedSpeaking( event, peerId ) {
@@ -1716,25 +1774,29 @@ ns.Live.prototype.handleSpeaking = function( event, peerId ) {
 			self.speakerTimeout = null;
 		}
 		
-		const stopped = {
-			time       : event.time,
-			peerId     : peerId,
-			isSpeaking : false,
-		};
-		send( stopped );
-	}
-	
-	function send( event ) {
-		let speaking = {
-			type : 'speaking',
-			data : event,
-		};
-		self.broadcast( speaking );
+		self.lastSpeaker = self.currentSpeaker;
+		self.currentSpeaker = null;
+		
+		self.sendSpeaking();
 	}
 	
 	function clear() {
 		self.speakerTimeout = null;
 	}
+}
+
+ns.Live.prototype.sendSpeaking = function() {
+	const self = this;
+	const state = {
+		time    : Date.now(),
+		current : self.currentSpeaker,
+		last    : self.lastSpeaker,
+	};
+	const speaking = {
+		type : 'speaking',
+		data : state,
+	};
+	self.broadcast( speaking );
 }
 
 ns.Live.prototype.handleLeave = function( event, peerId ) {
@@ -1743,6 +1805,50 @@ ns.Live.prototype.handleLeave = function( event, peerId ) {
 }
 
 // things
+
+ns.Live.prototype.updateSpeakers = function() {
+	const self = this;
+	let update = false;
+	let cIdx = null;
+	let lIdx = null;
+	if ( self.currentSpeaker )
+		cIdx = self.peerIds.indexOf( self.currentSpeaker );
+	if ( self.lastSpeaker )
+		lIdx = self.peerIds.indexOf( self.lastSpeaker );
+	
+	if ( -1 == cIdx ) {
+		self.currentSpeaker = null;
+		update = true;
+	}
+	
+	if ( -1 == lIdx ) {
+		self.lastSpeaker = self.peerIds[ 0 ];
+		update = true;
+	}
+	
+	if ( null == self.lastSpeaker ) {
+		self.lastSpeaker = self.peerIds[ 0 ];
+		update = true;
+	}
+	
+	if ( !update )
+		return;
+	
+	self.sendSpeaking();
+}
+
+ns.Live.prototype.updateModeFollowSpeaker = function() {
+	const self = this;
+	const peerNum = self.peerIds.length;
+	const modeActive = !!self.modesSet[ 'follow-speaker' ];
+	if ( modeActive && ( peerNum < self.followSpeakerLimit ))
+		self.toggleModeFollowSpeaker( false );
+	
+	if ( !modeActive && ( peerNum >= self.followSpeakerLimit ))
+		self.toggleModeFollowSpeaker( true );
+	
+	self.updateMode();
+}
 
 ns.Live.prototype.updateQualityScale = function() {
 	const self = this;
@@ -1851,15 +1957,19 @@ ns.Live.prototype.sendOpen  = function( pid, liveId ) {
 		data : {
 			liveId   : liveId,
 			liveConf : {
-				ICE         : global.config.shared.rtc.iceServers,
-				userId      : pid,
-				sourceId    : self.sourceId,
-				peerList    : self.peerIds,
-				quality     : self.quality,
-				mode        : self.mode,
-				topology    : topology,
-				isRecording : self.isRecording,
-				logTail     : self.log.getLast( 20 ),
+				ICE            : global.config.shared.rtc.iceServers,
+				userId         : pid,
+				sourceId       : self.sourceId,
+				peerList       : self.peerIds,
+				quality        : self.quality,
+				mode           : self.mode,
+				topology       : topology,
+				isRecording    : self.isRecording,
+				logTail        : self.log.getLast( 20 ),
+				speaking       : {
+					current : self.currentSpeaker,
+					last    : self.lastSpeaker,
+				},
 			},
 		},
 	};
@@ -1903,70 +2013,17 @@ ns.Live.prototype.getPeer = function( peerId ) {
 ns.Live.prototype.broadcast = function( data, sourceId, wrapSource ) {
 	const self = this;
 	self.users.broadcastLive( self.peerIds, data, sourceId, wrapSource );
-	/*
-	if ( wrapSource )
-		data = {
-			type : sourceId,
-			data : data,
-		};
-	
-	self.peerIds.forEach( sendIfNotSource );
-	function sendIfNotSource( pid ) {
-		if ( pid === sourceId )
-			return;
-		
-		self.send( data, pid );
-	}
-	*/
 }
 
 ns.Live.prototype.broadcastOnline = function( data, sourceId, wrapSource ) {
 	const self = this;
 	let online = self.users.getOnline();
 	self.users.broadcastLive( online, data, sourceId, wrapSource );
-	
-	/*
-	if ( wrapSource )
-		data = {
-			type : sourceId,
-			data : data,
-		};
-	
-	self.onlineList.forEach( sendIfNotSource );
-	function sendIfNotSource( pid ) {
-		if ( pid === sourceId )
-			return;
-		
-		
-		self.send( data, pid );
-	}
-	*/
 }
 
 ns.Live.prototype.send = function( event, targetId, callback ) {
 	const self = this;
 	self.users.sendLive( targetId, event );
-	/*
-	const target = self.getPeer( targetId );
-	if ( !target ) {
-		lLog( 'send - no peer for id', targetId );
-		lLog( 'send - tried to send', event );
-		return;
-	}
-	
-	if ( !target.send ) {
-		lLog( 'send - user is no online', target );
-		lLog( 'send - tried to send', event );
-		return;
-	}
-	
-	const wrap = {
-		type : 'live',
-		data : event,
-	};
-	
-	target.send( wrap, callback );
-	*/
 }
 
 //
@@ -3423,13 +3480,6 @@ ns.Settings.prototype.normalizeSettings = async function( db ) {
 	settings.userLimit = checkUserLimit( db, liveConf );
 	
 	const keys = Object.keys( settings );
-	sLog( 'normalizeSettings', {
-		db       : db,
-		live     : liveConf,
-		room     : roomConf,
-		settings : settings,
-		keys     : keys,
-	});
 	
 	keys.forEach( k => {
 		const v = settings[ k ];
@@ -3506,12 +3556,8 @@ ns.Settings.prototype.saveSetting = function( event, userId ) {
 ns.Settings.prototype.checkHasProxy = function() {
 	const self = this;
 	const live = global.config.server.live;
-	//sLog( 'checkHasProxy', conf );
 	if ( live.webRTCProxy && live.webRTCProxy.length )
 		return true;
-	
-	sLog( 'checkHasProxy - no proxy defined, cannot enable recording',
-		global.config.server );
 	
 	return false;
 }
