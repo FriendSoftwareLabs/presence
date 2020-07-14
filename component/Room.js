@@ -479,7 +479,7 @@ ns.Room.prototype.bindUser = async function( userId ) {
 	let user = self.users.get( userId );
 	if ( !user ) {
 		log( 'bindUSer - not a user in room', {
-			room : self.name,
+			room   : self.name,
 			userId : userId,
 			users  : self.users.getList(),
 		}, 4 );
@@ -493,8 +493,8 @@ ns.Room.prototype.bindUser = async function( userId ) {
 	
 	if ( user.close ) {
 		log( 'bindUser - user already bound', {
-			room   : self.name,
-			user   : user.name,
+			room : self.name,
+			user : user.name,
 		}, 3 );
 		return user;
 	}
@@ -609,7 +609,7 @@ ns.Room.prototype.initialize = async function( requestId, userId ) {
 	}
 }
 
-ns.Room.prototype.handlePersist = function( event, userId ) {
+ns.Room.prototype.handlePersist = async function( event, userId ) {
 	const self = this;
 	if ( self.persistent )
 		return;
@@ -617,71 +617,67 @@ ns.Room.prototype.handlePersist = function( event, userId ) {
 	if ( !event.name || !event.name.length )
 		return;
 	
-	self.persistent = true;
-	self.users.setPersistent( self.persistent );
-	self.name = event.name;
-	self.persistRoom( persistBack );
-	function persistBack( res ) {
-		if ( !res )
-			return;
-		
-		const online = self.users.getOnline();
-		self.settings.setPersistent( true, self.name );
-		self.log.setPersistent( true );
-		self.invite.setPersistent( true );
-		online.forEach( update );
-		function update( userId ) {
-			const user = self.users.get( userId );
-			if ( !user || !user.setRoomPersistent )
-				return;
-			
-			user.setRoomPersistent( true, event.name );
-		}
-	}
-}
-
-ns.Room.prototype.persistRoom = function( callback ) {
-	const self = this;
-	let authorize = null;
-	self.roomDb.set(
-		self.id,
-		self.name,
-		self.ownerId
-	)
-		.then( roomOk )
-		.catch( err );
-		
-	function roomOk( res ) {
-		persistAuths();
+	try {
+		await self.persistRoom();
+	} catch( ex ) {
+		log( 'handlePresist - persist failed', ex );
+		return;
 	}
 	
-	function persistAuths() {
-		const userIds = self.users.getList();
-		authorize = userIds.filter( notGuest );
-		authorize.forEach( uId => self.users.addAuthorized( uId ));
-		self.roomDb.authorize( self.id, authorize )
-			.then( authSet )
-			.catch( err );
+	try {
+		await self.updateRoomName( event.name );
+	} catch( ex ) {
+		log( 'handlePresist - updateRoomNAme failed', ex );
+		return;
 	}
+	
+}
+
+ns.Room.prototype.persistRoom = async function() {
+	const self = this;
+	let authorize = null;
+	try {
+		await self.roomDb.set(
+			self.id,
+			self.name,
+			self.ownerId
+		);
+	} catch( ex ) {
+		log( 'persistRoom - db failed', ex );
+		return null;
+	}
+	
+	self.persistent = true;
+	self.users.setPersistent( true);
+	self.settings.setPersistent( true );
+	self.log.setPersistent( true );
+	self.invite.setPersistent( true );
+	const online = self.users.getOnline();
+	online.forEach( uId => {
+		const user = self.users.get( uId );
+		if ( !user || !user.setRoomPersistent )
+			return;
+		
+		user.setRoomPersistent( true, self.name );
+	});
+	
+	const userIds = self.users.getList();
+	authorize = userIds.filter( notGuest );
+	try {
+		await self.roomDb.authorize( self.id, authorize );
+	} catch( ex ) {
+		log( 'persistRoom - authorize failed', ex );
+		return null;
+	}
+	
+	authorize.forEach( uId => self.users.addAuthorized( uId ));
+	return true;
 	
 	function notGuest( uid ) {
 		const user = self.users.get( uid );
 		return !user.isGuest;
 	}
 	
-	function authSet( ok ) {
-		authorize.forEach( updateClients );
-		callback( ok );
-	}
-	
-	function err( err ) {
-		log( 'persistRoom err', err );
-		callback( null );
-	}
-	
-	function updateClients( userId ) {
-		self.updateUserAuthorized( true, userId );
-	}
 }
 
 ns.Room.prototype.persistAuthorization = async function( userId ) {
@@ -706,26 +702,31 @@ ns.Room.prototype.revokeAuthorization = async function( userId ) {
 	return true;
 }
 
-// tell the user / client, it has been authorized for this room
-ns.Room.prototype.updateUserAuthorized = function( isAuthed, userId ) {
+ns.Room.prototype.updateRoomName = async function( name ) {
 	const self = this;
-	const user = self.users.get( userId );
-	user.setIsAuthed( isAuthed );
+	let err = null;
+	err = self.settings.setName( name );
 }
 
-ns.Room.prototype.handleRename = async function( name, userId ) {
+ns.Room.prototype.handleRename = async function( name ) {
 	const self = this;
 	self.name = name;
+	//
+	await self.setAvatar();
+	
+	self.chat.updateRoomName( self.name );
+	
+	//
 	const online = self.users.getOnline();
 	online.forEach( uId => {
 		let user = self.users.get( uId );
 		if ( !user.roomName )
 			return;
 		
-		user.roomName = name;
+		user.roomName = self.name;
 	});
 	
-	await self.setAvatar();
+	//
 	const uptd = {
 		type : 'room-update',
 		data : {

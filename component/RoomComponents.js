@@ -116,8 +116,14 @@ ns.Users.prototype.set = async function( user ) {
 	
 	function deny( user ) {
 		uLog( 'set - user not set', {
-			r     : self.workId,
-			user  : user,
+			r     : {
+				wid : self.workId,
+				rid : self.roomId,
+			},
+			user  : {
+				cid  : user.clientId,
+				name : user.name,
+			},
 			users : self.everyId,
 			auth  : self.authorized,
 			worgs : self.worgs,
@@ -258,6 +264,11 @@ ns.Users.prototype.addAuthorized = function( userId ) {
 		return true;
 	
 	self.authorized.push( userId );
+	const user = self.get( userId );
+	if ( !user || !user.setIsAuthed )
+		return false;
+	
+	user.setIsAuthed( true );
 }
 
 ns.Users.prototype.checkIsAuthed = function( userId ) {
@@ -277,6 +288,11 @@ ns.Users.prototype.removeAuth = function( userId ) {
 		return;
 	
 	self.authorized.splice( aIdx, 1 );
+	const user = self.get( userId );
+	if ( !user || !user.setIsAuthed )
+		return false;
+	
+	user.setIsAuthed( false );
 }
 
 ns.Users.prototype.addForWorkgroup = function( worgId, userId ) {
@@ -725,6 +741,11 @@ ns.Chat.prototype.bind = function( userId ) {
 	*/
 	user.on( 'chat', cat );
 	function cat( e ) { self.handleChat( e, userId ); }
+}
+
+ns.Chat.prototype.updateRoomName = function( roomName ) {
+	const self = this;
+	self.roomName = roomName;
 }
 
 ns.Chat.prototype.close = function( callback ) {
@@ -1521,7 +1542,6 @@ ns.Live.prototype.handlePeerEvent = function( event, peerId ) {
 
 ns.Live.prototype.handleProxy = function( event, peerId ) {
 	const self = this;
-	//lLog( 'handleProxy', [ event, peerId ]);
 	if ( !self.proxy ) {
 		lLog( 'handleProxy - no proxy', event );
 		return;
@@ -3403,10 +3423,14 @@ ns.Settings.prototype.broadcast = function( event, sourceId, wrapSource ) {
 	self.users.broadcastSettings( null, event, sourceId, wrapSource );
 }
 
-ns.Settings.prototype.setPersistent = function( isPersistent, roomName ) {
+ns.Settings.prototype.setPersistent = function( isPersistent ) {
 	const self = this;
 	self.isPersistent = isPersistent;
-	self.handleRoomName( roomName );
+}
+
+ns.Settings.prototype.setName = function( roomName ) {
+	const self = this;
+	return self.setRoomName( roomName );
 }
 
 ns.Settings.prototype.close = function() {
@@ -3451,10 +3475,13 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 	}
 	
 	await self.normalizeSettings( dbSetts );
+	self.set( 'roomName', name );
+	/*
 	if ( !dbSetts )
 		self.set( 'roomName', name );
 	else
 		self.set( 'roomName', dbSetts.roomName );
+	*/
 	
 	self.events = new events.RequestNode( null, onSend, sSink, true );
 	self.events.on( 'get', ( ...args ) => {
@@ -3578,6 +3605,11 @@ ns.Settings.prototype.saveSetting = function( event, userId ) {
 	handler( event.value, userId );
 }
 
+ns.Settings.prototype.saveSettings = function( ...args ) {
+	const self = this;
+	sLog( 'saveSettings - NYI', args, 3 );
+}
+
 ns.Settings.prototype.checkHasProxy = function() {
 	const self = this;
 	const live = global.config.server.live;
@@ -3612,28 +3644,38 @@ ns.Settings.prototype.checkIsAdmin = function( userId ) {
 		return true;
 }
 
-ns.Settings.prototype.handleRoomName = function( value, userId ) {
+ns.Settings.prototype.handleRoomName = async function( name, userId ) {
 	const self = this;
-	self.db.setName( value )
-		.then( ok )
-		.catch( fail );
+	const err = await self.setRoomName( name );
+	if ( !userId )
+		return err;
 	
-	function ok() {
-		self.set( 'roomName', value );
-		self.emit( 'roomName', value );
-		if ( !userId )
-			return;
-		
-		self.sendSaved( 'roomName', value, true, userId );
-	}
-	
-	function fail( err ) {
-		sLog( 'failed to set roomName', err );
-		if ( !userId )
-			return;
-		
+	if ( null == err )
+		self.sendSaved( 'roomName', name, true, userId );
+	else
 		self.sendError( 'roomName', err, userId );
+	
+	return err;
+}
+
+ns.Settings.prototype.setRoomName = async function( name ) {
+	const self = this;
+	
+	// TODO name/string checks
+	
+	if ( self.isPersistent ) {
+		try {
+			self.db.setName( name );
+		} catch( ex ) {
+			sLog( 'setRoomName - db fail', ex );
+			return ex;
+		}
 	}
+	
+	self.set( 'roomName', name );
+	self.emit( 'roomName', name );
+	
+	return null;
 }
 
 ns.Settings.prototype.handleUserLimit = function( value, userId ) {
@@ -3641,7 +3683,7 @@ ns.Settings.prototype.handleUserLimit = function( value, userId ) {
 	self.db.setSetting( 'userLimit', value )
 		.then( dbOk )
 		.catch( dbErr );
-		
+	
 	function dbOk() {
 		self.set( 'userLimit', value );
 		self.emit( 'userLimit', value );

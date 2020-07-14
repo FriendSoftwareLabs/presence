@@ -136,7 +136,7 @@ ns.FService.prototype.sendNotification = async function(
 		},
 	};
 	
-	log( 'sendNotification', notie, 4 );
+	//log( 'sendNotification', notie, 4 );
 	
 	let err = await self.send( notie );
 	if ( err )
