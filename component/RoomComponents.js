@@ -1123,17 +1123,28 @@ ns.Live = function(
 
 // Public
 
-ns.Live.prototype.add = async function( userId ) { //adds user to existing room
+ns.Live.prototype.add = async function( userId, clientId ) { //adds user to existing room
 	const self = this;
 	const user = self.users.get( userId );
 	if ( !user )
 		return;
 	
-	const pid = user.clientId;
-	if ( self.peers[ pid ]) {
-		await self.reAdd( pid );
+	if ( !clientId ) {
+		lLog( 'add - no clientId', user );
 		return;
 	}
+	
+	const pid = user.clientId;
+	if ( self.peers[ pid ]) {
+		await self.reAdd( pid, clientId );
+		return;
+	}
+	
+	user.liveId = clientId;
+	self.peers[ pid ] = user;
+	self.peerIds.push( pid );
+	user.on( 'live', handleLive );
+	self.updateSession();
 	
 	if ( self.isRecording ) {
 		self.setupStreamProxy();
@@ -1141,7 +1152,6 @@ ns.Live.prototype.add = async function( userId ) { //adds user to existing room
 	
 	if ( self.isStream ) {
 		self.setupStreamProxy();
-		
 		if ( !self.sourceId && self.worgs ) {
 			let isStreamer = self.worgs.isStreamer( userId );
 			if ( isStreamer ) {
@@ -1159,12 +1169,6 @@ ns.Live.prototype.add = async function( userId ) { //adds user to existing room
 		self.proxy.addUser( userId );
 	}
 	
-	self.peers[ pid ] = user;
-	self.peerIds.push( pid );
-	user.on( 'live', handleLive );
-	
-	const liveId = uuid.get( 'live' );
-	user.liveId = liveId;
 	self.updateSpeakers();
 	self.updateQualityScale();
 	self.updateModeFollowSpeaker();
@@ -1172,7 +1176,7 @@ ns.Live.prototype.add = async function( userId ) { //adds user to existing room
 	// tell everyone
 	self.sendJoin( pid );
 	// tell peer
-	self.sendOpen( pid, liveId );
+	self.sendOpen( pid, clientId );
 	
 	// tell user who else is in live
 	//self.sendPeerList( pid );
@@ -1220,21 +1224,22 @@ ns.Live.prototype.remove = function( peerId, isReAdd ) { // userId
 		return;
 	
 	self.stopPing( peerId );
-	// tell the peer
-	peer.liveId = null;
-	// tell everyone else
-	self.sendLeave( peerId );
 	// remove & release
 	delete self.peers[ peerId ];
 	self.peerIds = Object.keys( self.peers );
 	peer.release( 'live' );
-	if ( isReAdd )
+	if ( isReAdd ) {
+		self.sendClose( peerId, peer.liveId );
 		return;
+	}
 	
-	self.sendClose( peerId, peer.liveId );
+	peer.liveId = null;
+	self.sendLeave( peerId );
+	self.sendClose( peerId );
 	self.updateQualityScale();
 	self.updateSpeakers();
 	self.updateModeFollowSpeaker();
+	self.updateSession();
 }
 
 ns.Live.prototype.getPeers = function() {
@@ -1330,25 +1335,36 @@ ns.Live.prototype.isRecordingChanged = function( isRecording ) {
 	
 }
 
-ns.Live.prototype.reAdd = async function( pid ) {
+ns.Live.prototype.updateSession = function() {
 	const self = this;
-	if ( self.peerAddTimeouts[ pid ]){
-		return; // already being re added
+	const pNum = self.peerIds.length;
+	if ( 0 === pNum )
+		self.sessionId = null;
+	else {
+		if ( null == self.sessionId )
+			self.sessionId = uuid.get( 'ls' );
+	}
+}
+
+ns.Live.prototype.reAdd = async function( pid, clientId ) {
+	const self = this;
+	const curr = self.peerAddTimeouts[ pid ];
+	if ( null != curr ){
+		// already being re added
+		// abort it and do this client instead
+		clearTimeout( curr );
+		delete self.peerAddTimeouts[ pid ];
 	}
 	
 	const peer = self.peers[ pid ];
-	/*
-	self.stopPing( pid );
-	self.sendClose( pid, peer.liveId );
-	peer.liveId = null;
-	self.sendLeave( pid );
-	delete self.peers[ pid ];
-	self.peerIds = Object.keys( self.peers );
-	peer.release( 'live' );
-	*/
 	self.remove( pid, true );
-	await wait();
-	self.add( pid );
+	try {
+		await wait();
+	} catch( ex ) {
+		return false;
+	}
+	
+	self.add( pid, clientId );
 	return true;
 	
 	function wait() {
@@ -1357,7 +1373,7 @@ ns.Live.prototype.reAdd = async function( pid ) {
 			function teeOut() {
 				let timeout = self.peerAddTimeouts[ pid ];
 				if ( null == timeout )
-					throw new Error( 'timeout canceled' );
+					reject( 'timeout canceled' );
 				
 				delete self.peerAddTimeouts[ pid ];
 				resolve( true );
@@ -1946,35 +1962,41 @@ ns.Live.prototype.sendJoin = function( joinedId ) {
 	self.broadcastOnline( joined );
 }
 
-ns.Live.prototype.sendOpen  = function( pid, liveId ) {
+ns.Live.prototype.sendOpen  = function( pid, clientId ) {
 	const self = this;
 	let topology = 'peer';
 	if ( self.proxy )
 		topology = 'star';
 	
+	const live = {
+		sessionId : self.sessionId,
+		liveConf  : {
+			ICE            : global.config.shared.rtc.iceServers,
+			userId         : pid,
+			sourceId       : self.sourceId,
+			peerList       : self.peerIds,
+			quality        : self.quality,
+			mode           : self.mode,
+			topology       : topology,
+			isRecording    : self.isRecording,
+			logTail        : self.log.getLast( 20 ),
+			speaking       : {
+				current : self.currentSpeaker,
+				last    : self.lastSpeaker,
+			},
+		},
+	};
+	
 	const open = {
 		type : 'open',
 		data : {
-			liveId   : liveId,
-			liveConf : {
-				ICE            : global.config.shared.rtc.iceServers,
-				userId         : pid,
-				sourceId       : self.sourceId,
-				peerList       : self.peerIds,
-				quality        : self.quality,
-				mode           : self.mode,
-				topology       : topology,
-				isRecording    : self.isRecording,
-				logTail        : self.log.getLast( 20 ),
-				speaking       : {
-					current : self.currentSpeaker,
-					last    : self.lastSpeaker,
-				},
-			},
+			clientId : clientId,
+			live     : live,
 		},
 	};
 	self.send( open, pid );
 }
+
 
 ns.Live.prototype.sendLeave = function( leftId ) {
 	const self = this;
@@ -1987,11 +2009,14 @@ ns.Live.prototype.sendLeave = function( leftId ) {
 	self.broadcastOnline( leave );
 }
 
-ns.Live.prototype.sendClose = function( peerId, liveId ) {
+ns.Live.prototype.sendClose = function( peerId, clientId ) {
 	const self = this;
 	const close = {
 		type : 'close',
-		data : liveId,
+		data : {
+			clientId  : clientId || null,
+			sessionId : self.sessionId,
+		},
 	};
 	self.send( close, peerId );
 }

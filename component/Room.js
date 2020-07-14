@@ -824,9 +824,10 @@ ns.Room.prototype.unAuthUser = async function( uid ) {
 	}
 }
 
-ns.Room.prototype.handleJoinLive = function( event, uid ) {
+ns.Room.prototype.handleJoinLive = function( conf, uid ) {
 	const self = this;
-	var user = self.users.get( uid );
+	const user = self.users.get( uid );
+	log( 'handleJoinLive', conf );
 	if ( !user ) {
 		log( 'handleJoinLive - no user?', {
 			id : uid,
@@ -836,7 +837,7 @@ ns.Room.prototype.handleJoinLive = function( event, uid ) {
 		return;
 	}
 	
-	self.live.add( uid );
+	self.live.add( uid, conf );
 }
 
 ns.Room.prototype.handleRestoreLive = function( event, uid ) {
