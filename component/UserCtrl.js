@@ -247,13 +247,15 @@ ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds
 	}
 	
 	let worgUserList = self.worgs.getUserList( worgId );
-	worgUserList.forEach( addTo );
-	function addTo( accId ) {
+	worgUserList.forEach( accId => add( accId, addedAccIds ));
+	addedAccIds.forEach( accId => add( accId, worgUserList ));
+	
+	function add( accId, list ) {
 		let acc = self.accounts[ accId ];
 		if ( !acc || acc.closed )
 			return;
 		
-		acc.addContacts( addedAccIds );
+		acc.addContacts( list );
 	}
 }
 

@@ -167,7 +167,6 @@ ns.Account.prototype.updateContacts = function() {
 
 ns.Account.prototype.removeContact = function( contactId ) {
 	const self = this;
-	self.log( 'removeContact', contactId );
 	if ( self.relations[ contactId ])
 		return;
 	
