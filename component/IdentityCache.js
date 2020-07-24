@@ -107,7 +107,7 @@ ns.IDC.prototype.get = async function( clientId ) {
 		return identity;
 	
 	identity = await self.load( clientId );
-	return identity;
+	return identity || null;
 }
 
 ns.IDC.prototype.getList = async function( idList ) {
@@ -277,6 +277,7 @@ ns.IDC.prototype.setOnline = function( clientId, isOnline ) {
 		return;
 	
 	id.isOnline = isOnline;
+	self.sendUpdate( clientId, 'isOnline' );
 }
 
 ns.IDC.prototype.checkOnline = function( clientId ) {
@@ -403,12 +404,15 @@ ns.IDC.prototype.add = function( id ) {
 		self.FIDs[ fId ] = id;
 	
 	self.IDs[ cId ] = id;
-	self.touch( cId );
+	const stamp = self.touch( cId );
+	id.lastUpdate = stamp;
 }
 
-ns.IDC.prototype.touch = function( id ) {
+ns.IDC.prototype.touch = function( userId ) {
 	const self = this;
-	self.lastAccess[ id ] = Date.now();
+	const stamp = Date.now();
+	self.lastAccess[ userId ] = stamp;
+	return stamp;
 }
 
 ns.IDC.prototype.checkName = async function( id, c ) {
@@ -522,9 +526,12 @@ ns.IDC.prototype.checkDisabled = async function( id, c ) {
 ns.IDC.prototype.sendUpdate = function( userId, type ) {
 	const self = this;
 	const id = self.getSync( userId );
+	id.lastUpdate = Date.now();
 	const update = {
-		type : type,
-		data : id,
+		key        : type,
+		value      : id[ type ],
+		clientId   : userId,
+		lastUpdate : id.lastUpdate,
 	};
 	self.emitUpdate( update );
 }

@@ -114,6 +114,7 @@ ns.Account.prototype.addContacts = async function( contactList ) {
 
 ns.Account.prototype.addContact = async function( accId ) {
 	const self = this;
+	//self.log( 'addContact', accId );
 	if ( accId === self.id )
 		return false;
 	
@@ -139,9 +140,6 @@ ns.Account.prototype.addContact = async function( accId ) {
 		data : contact,
 	};
 	self.conn.send( cAdd );
-	
-	const isOnline = self.idCache.checkOnline( accId );
-	self.updateContactStatus( 'online', accId, isOnline );
 	
 	return accId;
 	
@@ -169,6 +167,7 @@ ns.Account.prototype.updateContacts = function() {
 
 ns.Account.prototype.removeContact = function( contactId ) {
 	const self = this;
+	self.log( 'removeContact', contactId );
 	if ( self.relations[ contactId ])
 		return;
 	
@@ -199,6 +198,13 @@ ns.Account.prototype.removeContact = function( contactId ) {
 
 ns.Account.prototype.updateContactStatus = function( type, contactId, data ) {
 	const self = this;
+	self.log( 'updateContactStatus - NOOP', [
+		type,
+		contactId,
+		data,
+	]);
+	return;
+	
 	if ( !self.ids[ contactId ])
 		return;
 	
@@ -216,7 +222,7 @@ ns.Account.prototype.updateIdentity = function( event ) {
 		return;
 	
 	if ( 'fIsDisabled' == event.type ) {
-		self.handleDisableChange( event.data );
+		self.handleDisableChange( event );
 		return;
 	}
 	
@@ -330,6 +336,7 @@ ns.Account.prototype.bindIdRequests = function() {
 	//self.idReq = new events.RequestNode( self.idNode );
 	self.idReq.on( 'get', e => { return self.handleIdGet( e ); });
 	self.idReq.on( 'get-list', e => { return self.handleIdList( e ); });
+	self.idReq.on( 'refresh', e => { return self.handleIdRefresh( e ); });
 	
 	function idSink( ...args ) {
 		self.log( 'idSink', args );
@@ -371,6 +378,29 @@ ns.Account.prototype.handleIdList = async function( list ) {
 	});
 	
 	return [ ...local, ...fetched ];
+}
+
+ns.Account.prototype.handleIdRefresh = async function( timeMap ) {
+	const self = this;
+	const ids = Object.keys( timeMap );
+	const idMap = await Promise.all( ids.map( cId => {
+		return self.idCache.get( cId );
+	}));
+	
+	const updated = idMap.filter( id => {
+		if ( null == id )
+			return false;
+		
+		const cId = id.clientId;
+		const clientTime = timeMap[ cId ];
+		const currTime = id.lastUpdate;
+		if ( currTime !== clientTime )
+			return true;
+		else
+			return false;
+	});
+	
+	return updated;
 }
 
 ns.Account.prototype.handleRoomCtrlEvent = function( event, roomId ) {
@@ -1032,6 +1062,10 @@ ns.Account.prototype.handleDisableChange = function( id ) {
 
 ns.Account.prototype.sendContactEvent = function( type, event ) {
 	const self = this;
+	self.log( 'sendContactEvent', {
+		type  : type,
+		event : event,
+	}, 3 );
 	const wrap = {
 		type : 'contact-event',
 		data : {

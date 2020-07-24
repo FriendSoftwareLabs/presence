@@ -120,7 +120,6 @@ ns.UserCtrl.prototype.addAccount = async function( session, conf ) {
 	self.accIds.push( accId );
 	
 	self.idc.setOnline( accId, true );
-	self.broadcastOnlineStatus( accId, true );
 }
 
 ns.UserCtrl.prototype.addGuest = async function( session, conf, roomId ) {
@@ -154,9 +153,6 @@ ns.UserCtrl.prototype.remove = function( accountId ) {
 	acc.close();
 	
 	self.idc.setOnline( accountId, false );
-	self.broadcastOnlineStatus( accountId, false );
-	
-	//self.worgs.removeUser( accountId );
 }
 
 ns.UserCtrl.prototype.update = async function( fUser ) {
@@ -315,35 +311,6 @@ ns.UserCtrl.prototype.handleWorgRegenerate = function( affectedAccIds ) {
 			return;
 		
 		acc.updateContacts();
-	});
-}
-
-ns.UserCtrl.prototype.broadcastOnlineStatus = function( subjectId, isOnline ) {
-	const self = this;
-	const id = self.idc.getSync( subjectId );
-	const state = isOnline ? id : false;
-	self.accIds.forEach( cId => {
-		const acc = self.accounts[ cId ];
-		if ( !acc || acc.closed || !acc.updateContactStatus )
-			return;
-		
-		acc.updateContactStatus( 'online', subjectId, state );
-	});
-}
-
-ns.UserCtrl.prototype.updateOnlineStatus = function( accountId ) {
-	const self = this;
-	let account = self.accounts[ accountId ];
-	if ( !account || !account.updateContactStatus )
-		return;
-	
-	const contacts = account.getContactList() || [];
-	contacts.forEach( cId => {
-		let contact = self.accounts[ cId ];
-		if ( !contact || contact.closed )
-			return;
-		
-		account.updateContactStatus( 'online', cId, true );
 	});
 }
 

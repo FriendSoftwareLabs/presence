@@ -483,6 +483,7 @@ ns.WorgCtrl.prototype.handleGroupDelete = function( swg ) {
 
 ns.WorgCtrl.prototype.handleAddUsers = async function( event ) {
 	const self = this;
+	log( 'handleAddUsers', event, 3 );
 	if ( !event.userids || !event.userids.length )
 		return;
 	
@@ -507,6 +508,7 @@ ns.WorgCtrl.prototype.handleAddUsers = async function( event ) {
 
 ns.WorgCtrl.prototype.handleSetUsers = async function( event ) {
 	const self = this;
+	log( 'handleSetUsers', event, 3 );
 	if ( !event.groupid || !event.userids ) {
 		log( 'handleSetUsers - invalid event', event );
 		return;
@@ -549,6 +551,7 @@ ns.WorgCtrl.prototype.handleSetUsers = async function( event ) {
 
 ns.WorgCtrl.prototype.handleRemoveUsers = async function( event ) {
 	const self = this;
+	log( 'handleRemoveUsers', event, 3 );
 	if ( !event.userids || !event.userids.length )
 		return;
 	
