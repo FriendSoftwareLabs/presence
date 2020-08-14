@@ -55,7 +55,7 @@ var ns = {};
 		const domain = self.server.domain;
 		const port = self.server.ws.port;
 		const proxy = self.server.ws.proxy;
-		var host = null;
+		let host = null;
 		if ( null != proxy )
 			host = domain + proxy;
 		else
@@ -64,28 +64,26 @@ var ns = {};
 		return host;
 	}
 	
-	// "static" method, no self allowed here
+	// static
 	ns.Config.prototype.setMissing = function( dest, src ) {
 		return sync( dest, src );
 		
 		function sync( dest, src ) {
-			if ( typeof( dest ) === 'undefined' ) {
-				dest = src;
-				return dest;
-			}
+			if ( undefined === dest )
+				return src;
 			
-			if (( typeof( src ) !== 'object' ) || ( src === null ))
+			if (( src == null ) || ( typeof( src ) !== 'object' ))
 				return dest;
 			
-			var srcKeys = Object.keys( src );
+			const srcKeys = Object.keys( src );
 			if ( srcKeys.length )
 				srcKeys.forEach( goDeeper );
 			
 			return dest;
 			
 			function goDeeper( key ) {
-				var deeperDest = dest[ key ];
-				var deeperSrc = src[ key ];
+				const deeperDest = dest[ key ];
+				const deeperSrc = src[ key ];
 				dest[ key ] = sync( deeperDest, deeperSrc );
 			}
 		}

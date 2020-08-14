@@ -19,7 +19,7 @@
 *                                                                              *
 *****************************************************************************©*/
 
-const mySQL = require( 'mysql' );
+const mySQL = require( 'mysql2' );
 const fs = require( 'fs' );
 const log = require('./Log')( 'MysqlPool' );
 const pLog = require( './Log' )( 'mysql-patcher' );
@@ -27,7 +27,7 @@ const childProcess = require( 'child_process' );
 
 var ns = {};
 
-ns.MysqlPool = function( config, doneBack ) {
+ns.MysqlPool = function( dbConf, doneBack ) {
 	const self = this;
 	self.done = doneBack;
 	self.host = config.host;
@@ -37,20 +37,26 @@ ns.MysqlPool = function( config, doneBack ) {
 	self.connectionLimit = 10;
 	self.pool = null;
 	
-	self.init();
+	self.init( dbConf );
 }
 
-ns.MysqlPool.prototype.init = function() {
+ns.MysqlPool.prototype.init = function( dbConf ) {
 	const self = this;
-	self.pool = mySQL.createPool({
-		host            : self.host,
-		user            : self.user,
-		password        : self.pass,
-		database        : self.database,
+	self.poolConf = {
+		user            : dbConf.user,
+		password        : dbConf.user,
+		database        : dbConf.name,
 		connectionLimit : self.connectionLimit,
 		charset         : 'utf8mb4',
-	});
+	};
 	
+	if ( null == dbConf.socket ) {
+		self.poolConf.host = dbConf.host;
+		self.poolConf.port = dbConf.port;
+	} else
+		self.poolConf.socketPath = dbConf.socket;
+	
+	self.pool = mySQL.createPool( self.poolConf );
 	self.pool.on( 'connection', logConnection );
 	self.pool.on( 'enqueue', logEnqueue );
 	
@@ -70,7 +76,7 @@ ns.MysqlPool.prototype.init = function() {
 			conn.release();
 			
 			if ( !success ) {
-				log( 'no-go, db patching failed, closing' );
+				log( 'no-go, db patching failed' );
 				self.done( false );
 				return;
 			}
@@ -100,7 +106,7 @@ ns.MysqlPool.prototype.applyUpdates = function( conn, doneBack ) {
 		dbPass : self.pass,
 		dbName : self.database,
 	};
-	new ns.Patches( conf, doneBack );
+	new ns.Patches( conn, self.poolConf, doneBack );
 }
 
 ns.MysqlPool.prototype.runStartupProc = function( db, callback ) {
@@ -140,14 +146,15 @@ module.exports = ns.MysqlPool;
 
 // PATCHES
 // runs patches from a folder against the db
-ns.Patches =function( conf, doneCallback ) {
+ns.Patches =function( db, conf, doneCallback ) {
 	const self = this;
-	self.db = conf.conn;
+	self.db = db;
 	self.conf = conf;
 	self.done = doneCallback;
 	self.sqlDirectory = __dirname + '/../db/';
 	self.patchDirectory = self.sqlDirectory + 'patches/';
 	self.proceduresPath = self.sqlDirectory + 'auto_update_procs.sh';
+	self.procsUpdatePath = self.sqlDirectory + 'procedures.sql';
 	self.patchList = [];
 	
 	self.init();
@@ -171,15 +178,24 @@ ns.Patches.prototype.init = function() {
 
 ns.Patches.prototype.updateProcedures = function( procsDone ) {
 	const self = this;
-	var opts = {
-		env : {
-			dbHost : self.conf.dbHost,
-			dbName : self.conf.dbName,
-			dbUser : self.conf.dbUser,
-			dbPass : self.conf.dbPass,
-		},
+	const c = self.conf;
+	const env = {
+		procsPath : self.procsUpdatePath,
+		dbName    : c.database,
+		dbUser    : c.user,
+		dbPass    : c.password,
 	};
-	var cmd = 'sh ' + self.proceduresPath;
+	
+	if ( null == c.socketPath ) {
+		env.dbHost = c.host;
+		env.dbPort = c.port;
+	} else
+		env.dbSock = c.socketPath;
+	
+	const opts = {
+		env : env,
+	};
+	const cmd = 'sh ' + self.proceduresPath;
 	childProcess.exec( cmd, opts, execBack );
 	function execBack( error, stdout, stderr ) {
 		if ( error ) {
