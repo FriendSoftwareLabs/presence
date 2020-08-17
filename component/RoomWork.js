@@ -1984,13 +1984,11 @@ ns.WorkSettings.prototype.init = async function( dbPool, ignore ) {
 	try {
 		dbSetts = await self.db.getSettings();
 	} catch( err ) {
-		sLog( 'init - db err', dbSetts );
+		sLog( 'init - db err', err );
 		self.setDefaults();
 	}
 	
-	if ( dbSetts )
-		self.setDbSettings( dbSetts );
-	
+	self.setDbSettings( dbSetts );
 	self.events = new events.RequestNode( null, onSend, sSink, true );
 	self.events.on( 'get', ( ...args ) => {
 		return self.handleLoad( ...args );
@@ -2016,6 +2014,7 @@ ns.WorkSettings.prototype.init = async function( dbPool, ignore ) {
 
 ns.WorkSettings.prototype.setDbSettings = function( settings ) {
 	const self = this;
+	settings = settings || {};
 	let keys = Object.keys( settings );
 	keys.forEach( add );
 	self.settingStr = JSON.stringify( self.setting );

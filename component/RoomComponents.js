@@ -3471,7 +3471,7 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 	try {
 		dbSetts = await self.db.getSettings();
 	} catch ( err ) {
-		
+		sLog( 'init db err getSettings()', err );
 	}
 	
 	await self.normalizeSettings( dbSetts );

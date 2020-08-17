@@ -473,14 +473,14 @@ ns.ContactSettings.prototype.init = async function( dbPool, ignore ) {
 		self.setDefaults();
 	}
 	
-	if ( dbSetts )
-		self.setDbSettings( dbSetts );
+	self.setDbSettings( dbSetts );
 	
 	return self.setting;
 }
 
 ns.ContactSettings.prototype.setDbSettings = function( settings ) {
 	const self = this;
+	settings = settings || {};
 	let keys = Object.keys( settings );
 	keys.forEach( add );
 	self.settingStr = JSON.stringify( self.setting );

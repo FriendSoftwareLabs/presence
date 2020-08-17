@@ -926,44 +926,44 @@ ns.RoomDB.prototype.getForWorkgroup = async function( worgId ) {
 	return res[ 0 ] || null;
 }
 
-ns.RoomDB.prototype.getSettings = function( roomId ) {
+ns.RoomDB.prototype.getSettings = async function( roomId ) {
 	const self = this;
 	roomId = roomId || self.id;
-	return new Promise( get );
-	function get( resolve, reject ) {
-		if ( !roomId ) {
-			reject( 'ERR_NO_ROOMID' );
-			return;
-		}
-		
-		let values = [ roomId ];
-		self.query( 'room_settings_get', values )
-			.then( ok )
-			.catch( reject );
-		
-		function ok( res ) {
-			if ( !res ) {
-				reject( 'ERR_NO_ROWS' );
-				return;
-			}
-			
-			let obj = res[ 0 ];
-			if ( !obj || !obj.settings ) {
-				reject( 'ERR_NO_SETTINGS' );
-				return;
-			}
-			
-			let settings = null
-			try {
-				settings = JSON.parse( obj.settings );
-			} catch( e ) {
-				reject( 'ERR_INVALID_JSON' );
-				return;
-			}
-			
-			resolve( settings );
-		}
+	if ( !roomId ) {
+		reject( 'ERR_NO_ROOMID' );
+		return;
 	}
+	
+	let values = [ roomId ];
+	let res = null;
+	try {
+		res = await self.query( 'room_settings_get', values );
+	} catch( ex ) {
+		roomLog( 'getSettings - query ex', ex );
+		throw new Error( 'ERR_QUERY' );
+	}
+
+	if ( !res )
+		throw new Error( 'ERR_NO_ROWS' );
+		
+	let obj = res[ 0 ];
+	if ( !obj || !obj.settings ) {
+		roomLog( 'RoomDB.getSettings - no settings', res );
+		throw new Error( 'ERR_NO_SETTINGS' );
+	}
+	
+	if ( 'string' !== typeof( obj.settings ))
+		return obj.settings;
+	
+	let settings = null
+	try {
+		settings = JSON.parse( obj.settings );
+	} catch( e ) {
+		roomLog( 'getSettings - probably already obj', obj.settings );
+		throw new Error( 'ERR_INVALID_JSON' );
+	}
+	
+	return settings;
 }
 
 ns.RoomDB.prototype.setSetting = function( key, value, roomId ) {
