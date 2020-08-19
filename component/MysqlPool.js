@@ -30,10 +30,6 @@ var ns = {};
 ns.MysqlPool = function( dbConf, doneBack ) {
 	const self = this;
 	self.done = doneBack;
-	self.host = config.host;
-	self.user = config.user;
-	self.pass = config.pass;
-	self.database = config.name;
 	self.connectionLimit = 10;
 	self.pool = null;
 	
@@ -44,7 +40,7 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 	const self = this;
 	self.poolConf = {
 		user            : dbConf.user,
-		password        : dbConf.user,
+		password        : dbConf.pass,
 		database        : dbConf.name,
 		connectionLimit : self.connectionLimit,
 		charset         : 'utf8mb4',
@@ -99,13 +95,6 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 
 ns.MysqlPool.prototype.applyUpdates = function( conn, doneBack ) {
 	const self = this;
-	var conf = {
-		conn : conn,
-		dbHost : self.host,
-		dbUser : self.user,
-		dbPass : self.pass,
-		dbName : self.database,
-	};
 	new ns.Patches( conn, self.poolConf, doneBack );
 }
 
