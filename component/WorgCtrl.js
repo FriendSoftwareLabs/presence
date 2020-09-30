@@ -706,9 +706,10 @@ ns.WorgCtrl.prototype.checkParent = function( worg ) {
 		self.removeSuperChild( wId );
 }
 
-ns.WorgCtrl.prototype.setSuperGroups = function( superIds ) {
+ns.WorgCtrl.prototype.setSuperGroups = function( fSuperIds ) {
 	const self = this;
-	superIds = getClientIds( superIds );
+	let superIds = getClientIds( fSuperIds );
+	superIds = superIds.filter( id => !!id );
 	const removed = removeStale( superIds );
 	const added = addNew( superIds );
 	setChildren( added );
@@ -728,6 +729,15 @@ ns.WorgCtrl.prototype.setSuperGroups = function( superIds ) {
 	function getClientIds( fIds ) {
 		return fIds.map( fId => {
 			let worg = self.fMap[ fId ];
+			if ( null == worg ) {
+				log( 'setSuperGroups - no worg for fId', {
+					fId       : fId,
+					fSuperIds : fSuperIds,
+					fMap      : self.fMap,
+					cMap      : self.cMap,
+				}, 3 );
+				return null;
+			}
 			return worg.clientId;
 		});
 	}
