@@ -1220,8 +1220,11 @@ ns.Live.prototype.restore = async function( userId ) {
 }
 
 ns.Live.prototype.remove = function( peerId, isReAdd ) { // userId
-	//peerId is the same as userId
 	const self = this;
+	//peerId is the same as userId
+	if ( null == self.peers[ peerId ])
+		return;
+	
 	if ( self.mode && self.mode.data.owner === peerId )
 		self.clearPresenter();
 	
