@@ -287,6 +287,7 @@ ns.FService.prototype.connect = function() {
 		self.fcc.serviceName,
 		self.fcc.wsProxy,
 		self.fcc.useTLS,
+		self.fcc.logEvents,
 	);
 	
 	self.conn.on( 'open'   , e => self.handleConnOpen( e ));
@@ -497,7 +498,8 @@ ns.FCWS = function(
 	serviceKey,
 	serviceName,
 	proxy,
-	useTLS
+	useTLS,
+	logEvents
 ) {
 	const self = this;
 	events.Emitter.call( self, FCWSEventSink );
@@ -507,6 +509,7 @@ ns.FCWS = function(
 	self.serviceKey = serviceKey;
 	self.serviceName = serviceName;
 	self.useTLS = useTLS;
+	self.logEvents = logEvents || false;
 	
 	self.reconnectTimeout = 1000 * 10;
 	self.pinger = null;
@@ -794,7 +797,7 @@ ns.FCWS.prototype.handleFCEvent = function( msgStr ) {
 	if ( event.path )
 		event = self.parseToEvent( event );
 	
-	if (( 'ping' != event.type ) && ( 'pong' != event.type ))
+	if ( self.logEvents && ( 'ping' != event.type ) && ( 'pong' != event.type ))
 		wsLog( 'FCEvent', msgStr );
 	
 	self.emit( event.type, event.data );
@@ -858,10 +861,8 @@ ns.FCWS.prototype.sendOnWS = async function( event ) {
 	if ( !str || !str.length )
 		return ns.FSError( 'ERR_COULD_NOT_STRINGIFY', event );
 	
-	/*
-	if (( 'ping' != event.type ) && ( 'pong' != event.type ))
+	if ( self.logEvents && ( 'ping' != event.type ) && ( 'pong' != event.type ))
 		wsLog( 'sendOnWs', str );
-	*/
 	
 	let err = await send( str );
 	if ( err )

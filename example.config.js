@@ -56,6 +56,7 @@ const server = {
 		wsProxy     : null,
 		serviceKey  : null,
 		serviceName : 'presence',
+		logEvents   : false,
 	},
 	account : {
 		settings : {
