@@ -92,6 +92,24 @@ ns.Room.prototype.getPublicToken = async function( userId ) {
 	return await self.invite.getPublicToken( userId );
 }
 
+ns.Room.prototype.getState = function() {
+	const self = this;
+	const state = {
+		id          : self.id,
+		name        : self.name,
+		ownerId     : self.ownerId,
+		persistent  : self.persistent,
+		settings    : self.settings.get(),
+		guestAvatar : self.guestAvatar,
+		users       : self.users.getList(),
+		online      : self.users.getOnline(),
+		peers       : self.live.getPeers(),
+		workgroups  : self.worgs.get(),
+	};
+	
+	return state;
+}
+
 // when users come online
 ns.Room.prototype.connect = async function( userId ) {
 	const self = this;

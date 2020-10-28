@@ -114,7 +114,6 @@ ns.Account.prototype.addContacts = async function( contactList ) {
 
 ns.Account.prototype.addContact = async function( accId ) {
 	const self = this;
-	//self.log( 'addContact', accId );
 	if ( accId === self.id )
 		return false;
 	
@@ -520,7 +519,6 @@ ns.Account.prototype.handleInviteAdd = function( invite, roomId ) {
 	const self = this;
 	const room = self.rooms.get( roomId );
 	if ( room ) {
-		self.log( 'handleInviteAdd - already in room', room );
 		return;
 	}
 	
@@ -549,19 +547,21 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 	const ids = await getIds();
 	const contacts = await getContactRelations();
 	const state = {
-		type : 'initialize',
-		data : {
-			account    : {
-				host     : global.config.shared.wsHost,
-				clientId : self.id,
-				identity : self.identity,
-			},
-			identities : ids,
-			rooms      : rooms,
-			contacts   : contacts,
+		account    : {
+			host     : global.config.shared.wsHost,
+			clientId : self.id,
+			identity : self.identity,
 		},
+		identities : ids,
+		rooms      : rooms,
+		contacts   : contacts,
 	};
-	self.conn.send( state, clientId );
+	
+	const init = {
+		type : 'initialize',
+		data : state,
+	};
+	self.conn.send( init, clientId );
 	
 	if ( !self.isLoaded )
 		await self.loadTheThings();
@@ -591,19 +591,24 @@ ns.Account.prototype.getContactRelation = async function( contactId ) {
 	
 	const msgDb = new dFace.MessageDB( self.dbPool );
 	if ( contactId )
-		return await getState( contactId );
+		return await buildState( contactId );
 	else
-		return await Promise.all( self.contactIds.map( await getState ));
+		return await Promise.all( self.contactIds.map( await buildState ));
 	
-	async function getState( cId ) {
+	async function buildState( cId ) {
 		let rId = self.relations[ cId ];
-		let state = null;
+		let relation = null;
 		if ( rId )
-			state = await msgDb.getRelationState( rId, cId );
+			relation = await msgDb.getRelationState( rId, cId );
+		
+		let state = null;
+		if ( relation )
+			state = self.roomCtrl.readRoomState( rId );
 		
 		let contact = {
 			clientId : cId,
-			relation : state,
+			relation : relation,
+			state    : state,
 		};
 		return contact;
 	}
@@ -725,7 +730,7 @@ ns.Account.prototype.loadRelations = async function() {
 	try {
 		Promise.all( dbRelations.map( await checkRoomAvailability ));
 	} catch ( err ) {
-		self.log( 'loadRelations - checkRoomAvailability', err );
+		self.log( 'loadRelations - checkRoomAvailability err', err );
 	}
 	
 	return true;
@@ -977,7 +982,6 @@ ns.Account.prototype.handleHiddenList = async function( req, clientId ) {
 ns.Account.prototype.handleHiddenOpen = async function( contactId ) {
 	const self = this;
 	if ( self.contacts[ contactId ]) {
-		self.log( 'is in contacts', self.contacts, 3 );
 		return;
 	}
 	
@@ -994,7 +998,6 @@ ns.Account.prototype.handleHiddenOpen = async function( contactId ) {
 	const roomDb = new dFace.RoomDB( self.dbPool );
 	const rel = await roomDb.getRelation( self.id, contactId );
 	if ( null == rel ) {
-		self.log( 'no relation for' );
 		return null;
 	}
 	
@@ -1061,10 +1064,6 @@ ns.Account.prototype.handleDisableChange = function( id ) {
 
 ns.Account.prototype.sendContactEvent = function( type, event ) {
 	const self = this;
-	self.log( 'sendContactEvent', {
-		type  : type,
-		event : event,
-	}, 3 );
 	const wrap = {
 		type : 'contact-event',
 		data : {

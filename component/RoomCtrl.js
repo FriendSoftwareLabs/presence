@@ -61,9 +61,51 @@ util.inherits( ns.RoomCtrl, events.Emitter );
 
 // Public
 
-ns.RoomCtrl.prototype.checkActive = function( roomId ) {
+/* checkActive
+
+	rID : <uuid string> room or relation ID
+	
+	returns <bool>
+
+*/
+ns.RoomCtrl.prototype.checkActive = function( rID ) {
 	const self = this;
-	return !!self.rooms[ roomId ];
+	let isActive = false;
+	isActive = !!self.rooms[ rID ];
+	if ( isActive )
+		return true;
+	
+	const relation = self.relations[ rID ];
+	if ( null == relation )
+		return false;
+	
+	isActive = !!self.rooms[ relation.roomId ];
+	return isActive;
+}
+
+/* readRoomState
+
+	rID : <uuid string> room or relation ID
+	
+	returns <null> if the room is not active or
+	returns <object> describing room state
+
+*/
+ns.RoomCtrl.prototype.readRoomState = function( rID ) {
+	const self = this;
+	let room = self.rooms[ rID ];
+	if ( null!= room )
+		return room.getState();
+	
+	const relation = self.relations[ rID ];
+	if ( null == relation )
+		return null;
+	
+	room = self.rooms[ relation.roomId ];
+	if ( null == room ) 
+		return null;
+	
+	return room.getState();
 }
 
 ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
@@ -393,17 +435,9 @@ ns.RoomCtrl.prototype.handleIdUpdate = async function( update ) {
 
 ns.RoomCtrl.prototype.handleServiceCreate = async function( req ) {
 	const self = this;
-	log( 'handleServiceCreate', req );
 	const origin = await self.idCache.getByFUserId( req.originUserId );
 	if ( !origin )
 		throw 'ERR_NO_ORIGIN';
-	
-	log( 'handleServiceCreate - origin', {
-		cId     : origin.clientId,
-		fId     : origin.fUserId,
-		name    : origin.name,
-		isAdmin : origin.isAdmin,
-	});
 	
 	let owner = null;
 	/*
@@ -433,20 +467,17 @@ ns.RoomCtrl.prototype.handleServiceCreate = async function( req ) {
 		name    : room.name,
 		invite  : pub,
 	};
-	log( 'handleServiceCreate - reply', reply, 3 );
 	
 	return reply;
 }
 
 ns.RoomCtrl.prototype.handleServiceGet = async function( roomId ) {
 	const self = this;
-	log( 'handleServiceGet', roomId );
 	const rId = roomId;
 	const dbInfo = await self.roomDb.getInfo( roomId );
 	if ( dbInfo.workgroups )
 		dbInfo.workgroups = dbInfo.workgroups.map( addWGUserInfo );
 	
-	log( 'dbInfo', dbInfo, 4 );
 	return dbInfo;
 	
 	function addWGUserInfo( g ) {
@@ -693,7 +724,6 @@ ns.RoomCtrl.prototype.createWorkRoom = async function( worgId ) {
 
 ns.RoomCtrl.prototype.createNamedRoom = async function( ownerId, conf ) {
 	const self = this;
-	log( 'createNamedRoom', conf );
 	const roomId = uuid.get();
 	const name = conf.name;
 	const roomConf = await self.roomDb.set(
@@ -704,7 +734,6 @@ ns.RoomCtrl.prototype.createNamedRoom = async function( ownerId, conf ) {
 		null
 	);
 	
-	log( 'createNamedRoom - rconf', roomConf );
 	const room = await self.setRoom( roomConf );
 	if ( !room )
 		return null;
@@ -1298,7 +1327,6 @@ ns.RoomCtrl.prototype.authorizeForRoom = async function( accId, roomId ) {
 		return false;
 	
 	const ok = await room.authorizeUser( accId );
-	log( 'authForroom', ok );
 	return ok;
 }
 

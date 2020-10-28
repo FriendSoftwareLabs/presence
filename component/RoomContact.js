@@ -37,6 +37,17 @@ ns.ContactRoom = function( conf, db, idCache ) {
 
 util.inherits( ns.ContactRoom, Room );
 
+ns.ContactRoom.prototype.getState = function() {
+	const self = this;
+	const state = {
+		users       : self.users.getList(),
+		online      : self.users.getOnline(),
+		peers       : self.live.getPeers(),
+	};
+	
+	return state;
+}
+
 ns.ContactRoom.prototype.setRelation = async function( relation ) {
 	const self = this;
 	const auth = [

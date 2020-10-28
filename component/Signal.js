@@ -199,7 +199,17 @@ ns.Signal.prototype.init = function() {
 
 ns.Signal.prototype.emitToRoom = function( event ) {
 	const self = this;
-	const unknown = self.emit( event.type, event.data );
+	const type = event.type;
+	const data = event.data;
+	if ( 'counter-reset' == type ) {
+		self.send({
+			type : 'counter-reset',
+			data : Date.now(),
+		});
+		return;
+	}
+	
+	const unknown = self.emit( type, data );
 	if ( unknown )
 		log( 'emitToRoom - unknown', unknown, 4 );
 }

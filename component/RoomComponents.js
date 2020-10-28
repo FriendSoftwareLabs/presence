@@ -2279,7 +2279,6 @@ ns.Invite.prototype.handleState = function( event, userId ) {
 
 ns.Invite.prototype.getPublicToken = async function( userId ) {
 	const self = this;
-	iLog( 'getPublicToken', userId );
 	if ( !self.publicToken )
 		return await setPublicToken( userId );
 	else
