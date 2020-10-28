@@ -2093,10 +2093,16 @@ ns.Invite = function(
 	
 	self.publicToken = null;
 	self.tokens = {};
+	self.invites = {};
 	
 	self.eventMap = null;
 	
 	self.init( dbPool, roomId );
+}
+
+ns.Invite.prototype.initialize = async function() {
+	const self = this;
+	await self.loadTokens();
 }
 
 util.inherits( ns.Invite, events.Emitter );
@@ -2123,39 +2129,29 @@ ns.Invite.prototype.release = function( userId ) {
 
 ns.Invite.prototype.authenticate = async function( token, targetId ) {
 	const self = this;
-	if ( self.publicToken && ( token === self.publicToken.value ))
+	if ( self.publicToken && ( token === self.publicToken.token ))
 		return true;
 	
 	const meta = self.tokens[ token ];
-	if ( !meta )
+	if ( null == meta )
 		return false;
 	
 	if ( meta.targetId ) {
 		if ( targetId === meta.targetId ) {
-			delete self.tokens[ token ];
+			await self.invalidateInvite( token );
 			return true;
 		}
 		else
 			return false;
 	}
 	
-	if ( meta ) {
-		await self.revokeToken( token );
-		return true;
-	}
-	
-	let valid = null;
-	try {
-		valid = await self.checkDbToken( token );
-	} catch ( e ) {
-		valid = false;
-	}
-	
-	if ( valid ) {
-		await self.revokeToken( token );
-	}
-	
-	return valid;
+	await self.invalidateToken( token );
+	return true;
+}
+
+ns.Invite.prototype.getInvites = function() {
+	const self = this;
+	return self.invites;
 }
 
 ns.Invite.prototype.setPersistent = function( isPersistent ) {
@@ -2192,7 +2188,6 @@ ns.Invite.prototype.close = function( callback ) {
 ns.Invite.prototype.init = function( pool, roomId ) {
 	const self = this;
 	self.db = new dFace.InviteDB( pool, roomId );
-	self.loadPublicToken();
 	
 	self.eventMap = {
 		'state'    : ( e, uid ) => self.handleState( e, uid ),
@@ -2203,29 +2198,33 @@ ns.Invite.prototype.init = function( pool, roomId ) {
 	};
 }
 
-ns.Invite.prototype.loadPublicToken = function() {
+ns.Invite.prototype.loadTokens = async function() {
 	const self = this;
-	self.db.getForRoom()
-		.then( tokensBack )
-		.catch( dbFail );
+	let dbTokens = null;
+	dbTokens = await self.db.getForRoom();
+	dbTokens.map( inv => {
+		const invite = {
+			type      : inv.type,
+			token     : inv.token,
+			roomId    : inv.roomId,
+			created   : inv.created,
+			createdBy : inv.createdBy,
+			targetId  : inv.targetId,
+			singleUse : !!inv.singleUse,
+		};
+		if ( 'public' === invite.type )
+			setPublic( invite );
+		else
+			self.tokens[ invite.token ] = invite;
 		
-	function tokensBack( dbTokens ) {
-		dbTokens.some( setPublic );
-		function setPublic( dbToken ) {
-			if ( dbToken.singleUse ) // private token
-				return false;
-			
-			self.publicToken = {
-				value : dbToken.token,
-				by    : dbToken.createdBy,
-			};
-			
-			return true;
+		if ( null != invite.targetId ) {
+			self.invites[ invite.targetId ] = invite;
 		}
-	}
+		
+	});
 	
-	function dbFail( err ) {
-		iLog( 'loadPublicToken - db error', err );
+	function setPublic( inv ) {
+		self.publicToken = inv;
 	}
 }
 
@@ -2265,11 +2264,15 @@ ns.Invite.prototype.handle = function( event, userId ) {
 ns.Invite.prototype.handleState = function( event, userId ) {
 	const self = this;
 	const tokenList = Object.keys( self.tokens );
+	const privTokens = tokenList.filter( token => {
+		const inv = self.tokens[ token ];
+		return ( inv.type === 'private' );
+	});
 	const pubToken = self.publicToken || {};
 	const state = {
 		type : 'state',
 		data : {
-			publicToken   : pubToken.value,
+			publicToken   : pubToken.token,
 			privateTokens : tokenList,
 			host          : self.getInviteHost(),
 		},
@@ -2285,13 +2288,14 @@ ns.Invite.prototype.getPublicToken = async function( userId ) {
 		return returnToken();
 	
 	async function setPublicToken( userId ) {
-		const token = await self.createToken( false, userId );
+		const token = await self.createToken( 'public', null, userId, false );
 		if ( !token )
 			return;
 		
 		self.publicToken = {
-			value : token,
-			by    : userId,
+			type      : 'public',
+			token     : token,
+			createdBy : userId,
 		};
 		const pub = returnToken();
 		self.broadcast( pub );
@@ -2302,7 +2306,7 @@ ns.Invite.prototype.getPublicToken = async function( userId ) {
 		const pub = {
 			type : 'public',
 			data : {
-				token : self.publicToken.value,
+				token : self.publicToken.token,
 				host  : self.getInviteHost(),
 			},
 		};
@@ -2323,11 +2327,12 @@ ns.Invite.prototype.handlePublic = async function( event, userId ) {
 ns.Invite.prototype.handlePrivate = async function( event, userId ) {
 	const self = this;
 	event = event || {};
-	const token = await self.createToken( true, userId );
+	const token = await self.createToken( 'private', null, userId );
 	if ( token && !self.isPersistent )
 		self.tokens[ token ] = {
-			value : token,
-			by    : userId,
+			type      : 'private',
+			token     : token,
+			createdBy : userId,
 		};
 	
 	const priv = {
@@ -2341,15 +2346,31 @@ ns.Invite.prototype.handlePrivate = async function( event, userId ) {
 	self.broadcast( priv );
 }
 
-ns.Invite.prototype.createToken =  async function( isSingleUse, createdBy ) {
+ns.Invite.prototype.createToken = async function( type, targetId, createdBy, singleUse ) {
 	const self = this;
-	const pre = !isSingleUse ? 'pub' : 'priv';
-	let token = uuid.get( pre );
+	if ( null == singleUse )
+		singleUse = true;
+	
+	if ( null != targetId ) {
+		let exists = await self.db.checkExists( targetId );
+		if ( exists ) {
+			iLog( 'createToken - this target already has an invite', targetId );
+			return;
+		}
+	}
+	
+	let token = uuid.get( type );
 	if ( !self.isPersistent )
 		return token;
 	
 	try {
-		await self.db.set( token, isSingleUse, createdBy );
+		await self.db.set(
+			type,
+			token,
+			targetId,
+			createdBy,
+			singleUse
+		);
 	} catch( e ) {
 		iLog( 'createToken.trySetToken failed', e );
 		return null;
@@ -2367,7 +2388,7 @@ ns.Invite.prototype.persistCurrentTokens = async function() {
 	if ( self.publicToken ) {
 		let pubToken = self.publicToken;
 		try {
-			pubSuccess = await self.db.set( pubToken.value, false, pubToken.by );
+			pubSuccess = await self.db.set( pubToken.token, false, pubToken.createdBy );
 		} catch( err ) {
 			iLog( 'failed to persist public token', err );
 		}
@@ -2383,7 +2404,7 @@ ns.Invite.prototype.persistCurrentTokens = async function() {
 			return;
 		
 		try {
-			await self.db.set( meta.value, true, meta.by );
+			await self.db.set( meta.token, true, meta.createdBy );
 		} catch( err ) {
 			iLog( 'failed to persist private token', err );
 		}
@@ -2394,34 +2415,45 @@ ns.Invite.prototype.persistCurrentTokens = async function() {
 
 ns.Invite.prototype.handleRoomAdd = async function( invited, userId ) {
 	const self = this;
-	//const token = await self.createToken( true, userId );
 	const targetId = invited.clientId;
-	const token = uuid.get( 'priv' );
-	self.tokens[ token ] = {
-		value    : token,
-		by       : userId,
-		targetId : targetId,
-	};
+	const token = await self.createToken( 'room', targetId, userId, true );
+	if ( null == token )
+		return;
 	
 	const invite = {
-		targetId : targetId,
-		fromId   : userId,
-		token    : token,
+		type      : 'room',
+		token     : token,
+		createdBy : userId,
+		targetId  : targetId,
+		fromId    : userId,
 	};
+	self.tokens[ token ] = invite;
+	
 	self.emit( 'add', invite );
 }
 
-ns.Invite.prototype.handleRevoke = function( token, userId ) {
+ns.Invite.prototype.handleRevoke = async function( token, userId ) {
 	const self = this;
 	// TODO guest check here
-	self.revokeToken( token, userId )
-		.then(( ok ) => {});
+	const ok = await self.invalidateToken( token, userId )
+	return ok;
 }
 
-ns.Invite.prototype.revokeToken = async function( token, userId ) {
+ns.Invite.prototype.invalidateInvite = async function( token, userId ) {
+	const self = this;
+	const invite = self.tokens[ token ];
+	delete self.invites[ invite.targetId ];
+	const invalid = await self.invalidateToken( token, userId );
+	if ( invalid )
+		self.emit( 'invalid', invite );
+	
+	return invalid;
+}
+
+ns.Invite.prototype.invalidateToken = async function( token, userId ) {
 	const self = this;
 	let ok = false;
-	if ( 'public' === token || ( self.publicToken && ( self.publicToken.value === token ) ))
+	if ( 'public' === token || ( self.publicToken && ( self.publicToken.token === token ) ))
 		ok = await revokePublic( token, userId );
 	else
 		ok = await revoke( token, userId );
@@ -2434,7 +2466,7 @@ ns.Invite.prototype.revokeToken = async function( token, userId ) {
 		try {
 			await invalidateDbToken( token, userId );
 		} catch( e ) {
-			iLog( 'revokeToken - failed to revoke DB token', e );
+			iLog( 'invalidateToken - failed to revoke DB token', e );
 			return false;
 		}
 		
@@ -2443,14 +2475,15 @@ ns.Invite.prototype.revokeToken = async function( token, userId ) {
 	}
 	
 	async function revokePublic( token, userId ) {
+		// 'public' is a valid argument, but not an actual token
 		if ( self.publicToken )
-			token = self.publicToken.value;
+			token = self.publicToken.token;
 		
 		self.publicToken = null;
 		try {
 			await invalidateDbToken( token, userId );
 		} catch ( e ) {
-			iLog( 'revokeToken - failed to revoke DB token', e );
+			iLog( 'invalidateToken - failed to revoke DB token', e );
 			return false;
 		}
 		

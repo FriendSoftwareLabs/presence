@@ -1,0 +1,3 @@
+ALTER TABLE `invite_token`
+ADD COLUMN `type` VARCHAR( 191 ) NOT NULL
+AFTER `_id`;

@@ -51,6 +51,9 @@ ns.RoomCtrl = function( dbPool, idCache, worgs ) {
 	self.relationIds = [];
 	self.relationLoads = {};
 	
+	self.invites = {};
+	self.userInvites = {};
+	
 	self.workRooms = {};
 	self.workRoomIds = [];
 	
@@ -224,6 +227,24 @@ ns.RoomCtrl.prototype.getWorkRooms = function( accountId ) {
 	}
 }
 
+ns.RoomCtrl.prototype.getUserInvites = async function( userId ) {
+	const self = this;
+	let userInvites = self.userInvites[ userId ];
+	if ( null != userInvites )
+		return await self.addRoomInfo( userInvites );
+	
+	const dbInvs = await self.invDb.getForUser( userId );
+	for ( const inv of dbInvs ) {
+		await self.setUserInvite( userId, inv );
+	}
+	
+	userInvites = self.userInvites[ userId ];
+	if ( null == userInvites )
+		return null;
+	
+	return  await self.addRoomInfo( userInvites );
+}
+
 ns.RoomCtrl.prototype.authorizeGuestInvite = async function( bundle ) {
 	const self = this;
 	const token = bundle.token;
@@ -276,9 +297,20 @@ ns.RoomCtrl.prototype.guestJoinRoom = async function( accountId, roomId ) {
 	return user || null;
 }
 
-ns.RoomCtrl.prototype.rejectInvite = function( accountId, inv ) {
+ns.RoomCtrl.prototype.acceptInvite = async function( accountId, response ) {
 	const self = this;
-	log( 'rejectInvite', inv );
+	return await self.joinRoom( accountId, response );
+}
+
+ns.RoomCtrl.prototype.rejectInvite = async function( accountId, response ) {
+	const self = this;
+	const invite = self.invites[ response.token ];
+	if ( !invite )
+		return true;
+	
+	const room = await self.getRoom( invite.roomId );
+	await room.authenticateInvite( invite.token, accountId );
+	return true;
 }
 
 ns.RoomCtrl.prototype.connectWorkgroup = async function( accountId, roomId ) {
@@ -774,8 +806,13 @@ ns.RoomCtrl.prototype.joinWithInvite = async function( accountId, conf ) {
 	}
 	
 	const authed = await self.authorizeForRoom( accountId, rId );
-	if ( !authed )
+	if ( !authed ) {
+		log( 'joinWithInvite - failed to authorizeForRoom', {
+			acc  : accountId,
+			room : rId,
+		});
 		return null;
+	}
 	
 	const user = await room.connect( accountId );
 	return user;
@@ -831,11 +868,11 @@ ns.RoomCtrl.prototype.setRoom = async function( roomConf ) {
 			);
 			
 			room.once( 'open', onOpen );
-			self.bindRoom( room );
 			
 			function onOpen() {
 				self.rooms[ roomId ] = room;
 				self.roomIds = Object.keys( self.rooms );
+				self.bindRoom( room );
 				resolve( self.rooms[ roomId ]);
 			}
 		});
@@ -851,6 +888,7 @@ ns.RoomCtrl.prototype.bindRoom = function( room ) {
 	const roomId = room.id;
 	room.on( 'empty', e => self.removeRoom( roomId ));
 	room.on( 'invite-add', e => self.handleInviteAdd( e, roomId ));
+	room.on( 'invite-invalid', e => self.handleInviteInvalid( e, roomId ));
 	room.on( 'workgroup-assigned', e => self.handleWorkgroupAssigned( e, roomId ));
 	room.on( 'workgroup-dismissed', e => {});
 }
@@ -865,17 +903,63 @@ ns.RoomCtrl.prototype.bindContactRoom = function( room ) {
 	function contactEvent( e ) { self.forwardContactEvent( e, rId ); }
 }
 
-ns.RoomCtrl.prototype.handleInviteAdd = function( event, roomId ) {
+ns.RoomCtrl.prototype.handleInviteAdd = async function( invite, roomId ) {
 	const self = this;
-	const room = self.rooms[ roomId ];
-	const info = room.getInfo();
-	event.room = info;
-	const userId = event.targetId;
+	invite.roomId = roomId;
+	const token = invite.token;
+	const userId = invite.targetId;
+	
+	if ( userId )
+		await self.setUserInvite( userId, invite );
+	
 	const inv = {
 		type : 'invite-add',
-		data : event,
+		data : invite,
 	};
 	self.emit( userId, inv, roomId );
+}
+
+ns.RoomCtrl.prototype.setUserInvite = async function( userId, invite ) {
+	const self = this;
+	invite = await self.addRoomInfo( invite );
+	const token = invite.token;
+	let user = self.userInvites[ userId ];
+	if ( null == user ) {
+		self.userInvites[ userId ] = {};
+		user = self.userInvites[ userId ];
+	}
+	
+	user[ token ] = invite;
+	self.invites[ token ] = invite;
+}
+
+ns.RoomCtrl.prototype.addRoomInfo = async function( invite ) {
+	const self = this;
+	const rId = invite.roomId;
+	const room = await self.getRoom( rId );
+	if ( null == room )
+		return invite;
+	
+	const info = room.getInfo();
+	invite.room = info;
+	
+	return invite;
+}
+
+ns.RoomCtrl.prototype.handleInviteInvalid = async function( invite, roomId ) {
+	const self = this;
+	const token = invite.token;
+	const userId = invite.targetId;
+	delete self.invites[ token ];
+	const user = self.userInvites[ userId ];
+	if ( user )
+		delete user[ token ];
+	
+	const rem = {
+		type : 'invite-remove',
+		data : token,
+	};
+	self.emit( userId, rem, roomId );
 }
 
 ns.RoomCtrl.prototype.handleWorkgroupAssigned = async function( worg, roomId ) {

@@ -60,7 +60,7 @@ ns.Room = function( conf, db, idCache, worgCtrl ) {
 	self.authorized = [];
 	self.accessKey = null;
 	self.roomDb = null;
-	self.emptyTimeout = 1000 * 20;
+	self.emptyTimeout = 1000 * 600;
 	self.emptyTimer = null;
 	
 	Emitter.call( self );
@@ -360,13 +360,15 @@ ns.Room.prototype.init = async function( worgCtrl ) {
 		self.settings,
 	);
 	await self.worgs.initialize();
-	self.worgs.on( 'remove-user', removeUser );
-	self.worgs.on( 'dismissed', worgDismissed );
-	self.worgs.on( 'assigned', worgAssigned );
+	self.worgs.on( 'remove-user', e => self.handleRemovedFromWorgs(     e ));
+	self.worgs.on( 'dismissed'  , e => self.handleWorkgroupDismissed(   e ));
+	self.worgs.on( 'assigned'   , e => self.emit( 'workgroup-assigned', e ));
 	
+	/*
 	function removeUser( e ){ self.handleRemovedFromWorgs( e ); }
 	function worgDismissed( e ) { self.handleWorkgroupDismissed( e ); }
 	function worgAssigned( e ) { self.emit( 'workgroup-assigned', e ); }
+	*/
 	
 	self.log = new components.Log(
 		self.dbPool,
@@ -383,7 +385,9 @@ ns.Room.prototype.init = async function( worgCtrl ) {
 		self.users,
 		self.persistent
 	);
-	self.invite.on( 'add', e => self.emit( 'invite-add', e ));
+	await self.invite.initialize();
+	self.invite.on( 'add'    , e => self.emit( 'invite-add'    , e ));
+	self.invite.on( 'invalid', e => self.emit( 'invite-invalid', e ));
 	
 	self.chat = new components.Chat(
 		self.id,
@@ -548,7 +552,7 @@ ns.Room.prototype.bindUser = async function( userId ) {
 	user.on( 'active', active );
 	
 	let uid = userId;
-	function init( e ) { self.initialize( e, uid ); }
+	function init( e ) { self.handleInitialize( e, uid ); }
 	function persist( e ) { self.handlePersist( e, uid ); }
 	function goOffline( e ) { self.disconnect( uid ); }
 	function leaveRoom( e ) { self.unAuthUser( uid ); }
@@ -586,7 +590,7 @@ ns.Room.prototype.checkIsAuthed = function( userId ) {
 	return self.users.checkIsAuthed( userId );
 }
 
-ns.Room.prototype.initialize = async function( requestId, userId ) {
+ns.Room.prototype.handleInitialize = async function( requestId, userId ) {
 	const self = this;
 	const relation = await self.getRoomRelation( userId );
 	const state = {

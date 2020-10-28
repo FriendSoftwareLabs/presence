@@ -92,6 +92,8 @@ DROP PROCEDURE IF EXISTS room_user_messages_count_unread_worg;
 DROP PROCEDURE IF EXISTS invite_set;
 DROP PROCEDURE IF EXISTS invite_get;
 DROP PROCEDURE IF EXISTS invite_get_room;
+DROP PROCEDURE IF EXISTS invite_get_target;
+DROP PROCEDURE IF EXISTS invite_check_exists;
 DROP PROCEDURE IF EXISTS invite_check_room;
 DROP PROCEDURE IF EXISTS invite_invalidate;
 DROP PROCEDURE IF EXISTS invite_used;
@@ -1735,44 +1737,87 @@ END//
 
 # invite_set;
 CREATE PROCEDURE invite_set(
+	IN `type`      VARCHAR( 191 ),
 	IN `token`     VARCHAR( 191 ),
 	IN `roomId`    VARCHAR( 191 ),
 	IN `singleUse` BOOLEAN,
+	IN `targetId`  VARCHAR( 191 ),
 	IN `createdBy` VARCHAR( 191 )
 )
 BEGIN
 INSERT INTO `invite_token` (
+	`type`,
 	`token`,
 	`roomId`,
 	`singleUse`,
+	`targetId`,
 	`createdBy`
 ) VALUES (
+	type,
 	token,
 	roomId,
 	singleUse,
+	targetId,
 	createdBy
 );
 END//
 
 
-# invite_get;
+# invite_get
 CREATE PROCEDURE invite_get(
 	IN `token` VARCHAR( 191 )
 )
 BEGIN
+
 SELECT * FROM invite_token AS inv
 WHERE iv.token = token;
+
 END//
 
 
-# invite_get_room;
+# invite_get_room
 CREATE PROCEDURE invite_get_room(
 	IN `roomId` VARCHAR( 191 )
 )
 BEGIN
+
 SELECT * FROM invite_token AS inv
 WHERE inv.roomId = roomId
 AND inv.isValid = 1;
+
+END//
+
+#invite_get_target
+CREATE PROCEDURE invite_get_target(
+	IN `targetId` VARCHAR( 191 )
+)
+BEGIN
+
+SELECT
+	i.type,
+	i.token,
+	i.roomId,
+	i.targetId,
+	i.createdBy,
+	i.created
+FROM invite_token AS i
+WHERE i.targetId = `targetId`
+AND i.isValid = 1;
+
+END//
+
+#invite_check_exists
+CREATE PROCEDURE invite_check_exists(
+	IN `targetId` VARCHAR( 191 ),
+	IN `roomId` VARCHAR( 191 )
+)
+BEGIN
+
+SELECT i.token, i.targetId, i.roomId, i.isValid FROM invite_token AS i
+WHERE i.targetId = `targetId`
+AND i.roomId = `roomId`
+AND i.isValid = 1;
+
 END//
 
 # invite_check_room

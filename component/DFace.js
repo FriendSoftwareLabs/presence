@@ -1730,14 +1730,23 @@ util.inherits( ns.InviteDB, ns.DB );
 
 // Public
 
-ns.InviteDB.prototype.set = function( token, singleUse, createdBy, roomId ) {
+ns.InviteDB.prototype.set = function(
+	type,
+	token,
+	targetId,
+	createdBy,
+	singleUse,
+	roomId
+) {
 	const self = this;
 	roomId = roomId || self.roomId;
 	singleUse = !!singleUse;
 	const values = [
+		type,
 		token,
 		roomId,
 		singleUse,
+		targetId,
 		createdBy,
 	];
 	
@@ -1758,27 +1767,42 @@ ns.InviteDB.prototype.get = function( token ) {
 	invLog( 'get - NYI', token );
 }
 
-ns.InviteDB.prototype.getForRoom = function( roomId ) {
+ns.InviteDB.prototype.checkExists = async function( targetId, roomId ) {
+	const self = this;
+	roomId = roomId || self.roomId;
+	const values = [
+		targetId,
+		roomId,
+	];
+	
+	let res = null;
+	try {
+		res = await self.query( 'invite_check_exists', values );
+	} catch( ex ) {
+		invLog( 'check - query ex', ex )
+		return true;
+	}
+	
+	const row = res[ 0 ];
+	return !!row;
+}
+
+ns.InviteDB.prototype.getForRoom = async function( roomId ) {
 	const self = this;
 	roomId = roomId || self.roomId;
 	const values = [
 		roomId,
 	];
 	
-	return new Promise(( resolve, reject ) => {
-		self.query( 'invite_get_room', values )
-			.then( tokensBack )
-			.catch( reject );
-			
-		function tokensBack( res ) {
-			if ( !res ) {
-				reject( 'ERR_DB_INVALID_RESULT' );
-				return;
-			}
-			
-			resolve( res );
-		}
-	});
+	let res = null;
+	try {
+		res = await self.query( 'invite_get_room', values );
+	} catch( ex ) {
+		invLog( 'getForRoom - query ex', ex );
+		return null;
+	}
+	
+	return res;
 }
 
 ns.InviteDB.prototype.checkForRoom = async function( token, roomId ) {
@@ -1797,6 +1821,32 @@ ns.InviteDB.prototype.checkForRoom = async function( token, roomId ) {
 	}
 	
 	return res[ 0 ];
+}
+
+ns.InviteDB.prototype.getForUser = async function( targetId ) {
+	const self = this;
+	const values = [ targetId ];
+	let res = null;
+	try {
+		res = await self.query( 'invite_get_target', values );
+	} catch( ex ) {
+		invLog( 'getForUser - query fail', ex );
+	}
+	
+	if ( null == res )
+		return null;
+	
+	return res.map( inv => {
+		const invite = {
+			type      : inv.type,
+			token     : inv.token,
+			roomId    : inv.roomId,
+			targetId  : inv.targetId,
+			createdBy : inv.createdBy,
+			created   : inv.created,
+		};
+		return invite;
+	});
 }
 
 ns.InviteDB.prototype.invalidate = function( token, invalidatedBy ) {

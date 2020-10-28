@@ -264,15 +264,17 @@ ns.Account.prototype.bindRoomCtrl = function() {
 		'contact-join'   : contactJoin,
 		'contact-event'  : contactRoomEvent,
 		'invite-add'     : inviteAdd,
+		'invite-remove'  : inviteRemove,
 	};
 	
-	function roomCtrlEvent( e, rid ) { self.handleRoomCtrlEvent( e, rid ); }
-	function workRoomJoin( e, rid ) { self.handleWorkRoomJoin( e, rid ); }
-	function workRoomView( e, rid ) { self.handleWorkRoomView( e, rid ); }
-	function workgroupJoin( e, rid ) { self.handleWorkgroupJoin( e, rid ); }
-	function contactJoin( e, rid ) { self.openContactChat( e, rid ); }
+	function roomCtrlEvent(    e, rid ) { self.handleRoomCtrlEvent(    e, rid ); }
+	function workRoomJoin(     e, rid ) { self.handleWorkRoomJoin(     e, rid ); }
+	function workRoomView(     e, rid ) { self.handleWorkRoomView(     e, rid ); }
+	function workgroupJoin(    e, rid ) { self.handleWorkgroupJoin(    e, rid ); }
+	function contactJoin(      e, rid ) { self.openContactChat(        e, rid ); }
 	function contactRoomEvent( e, rid ) { self.handleContactRoomEvent( e, rid ); }
-	function inviteAdd( e, rid ) { self.handleInviteAdd( e, rid ); }
+	function inviteAdd(        e, rid ) { self.handleInviteAdd(        e, rid ); }
+	function inviteRemove(     e, rid ) { self.handleInviteRemove(     e, rid ); }
 }
 
 ns.Account.prototype.bindContactEvents = function() {
@@ -533,6 +535,18 @@ ns.Account.prototype.handleInviteAdd = function( invite, roomId ) {
 	self.conn.send( inv );
 }
 
+ns.Account.prototype.handleInviteRemove = function( inviteId, roomId ) {
+	const self = this;
+	const remove = {
+		type : 'invite',
+		data : {
+			type : 'remove',
+			data : inviteId,
+		},
+	};
+	self.conn.send( remove );
+}
+
 ns.Account.prototype.handleWorkgroupAssigned = function( addedWorg, roomId ) {
 	const self = this;
 	self.log( 'handleWorkgroupAssigned - NYI', {
@@ -546,15 +560,16 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 	const rooms = self.rooms.getRooms();
 	const ids = await getIds();
 	const contacts = await getContactRelations();
+	const invites = await self.roomCtrl.getUserInvites( self.id );
 	const state = {
+		identities : ids,
+		rooms      : rooms,
+		contacts   : contacts,
 		account    : {
 			host     : global.config.shared.wsHost,
 			clientId : self.id,
 			identity : self.identity,
 		},
-		identities : ids,
-		rooms      : rooms,
-		contacts   : contacts,
 	};
 	
 	const init = {
@@ -941,16 +956,21 @@ ns.Account.prototype.handleAvatarEvent = function( event, clientId ) {
 
 ns.Account.prototype.handleInviteResponse = async function( res, clientId ) {
 	const self = this;
+	self.log( 'handleInviteResponse', res );
 	let room = null;
-	if ( res.accepted )
-		room = await self.roomCtrl.joinRoom( self.id, res );
-	else
+	if ( res.accepted ) {
+		room = await self.roomCtrl.acceptInvite( self.id, res );
+		if ( !room )
+			return 'ERR_COULD_NOT_JOIN';
+	}
+	else {
 		self.roomCtrl.rejectInvite( self.id, res );
+		return true;
+	}
 	
-	if ( !room )
-		return;
-	
+	self.log( 'handleInviteResponse - room?', !!room );
 	self.joinedARoomHooray( room );
+	return null;
 }
 
 ns.Account.prototype.handleHiddenList = async function( req, clientId ) {
