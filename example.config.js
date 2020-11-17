@@ -48,7 +48,7 @@ const server = {
 		proxy : '/presence/guest/',
 	},
 	friendcore : {
-		useTLS      : true,
+		useTLS      : false,
 		host        : 'friendcore_domain',
 		port        : 6502,
 		proxy       : null,
