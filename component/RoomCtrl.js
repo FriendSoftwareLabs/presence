@@ -230,8 +230,9 @@ ns.RoomCtrl.prototype.getWorkRooms = function( accountId ) {
 ns.RoomCtrl.prototype.getUserInvites = async function( userId ) {
 	const self = this;
 	let userInvites = self.userInvites[ userId ];
-	if ( null != userInvites )
-		return await self.addRoomInfo( userInvites );
+	if ( null != userInvites ) {
+		return await addRoomInfo( userInvites );
+	}
 	
 	const dbInvs = await self.invDb.getForUser( userId );
 	for ( const inv of dbInvs ) {
@@ -242,7 +243,17 @@ ns.RoomCtrl.prototype.getUserInvites = async function( userId ) {
 	if ( null == userInvites )
 		return null;
 	
-	return  await self.addRoomInfo( userInvites );
+	return await addRoomInfo( userInvites );
+	
+	async function addRoomInfo( invites ) {
+		const cId = Object.keys( invites );
+		const waiters = cId.map( cId => {
+			const inv = invites[ cId ];
+			return self.addRoomInfo( inv );
+		});
+		invites = await Promise.all( waiters );
+		return invites;
+	}
 }
 
 ns.RoomCtrl.prototype.authorizeGuestInvite = async function( bundle ) {
@@ -912,6 +923,7 @@ ns.RoomCtrl.prototype.handleInviteAdd = async function( invite, roomId ) {
 	if ( userId )
 		await self.setUserInvite( userId, invite );
 	
+	invite = await self.addRoomInfo( invite );
 	const inv = {
 		type : 'invite-add',
 		data : invite,
@@ -921,7 +933,6 @@ ns.RoomCtrl.prototype.handleInviteAdd = async function( invite, roomId ) {
 
 ns.RoomCtrl.prototype.setUserInvite = async function( userId, invite ) {
 	const self = this;
-	invite = await self.addRoomInfo( invite );
 	const token = invite.token;
 	let user = self.userInvites[ userId ];
 	if ( null == user ) {
@@ -935,15 +946,21 @@ ns.RoomCtrl.prototype.setUserInvite = async function( userId, invite ) {
 
 ns.RoomCtrl.prototype.addRoomInfo = async function( invite ) {
 	const self = this;
-	const rId = invite.roomId;
-	const room = await self.getRoom( rId );
-	if ( null == room )
+	if ( invite.room )
 		return invite;
 	
-	const info = room.getInfo();
-	invite.room = info;
+	const str = JSON.stringify( invite );
+	const inv = JSON.parse( str );
 	
-	return invite;
+	const rId = inv.roomId;
+	const room = await self.getRoom( rId );
+	if ( null == room )
+		return inv;
+	
+	const info = room.getInfo();
+	inv.room = info;
+	
+	return inv;
 }
 
 ns.RoomCtrl.prototype.handleInviteInvalid = async function( invite, roomId ) {

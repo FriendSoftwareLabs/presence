@@ -18,8 +18,7 @@
 *****************************************************************************©*/
 
 // DO NOT EDIT example.config.js! Changes will be overwritten.
-// Override defaults by adding them to config.js. 
-// config.js is created by the installer.
+// Override defaults by adding them to config.js
 
 const server = {
 	mysql : {

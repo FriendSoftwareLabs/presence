@@ -289,10 +289,17 @@ ns.AccountDB.prototype.getById = async function( accountId ) {
 	}
 	
 	if ( !res || !res[ 0 ]) {
+		/*
 		accLog( 'getById - no id for', {
 			accId : accountId,
 			res   : res,
 		}, 3 );
+		try {
+			throw new Error( 'trace' );
+		} catch ( ex ) {
+			accLog( 'trace', ex );
+		}
+		*/
 		return null;
 	}
 	

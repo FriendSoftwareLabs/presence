@@ -565,6 +565,7 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 		identities : ids,
 		rooms      : rooms,
 		contacts   : contacts,
+		invites    : invites,
 		account    : {
 			host     : global.config.shared.wsHost,
 			clientId : self.id,
