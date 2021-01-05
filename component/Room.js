@@ -850,7 +850,6 @@ ns.Room.prototype.unAuthUser = async function( uid ) {
 ns.Room.prototype.handleJoinLive = function( conf, uid ) {
 	const self = this;
 	const user = self.users.get( uid );
-	log( 'handleJoinLive', conf );
 	if ( !user ) {
 		log( 'handleJoinLive - no user?', {
 			id : uid,

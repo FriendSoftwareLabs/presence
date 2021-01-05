@@ -459,12 +459,12 @@ ns.RoomCtrl.prototype.init = async function() {
 
 ns.RoomCtrl.prototype.handleIdUpdate = async function( update ) {
 	const self = this;
-	if ( 'fIsDisabled' != update.type )
+	if ( 'fIsDisabled' != update.key )
 		return;
 	
-	const id = update.data;
-	const userId = id.clientId;
-	const isDisabled = !!id.fIsDisabled;
+	//const id = update.data;
+	const userId = update.clientId;
+	const isDisabled = !!update.value;
 	const rooms = await self.roomDb.loadAuthorizationsForAccount( userId );
 	rooms.forEach( r => {
 		const rId = r.clientId;

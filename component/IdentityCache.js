@@ -194,20 +194,10 @@ ns.IDC.prototype.update = async function( identity ) {
 	}
 	
 	if ( !cache ) {
+		log( 'update - set', identity );
 		cache = await self.set( identity );
 		return cache;
 	}
-	/*
-	log( 'update', {
-		id : identity,
-		cache : {
-			clientId    : cache.clientId,
-			name        : cache.name,
-			fLastUpdate : cache.fLastUpdate,
-			fIsDisabled : cache.fIsDisabled,
-		},
-	}, 3 );
-	*/
 	
 	if ( null != identity.fLogin )
 		cache.fLogin = identity.fLogin;
@@ -334,8 +324,10 @@ ns.IDC.prototype.trimIds = function() {
 ns.IDC.prototype.getSync = function( cId ) {
 	const self = this;
 	let identity = self.IDs[ cId ];
-	if ( !identity )
+	if ( !identity ) {
+		log( 'getSync - no id', cId );
 		return null;
+	}
 	
 	self.touch( cId );
 	return identity;

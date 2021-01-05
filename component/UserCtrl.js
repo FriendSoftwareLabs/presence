@@ -166,13 +166,16 @@ ns.UserCtrl.prototype.update = async function( fUser ) {
 	if ( !id )
 		return;
 	
-	log( 'update', id );
 	const identity = await self.idc.update( id );
 	if ( !identity )
 		return;
 	
-	if ( id.groups )
+	if ( null != id.groups ) {
+		if ( id.fIsDisabled )
+			id.groups = [];
+		
 		self.worgs.updateUserWorgs( identity.clientId, id.groups );
+	}
 }
 
 ns.UserCtrl.prototype.close = function() {
@@ -273,10 +276,9 @@ ns.UserCtrl.prototype.handleIdAdd = function( id ) {
 
 ns.UserCtrl.prototype.handleIdUpdate = function( update ) {
 	const self = this;
-	if ( 'fIsDisabled' == update.type ) {
-		const user = update.data;
-		if ( user.fIsDisabled )
-			self.remove( user.clientId );
+	if ( 'fIsDisabled' == update.key ) {
+		if ( true === update.value )
+			self.remove( update.clientId );
 		
 	}
 	

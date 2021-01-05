@@ -285,11 +285,6 @@ ns.WorgCtrl.prototype.removeUser = function( userId ) {
 ns.WorgCtrl.prototype.checkUserIsStreamerFor = function( accId, worgList ) {
 	const self = this;
 	const streamer = self.streamers[ accId ];
-	log( 'checkUserIsStreamerFor', {
-		accId    : accId,
-		worgList : worgList,
-		steamer  : streamer,
-	});
 	if ( !streamer )
 		return false;
 	
@@ -395,10 +390,10 @@ ns.WorgCtrl.prototype.init = function( dbPool ) {
 
 ns.WorgCtrl.prototype.handleIdUpdate = function( update ) {
 	const self = this;
-	if ( 'fIsDisabled' !== update.type )
+	if ( 'fIsDisabled' !== update.key )
 		return;
 	
-	//log( 'handleIdUpdate', update );
+	log( 'handleIdUpdate', update );
 	
 }
 
@@ -431,7 +426,6 @@ ns.WorgCtrl.prototype.handleGroupCreate = function( swg ) {
 
 ns.WorgCtrl.prototype.handleGroupUpdate = function( swg ) {
 	const self = this;
-	log( 'handleGroupUpdate', swg );
 	const uptd = self.normalizeServiceWorg( swg );
 	const curr = self.get( uptd.clientId );
 	if ( !curr ) {
@@ -1178,7 +1172,7 @@ ns.WorgCtrl.prototype.getUIdsForFUsers = async function( fUsers ) {
 	
 	const uIds = users
 		.filter( u => !!u )
-		//.filter( u => !u.fIsDisabled )
+		.filter( u => !u.fIsDisabled )
 		.map( u => u.clientId );
 	
 	return uIds;

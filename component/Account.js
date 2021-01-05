@@ -219,7 +219,7 @@ ns.Account.prototype.updateIdentity = function( event ) {
 	if ( self.closed )
 		return;
 	
-	if ( 'fIsDisabled' == event.type ) {
+	if ( 'fIsDisabled' == event.key ) {
 		self.handleDisableChange( event );
 		return;
 	}
@@ -957,7 +957,6 @@ ns.Account.prototype.handleAvatarEvent = function( event, clientId ) {
 
 ns.Account.prototype.handleInviteResponse = async function( res, clientId ) {
 	const self = this;
-	self.log( 'handleInviteResponse', res );
 	let room = null;
 	if ( res.accepted ) {
 		room = await self.roomCtrl.acceptInvite( self.id, res );
@@ -969,7 +968,6 @@ ns.Account.prototype.handleInviteResponse = async function( res, clientId ) {
 		return true;
 	}
 	
-	self.log( 'handleInviteResponse - room?', !!room );
 	self.joinedARoomHooray( room );
 	return null;
 }
@@ -1051,10 +1049,10 @@ ns.Account.prototype.handleHiddenClose = async function( contactId ) {
 	self.rooms.remove( contactId );
 }
 
-ns.Account.prototype.handleDisableChange = function( id ) {
+ns.Account.prototype.handleDisableChange = function( update ) {
 	const self = this;
-	const cId = id.clientId;
-	const isDisabled = !!id.fIsDisabled;
+	const cId = update.clientId;
+	const isDisabled = !!update.value;
 	if ( isDisabled )
 		remove( cId );
 	else
