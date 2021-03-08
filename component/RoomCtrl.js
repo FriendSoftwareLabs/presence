@@ -897,11 +897,11 @@ ns.RoomCtrl.prototype.setRoom = async function( roomConf ) {
 ns.RoomCtrl.prototype.bindRoom = function( room ) {
 	const self = this;
 	const roomId = room.id;
-	room.on( 'empty', e => self.removeRoom( roomId ));
-	room.on( 'invite-add', e => self.handleInviteAdd( e, roomId ));
-	room.on( 'invite-invalid', e => self.handleInviteInvalid( e, roomId ));
-	room.on( 'workgroup-assigned', e => self.handleWorkgroupAssigned( e, roomId ));
-	room.on( 'workgroup-dismissed', e => {});
+	room.on( 'empty'              , e => self.removeRoom(               roomId ));
+	room.on( 'invite-add'         , e => self.handleInviteAdd(          e, roomId ));
+	room.on( 'invite-invalid'     , e => self.handleInviteInvalid(      e, roomId ));
+	room.on( 'workgroup-assigned' , e => self.handleWorkgroupAssigned(  e, roomId ));
+	room.on( 'workgroup-dismissed', e => self.handleWorkgroupDismissed( e, roomId ));
 }
 
 ns.RoomCtrl.prototype.bindContactRoom = function( room ) {
@@ -986,6 +986,10 @@ ns.RoomCtrl.prototype.handleWorkgroupAssigned = async function( worg, roomId ) {
 	const room = await self.getRoom( roomId );
 	await room.addUsers( userList, worgId );
 	self.sendWorgJoin( roomId, userList );
+}
+
+ns.RoomCtrl.prototype.handleWorkgroupDismissed = async function( worg, roomId ) {
+	const self = this;
 }
 
 ns.RoomCtrl.prototype.handleWorkgroupUserAdds = async function( worgId, userList ) {

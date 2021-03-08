@@ -281,8 +281,10 @@ ns.ContactRoom.prototype.initialize = async function( requestId, userId ) {
 		isPrivate   : true,
 		settings    : self.settings.get(),
 		guestAvatar : self.guestAvatar,
-		users       : buildBaseUsers(),
+		users       : self.users.getList(),
 		online      : self.users.getOnline(),
+		recent      : self.users.getRecent(),
+		atNames     : self.users.getAtNames(),
 		peers       : self.live.peerIds,
 		workgroups  : null,
 		relation    : relation,
@@ -293,22 +295,6 @@ ns.ContactRoom.prototype.initialize = async function( requestId, userId ) {
 		data : state,
 	};
 	self.send( init, userId );
-	
-	function buildBaseUsers() {
-		const users = {};
-		const uIds = self.users.getList();
-		uIds.forEach( build );
-		return users;
-		
-		function build( uId ) {
-			let user = self.users.get( uId );
-			users[ uId ] = {
-				clientId   : uId,
-				isAuthed   : true,
-				workgroups : [],
-			};
-		}
-	}
 }
 
 ns.ContactRoom.prototype.addUser = async function( userId ) {
@@ -320,7 +306,23 @@ ns.ContactRoom.prototype.addUser = async function( userId ) {
 	
 	const user = await self.idCache.get( userId );
 	await self.users.set( user );
+	self.onJoin( user );
+	
 	return true;
+}
+
+ns.ContactRoom.prototype.onJoin = function( identity ) {
+	const self = this;
+	const cId = identity.clientId;
+	const joinEvent = {
+		type : 'join',
+		data : {
+			clientId : cId,
+			name     : identity.name,
+			isOnline : identity.isOnline,
+		}
+	};
+	self.users.broadcast( null, joinEvent, cId );
 }
 
 /*

@@ -40,6 +40,7 @@ ns.IDC = function( dbPool ) {
 	self.lastAccess = {};
 	self.TIMEOUT = 1000 * 60 * 60 * 36;
 	self.accDB = null;
+	self.alphaNumList = [];
 	
 	self.init( dbPool );
 }
@@ -54,6 +55,9 @@ ns.IDC.prototype.close = function() {
 		clearInterval( self.trim );
 		self.trim = null;
 	}
+	
+	if ( null != self.updateANListTimeout )
+		clearTimeout( self.updateANListTimeout )
 	
 	if ( self.accDB )
 		self.accDB.close();
@@ -90,6 +94,8 @@ ns.IDC.prototype.set = async function( fUser ) {
 		await self.setAvatar( cId, fUser.avatar );
 	
 	self.emit( 'add', identity );
+	self.updateAlphaNumList();
+	
 	return identity;
 }
 
@@ -129,6 +135,11 @@ ns.IDC.prototype.getList = async function( idList ) {
 		
 		return identity;
 	}
+}
+
+ns.IDC.prototype.getAlphaNumList = function() {
+	const self = this;
+	return self.alphaNumList;
 }
 
 ns.IDC.prototype.getMap = async function( idList ) {
@@ -194,7 +205,6 @@ ns.IDC.prototype.update = async function( identity ) {
 	}
 	
 	if ( !cache ) {
-		log( 'update - set', identity );
 		cache = await self.set( identity );
 		return cache;
 	}
@@ -214,14 +224,18 @@ ns.IDC.prototype.update = async function( identity ) {
 	if ( null != identity.fLastUpdate )
 		await self.accDB.updateFLastUpdate( cId, identity.fLastUpdate );
 	
-	if ( nameChange )
+	if ( nameChange ) {
+		self.updateAlphaNumList();
 		self.sendUpdate( cId, 'name' );
+	}
 	
 	if ( avaChange )
 		self.sendUpdate( cId, 'avatar' );
 	
-	if ( disableChange )
+	if ( disableChange ) {
+		self.updateAlphaNumList();
 		self.sendUpdate( cId, 'fIsDisabled' );
+	}
 	
 	return cache;
 	
@@ -293,6 +307,7 @@ ns.IDC.prototype.init = async function( dbPool ) {
 	const self = this;
 	self.accDB = new dFace.AccountDB( dbPool );
 	self.pixels = await tinyAvatar.generateGuest( 'roundel' );
+	await self.updateAlphaNumList();
 	
 	// trim every 24 hours
 	/*
@@ -493,6 +508,25 @@ ns.IDC.prototype.setPixelAvatar = async function( clientId ) {
 	
 	cacheId.avatar = pixels;
 	return true;
+}
+
+ns.IDC.prototype.updateAlphaNumList = async function() {
+	const self = this;
+	if ( null != self.updateANListTimeout ) {
+		self.doAnotherANLUpdate = true;
+		return;
+	}
+	
+	self.doAnotherANLUpdate = false;
+	self.updateANListTimeout = setTimeout( allowReUpdate,  1000 * 10 );
+	self.alphaNumList = await self.accDB.getAlphaNumList();
+	self.emit( 'invalidate-alphanum-cache', Date.now());
+	
+	function allowReUpdate() {
+		self.updateANListTimeout = null;
+		if ( self.doAnotherANLUpdate )
+			self.updateAlphaNumList();
+	}
 }
 
 ns.IDC.prototype.checkEmail = async function( id, c ) {

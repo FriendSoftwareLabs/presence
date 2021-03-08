@@ -65,11 +65,32 @@ util.inherits( ns.Signal, Emitter );
 ns.Signal.prototype.send = function( event ) {
 	const self = this;
 	if ( !self.emitToAccount ) {
+		if ( null == event ) {
+			try {
+				throw new Error( 'asd' );
+			} catch( ex ) {
+				log( 'trace', ex );
+			}
+		}
+		
 		self.toAccountQueue.push( event );
 		return;
 	}
 	
 	self.emitToAccount( event );
+}
+
+ns.Signal.prototype.setPriority = function( freshPrio ) {
+	const self = this;
+	if ( freshPrio === self.priority )
+		return;
+	
+	self.priority = freshPrio;
+	const uptd = {
+		type : 'priority',
+		data : self.priority,
+	};
+	self.send( uptd );
 }
 
 ns.Signal.prototype.setRoomPersistent = function( isPersistent, name ) {

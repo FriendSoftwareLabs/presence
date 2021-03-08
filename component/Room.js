@@ -125,7 +125,7 @@ ns.Room.prototype.connect = async function( userId ) {
 	}
 	
 	const signal = await self.bindUser( userId );
-	if ( self.emptyTimer ) {
+	if ( null != self.emptyTimer ) {
 		clearTimeout( self.emptyTimer );
 		self.emptyTimer = null;
 	}
@@ -173,9 +173,6 @@ ns.Room.prototype.addUser = async function( userId, worgId ) {
 	if ( !user )
 		return false;
 	
-	if ( user.isGuest )
-		self.users.addGuest( userId );
-	
 	const exists = self.users.exists( userId );
 	if ( exists )
 		return;
@@ -187,24 +184,9 @@ ns.Room.prototype.addUser = async function( userId, worgId ) {
 	if ( !added )
 		return false;
 	
-	announce( user );
-	self.onJoin( userId );
+	self.onJoin( user );
 	
 	return userId;
-	
-	function announce( user ) {
-		// tell peoples
-		const uId = user.clientId;
-		const joinEvent = {
-			type : 'join',
-			data : {
-				clientId   : uId,
-				isAuthed   : self.checkIsAuthed( uId ),
-				workgroups : self.worgs.getUserWorkgroupList( uId ),
-			},
-		};
-		self.users.broadcast( null, joinEvent, uId );
-	}
 }
 
 ns.Room.prototype.removeUsers = async function( userList, worgId ) {
@@ -600,8 +582,14 @@ ns.Room.prototype.handleInitialize = async function( requestId, userId ) {
 		persistent  : self.persistent,
 		settings    : self.settings.get(),
 		guestAvatar : self.guestAvatar,
-		users       : buildBaseUsers(),
+		users       : self.users.getList(),
+		admins      : self.users.getAdmins(),
 		online      : self.users.getOnline(),
+		recent      : self.users.getRecent(),
+		guests      : self.users.getGuests(),
+		atNames     : self.users.getAtNames(),
+		//atWorgs     : self.worgs.getAtNames(),
+		authed      : self.users.getAuthorized(),
 		peers       : self.live.getPeers(),
 		workgroups  : self.worgs.get(),
 		relation    : relation,
@@ -613,22 +601,6 @@ ns.Room.prototype.handleInitialize = async function( requestId, userId ) {
 	};
 	
 	self.send( init, userId );
-	
-	function buildBaseUsers() {
-		const users = {};
-		const uIds = self.users.getList();
-		uIds.forEach( build );
-		return users;
-		
-		function build( uId ) {
-			let user = self.users.get( uId );
-			users[ uId ] = {
-				clientId   : uId,
-				isAuthed   : self.checkIsAuthed( uId ),
-				workgroups : self.worgs.getUserWorkgroupList( uId ),
-			};
-		}
-	}
 }
 
 ns.Room.prototype.handlePersist = async function( event, userId ) {
@@ -800,8 +772,25 @@ ns.Room.prototype.releaseUser = async function( userId ) {
 	self.checkOnline();
 }
 
-ns.Room.prototype.onJoin = function( userId ) {
+ns.Room.prototype.onJoin = function( identity ) {
 	const self = this;
+	const cId = identity.clientId;
+	//self.users.setRecent( cId );
+	const joinEvent = {
+		type : 'join',
+		data : {
+			clientId   : cId,
+			name       : identity.name,
+			isAdmin    : identity.isAdmin,
+			isGuest    : identity.isGuest,
+			isOnline   : identity.isOnline,
+			isRecent   : false,
+			isAuthed   : self.checkIsAuthed( cId ),
+			workgroups : self.worgs.getUserWorkgroupList( cId ),
+		},
+	};
+	//log( 'sending join', joinEvent );
+	self.users.broadcast( null, joinEvent, cId );
 }
 
 ns.Room.prototype.onLeave = function( userId ) {

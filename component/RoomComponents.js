@@ -45,10 +45,13 @@ ns.Users = function(
 	
 	self.everyone = {};
 	self.everyId = [];
+	self.atNames = [];
+	self.atNameRemoveList = [];
 	self.notPersisted = [];
 	self.online = [];
 	self.active = [];
 	self.authorized = [];
+	self.admins = [];
 	self.guests = [];
 	self.worgs = {};
 	self.wIds = [];
@@ -58,6 +61,11 @@ ns.Users = function(
 	self.viewers = {};
 	self.viewerIds = [];
 	self.lastRead = {};
+	self.recent = {};
+	self.recentIds = [];
+	self.recentTrimInterval = null;
+	self.recentTrimMS = 1000 * 60 * 10;
+	self.recentMaxMS = 1000 * 60 * 60 * 8;
 	
 	self.init( dbPool );
 }
@@ -98,6 +106,9 @@ ns.Users.prototype.set = async function( user ) {
 		return false;
 	}
 	
+	if ( user.isGuest )
+		self.setGuest( cId );
+	
 	if ( !self.exists( cId )) {
 		let isRegged = self.checkIsRegistered( cId );
 		if ( !isRegged && self.isPersistent ) {
@@ -111,6 +122,11 @@ ns.Users.prototype.set = async function( user ) {
 	const uIdx = self.everyId.indexOf( cId );
 	if ( -1 === uIdx )
 		self.everyId.push( cId );
+	
+	if ( user.isAdmin )
+		self.setAdmin( cId );
+	
+	self.addAtName( user.name );
 	
 	return true;
 	
@@ -162,6 +178,9 @@ ns.Users.prototype.remove = function( userId ) {
 	
 	self.setActive( false, userId );
 	self.setOffline( userId );
+	if ( user.isAdmin )
+		self.removeAdmin( userId );
+	
 	delete self.everyone[ userId ];
 	const uIdx = self.everyId.indexOf( userId );
 	if ( -1 !== uIdx )
@@ -188,6 +207,8 @@ ns.Users.prototype.remove = function( userId ) {
 		worg.splice( uIdx, 1 );
 		return true;
 	});
+	
+	self.removeAtName( user.name );
 	
 	if ( removedFromWorg ) {
 		self.updateViewMembers();
@@ -227,6 +248,135 @@ ns.Users.prototype.setActive = function( isActive, userId ) {
 ns.Users.prototype.getActive = function() {
 	const self = this;
 	return self.active;
+}
+
+ns.Users.prototype.setRecent = function( userId ) {
+	const self = this;
+	if ( !self.everyone[ userId ])
+		return;
+	
+	const add = !self.recent[ userId ];
+	self.recent[ userId ] = Date.now();
+	if ( !add )
+		return;
+	
+	self.recentIds.push( userId );
+	const uptd = {
+		type : 'recent-add',
+		data : userId,
+	};
+	self.broadcast( null, uptd );
+}
+
+ns.Users.prototype.getRecent = function() {
+	const self = this;
+	return self.recentIds;
+}
+
+ns.Users.prototype.removeRecent = function( userId ) {
+	const self = this;
+	delete self.recent[ userId ];
+	const idx = self.recentIds.indexOf( userId );
+	if ( -1 == idx )
+		return;
+	
+	self.recentIds.splice( idx, 1 );
+	const uptd = {
+		type : 'recent-remove',
+		data : userId,
+	};
+	self.broadcast( null, uptd );
+}
+
+ns.Users.prototype.setAdmin = function( userId, isIdUpdate ) {
+	const self = this;
+	const aIdx = self.admins.indexOf( userId );
+	if ( -1 != aIdx )
+		return;
+	
+	self.admins.push( userId );
+	if ( !isIdUpdate )
+		return;
+	
+	const add = {
+		type : 'admin-add',
+		data : userId,
+	};
+	self.broadcast( null, add );
+}
+
+ns.Users.prototype.removeAdmin = function( userId, isIdUpdate ) {
+	const self = this;
+	const idx = self.admins.indexOf( userId );
+	if ( -1 == idx )
+		return;
+	
+	self.admins.splice( idx, 1 );
+	if ( !isIdUpdate )
+		return;
+	
+	const remove = {
+		type : 'admin-remove',
+		data : userId,
+	};
+	self.broadcast( null, remove );
+}
+
+ns.Users.prototype.getAdmins = function() {
+	const self = this;
+	return self.admins;
+}
+
+ns.Users.prototype.addAtName = function( name, isIdUpdate ) {
+	const self = this;
+	const nIdx = self.atNames.indexOf( name );
+	if ( -1 != nIdx )
+		return;
+	
+	self.atNames.push( name );
+	if ( !isIdUpdate )
+		return;
+	
+	const add = {
+		type : 'at-add',
+		data : name,
+	};
+	self.broadcast( null, add );
+}
+
+ns.Users.prototype.removeAtName = function( name ) {
+	const self = this;
+	self.atNameRemoveList.push( name );
+	if ( null != self.removeAtNameTimeout )
+		return;
+	
+	self.removeAtNameTimeout = setTimeout( doRemove, 1000 * 2 );
+	
+	function doRemove() {
+		self.removeAtNameTimeout = null;
+		self.doAtNameUpdate();
+	}
+}
+
+ns.Users.prototype.doAtNameUpdate = function() {
+	const self = this;
+	self.atNameRemoveList = [];
+	const names = {};
+	self.everyId.forEach( uId => {
+		const user = self.everyone[ uId ];
+		names[ user.name ] = true;
+	});
+	self.atNames = Object.keys( names );
+	const uptd = {
+		type : 'at-names',
+		data : self.atNames,
+	};
+	self.broadcast( null, uptd );
+}
+
+ns.Users.prototype.getAtNames = function() {
+	const self = this;
+	return self.atNames;
 }
 
 ns.Users.prototype.setOnline = function( userId ) {
@@ -360,14 +510,18 @@ ns.Users.prototype.removeWorg = function( worgId ) {
 	self.updateViewMembers();
 }
 
-ns.Users.prototype.addGuest = function( userId ) {
+ns.Users.prototype.setGuest = function( userId ) {
 	const self = this;
-	if ( self.checkIsRegistered( userId )) {
+	const gIdx = self.guests.indexOf( userId );
+	if ( -1 != gIdx )
 		return;
-		//throw new Error( 'Users.addGuest - already registered' );
-	}
 	
 	self.guests.push( userId );
+}
+
+ns.Users.prototype.getGuests = function() {
+	const self = this;
+	return self.guests;
 }
 
 ns.Users.prototype.setSuper = function( roomInfo ) {
@@ -573,6 +727,11 @@ ns.Users.prototype.broadcastSettings = function( targetList, event, sourceId, wr
 
 ns.Users.prototype.close = function() {
 	const self = this;
+	if ( null != self.recentTrimInterval ) {
+		clearInterval( self.recentTrimInterval );
+		self.recentTrimInterval = null;
+	}
+	
 	self.everyId.forEach( uId => {
 		const user = self.everyone[ uId ];
 		delete self.everyone[ uId ];
@@ -603,6 +762,48 @@ ns.Users.prototype.close = function() {
 ns.Users.prototype.init = function( dbPool ) {
 	const self = this;
 	self.msgDb = new dFace.MessageDB( dbPool, self.roomId );
+	self.startTrimRecentInterval();
+}
+
+ns.Users.prototype.startTrimRecentInterval = function() {
+	const self = this;
+	const wait = 1000 * Math.ceil( Math.random() * 60 * 2 );
+	setTimeout( delayedTrim, wait );
+	function delayedTrim() {
+		self.recentTrimInterval = setInterval( trimRecent, self.recentTrimMS );
+	}
+	
+	function trimRecent() {
+		self.trimRecent();
+	}
+}
+
+ns.Users.prototype.trimRecent = function() {
+	const self = this;
+	/*
+	uLog( 'trimRecent', {
+		recent : self.recent,
+		list   : self.recentIds,
+		max    : self.recentMaxMS,
+	});
+	*/
+	if ( !self.recentIds.length )
+		return;
+	
+	const now = Date.now();
+	self.recentIds.forEach( uId => {
+		const touch = self.recent[ uId ];
+		if ( null == touch ) {
+			self.removeRecent( uId );
+			return;
+		}
+		
+		const diff = now - touch;
+		if ( diff < self.recentMaxMS )
+			return;
+		
+		self.removeRecent( uId );
+	});
 }
 
 ns.Users.prototype.addLastRead = async function( userId ) {
@@ -866,6 +1067,7 @@ ns.Chat.prototype.createMsg = function( input, userId ) {
 	self.log.add( event );
 	self.sendMsgNotification( msg, userId );
 	self.broadcast( event );
+	self.users.setRecent( userId );
 }
 
 ns.Chat.prototype.sendMsgNotification = async function( msg, fromId ) {
@@ -1964,7 +2166,9 @@ ns.Live.prototype.sendPeerList = function( peerId ) {
 	const self = this;
 	const peers = {
 		type : 'peers',
-		data : self.peerIds,
+		data : {
+			peerIds : self.peerIds,
+		},
 	};
 	
 	if ( peerId )
@@ -2971,6 +3175,7 @@ ns.Workgroup = function(
 	self.fIds = [];
 	self.cIds = [];
 	self.assigned = {};
+	self.atNames = [];
 }
 
 util.inherits( ns.Workgroup, events.Emitter );
@@ -3011,6 +3216,11 @@ ns.Workgroup.prototype.getUserList = function() {
 	
 	const uIds = Object.keys( uIdMap );
 	return uIds || [];
+}
+
+ns.Workgroup.prototype.getAtNames = function() {
+	const self = this;
+	return self.atNames;
 }
 
 ns.Workgroup.prototype.getUserWorkgroupList = function( userId ) {
@@ -3307,11 +3517,7 @@ ns.Workgroup.prototype.addAssigned = function( dbWorg ) {
 	self.fIds.push( fId );
 	self.cIds.push( cId );
 	
-	const update = {
-		type : 'assigned',
-		data : self.getAssigned(),
-	};
-	self.broadcast( update );
+	self.sendAssigned();
 }
 
 ns.Workgroup.prototype.removeDismissed = function( fId ) {
@@ -3325,6 +3531,17 @@ ns.Workgroup.prototype.removeDismissed = function( fId ) {
 		
 		return worg.clientId;
 	}).filter( cId => !!cId );
+	
+	self.sendAssigned();
+}
+
+ns.Workgroup.prototype.sendAssigned = function() {
+	const self = this;
+	const update = {
+		type : 'assigned',
+		data : self.getAssigned(),
+	};
+	self.broadcast( update );
 }
 
 ns.Workgroup.prototype.removeUsers = function() {

@@ -69,6 +69,7 @@ const server = {
 		subsHaveSuperView  : true,
 		supersHaveSubRoom  : true,
 		supersSubHideSuper : true,
+		showUserList       : true,
 	},
 	messages : {
 		forceShowRead : false,

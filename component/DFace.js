@@ -71,6 +71,7 @@ ns.DB.prototype.query = function( fnName, values ) {
 				return;
 			}
 			
+			values = values || [];
 			const queryString = self.buildCall( fnName, values.length );
 			conn.query( queryString, values, queryBack );
 			function queryBack( err, res ) {
@@ -111,6 +112,9 @@ ns.DB.prototype.buildCall = function( fnName, paramsLength ) {
 	return call;
 	
 	function getParamsPlaceholderStr( len ) {
+		if ( !len )
+			return '';
+		
 		var parr = Array( len );
 		var pph = parr.join( '?,' );
 		pph += '?';
@@ -305,6 +309,20 @@ ns.AccountDB.prototype.getById = async function( accountId ) {
 	
 	let acc = res[ 0 ];
 	return acc;
+}
+
+ns.AccountDB.prototype.getAlphaNumList = async function() {
+	const self = this;
+	let res = null;
+	try {
+		res = await self.query( 'account_read_alphanum' );
+	} catch( qex ) {
+		accLog( 'getAlphaNumList query ex', qex );
+		return [];
+	}
+	
+	const list = res.map( u => u.clientId );
+	return list;
 }
 
 ns.AccountDB.prototype.remove = function( clientId ) {
@@ -825,6 +843,13 @@ ns.RoomDB.prototype.getRelation = async function( accIdA, accIdB ) {
 		return null;
 	
 	return self.rowsToRelation( res );
+}
+
+ns.RoomDB.prototype.getRelationFor = async function( accId, contactId ) {
+	const self = this;
+	const both = await self.getRelation( accId, contactId );
+	const relation = both[ accId ];
+	return relation;
 }
 
 ns.RoomDB.prototype.getRelationsFor = async function( accId, includeDisabled ) {

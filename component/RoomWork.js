@@ -36,6 +36,7 @@ ns.WorkRoom = function( conf, db, idCache, worgCtrl ) {
 	self.workgroupId = conf.workgroupId;
 	self.priority = conf.priority;
 	
+	self.supergroupId = null;
 	self.super = null;
 	self.superConn = null;
 	self.subs = {};
@@ -113,6 +114,7 @@ ns.WorkRoom.prototype.setSuper = function( superRoom ) {
 	self.supergroupId = roomInfo.workId;
 	self.users.setSuper( roomInfo );
 	self.bindSuperRoom();
+	self.updateUserRoomPriority();
 }
 
 ns.WorkRoom.prototype.unsetSuper = function() {
@@ -121,6 +123,7 @@ ns.WorkRoom.prototype.unsetSuper = function() {
 	delete self.super;
 	self.users.setSuper( null );
 	self.supergroupId = null;
+	self.updateUserRoomPriority();
 }
 
 ns.WorkRoom.prototype.connectViewer = async function( userId ) {
@@ -134,6 +137,30 @@ ns.WorkRoom.prototype.connectViewer = async function( userId ) {
 	}
 	
 	return self.bindViewer( userId );
+}
+
+ns.WorkRoom.prototype.updateUserRoomPriority = function() {
+	const self = this;
+	const connected = self.users.getOnline();
+	connected.forEach( uId => {
+		const prio = self.getUserRoomPriority( uId );
+		const user = self.users.get( uId );
+		if ( null == user || !user.setPriority )
+			return;
+		
+		user.setPriority( prio );
+	});
+}
+
+ns.WorkRoom.prototype.getUserRoomPriority = function( userId ) {
+	const self = this;
+	let priority = self.priority;
+	if ( global.config.server.workroom.supersHaveSubRoom && self.supergroupId ) {
+		if ( self.users.checkIsMemberOf( userId, self.supergroupId ))
+			priority = 0;
+	}
+	
+	return priority;
 }
 
 ns.WorkRoom.prototype.disconnect = async function( userId ) {
@@ -650,12 +677,7 @@ ns.WorkRoom.prototype.bindUser = async function( userId ) {
 		return user;
 	}
 	
-	let priority = self.priority;
-	if ( global.config.server.workroom.supersHaveSubRoom && self.supergroupId ) {
-		if ( self.users.checkIsMemberOf( userId, self.supergroupId ))
-			priority = 0;
-	}
-	
+	const prio = self.getUserRoomPriority( userId );
 	// add signal user obj
 	const uId = user.clientId;
 	const sigConf = {
@@ -666,7 +688,7 @@ ns.WorkRoom.prototype.bindUser = async function( userId ) {
 		persistent   : true,
 		workgroupId  : self.workgroupId,
 		supergroupId : self.supergroupId,
-		priority     : priority,
+		priority     : prio,
 		clientId     : uId,
 		name         : user.name,
 		fUsername    : user.fUsername,
@@ -785,11 +807,13 @@ ns.WorkRoom.prototype.initialize = async function( requestId, userId ) {
 		ownerId     : self.ownerId,
 		persistent  : true,
 		settings    : self.settings.get(),
-		config      : global.config.server.workroom,
+		workConfig  : global.config.server.workroom,
 		guestAvatar : self.guestAvatar,
-		users       : buildBaseUsers(),
+		users       : self.users.getList( self.workgroupId ),
+		admins      : self.users.getAdmins(),
 		online      : self.users.getOnline(),
-		peers       : self.live.peerIds,
+		recent      : self.users.getRecent(),
+		peers       : self.live.getPeers(),
 		workgroups  : workgroups,
 		relation    : relation,
 	};
@@ -862,7 +886,7 @@ ns.WorkRoom.prototype.initializeViewer = async function( requestId, userId ) {
 		persistent  : true,
 		settings    : self.settings.get(),
 		guestAvatar : self.guestAvatar,
-		users       : buildBaseUsers( userId ),
+		users       : self.users.getList(),
 		online      : [ ...online, userId ],
 		peers       : [],
 		workgroups  : workgroups,

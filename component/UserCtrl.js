@@ -131,7 +131,8 @@ ns.UserCtrl.prototype.addGuest = async function( session, conf, roomId ) {
 		accId,
 		roomId,
 		self.idc,
-		self.roomCtrl
+		self.roomCtrl,
+		self.worgs
 	);
 	
 	if ( !guest )
@@ -204,6 +205,7 @@ ns.UserCtrl.prototype.init = function( dbPool ) {
 	
 	self.idc.on( 'add', e => self.handleIdAdd( e ));
 	self.idc.on( 'update', e => self.handleIdUpdate( e ));
+	self.idc.on( 'invalidate-alphanum-cache', e => self.handleInvalidateANCache( e ));
 	
 	self.worgs.on( 'users-added', ( worgId, accIds ) =>
 		self.handleWorgUsersAdded( worgId, accIds ));
@@ -244,14 +246,16 @@ ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 
 ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds ) {
 	const self = this;
+	// these are offline, we dont push those to accounts anymore
 	if ( !addedAccIds || !addedAccIds.length ) {
 		log( 'handleWorgUsersAdded - not really', addedAccIds );
 		return;
 	}
 	
-	let worgUserList = self.worgs.getUserList( worgId );
-	worgUserList.forEach( accId => add( accId, addedAccIds ));
-	addedAccIds.forEach( accId => add( accId, worgUserList ));
+	const addedOnline = addedAccIds.filter( cId => self.idc.checkOnline( cId ));
+	let worgUserList = self.worgs.getUserList( worgId, true );
+	worgUserList.forEach( accId => add( accId, addedOnline ));
+	addedOnline.forEach( accId => add( accId, worgUserList ));
 	
 	function add( accId, list ) {
 		let acc = self.accounts[ accId ];
@@ -276,18 +280,46 @@ ns.UserCtrl.prototype.handleIdAdd = function( id ) {
 
 ns.UserCtrl.prototype.handleIdUpdate = function( update ) {
 	const self = this;
+	const accId = update.clientId;
 	if ( 'fIsDisabled' == update.key ) {
 		if ( true === update.value )
-			self.remove( update.clientId );
+			self.remove( accId );
 		
 	}
 	
-	self.accIds.forEach( id => {
-		const acc = self.accounts[ id ];
+	if ( 'isOnline' == update.key )
+		self.handleIdOnline( accId, update.value );
+	
+	//const affectedOnline = self.worgs.getContactList( accId, true );
+	self.accIds.forEach( cId => {
+		const acc = self.accounts[ cId ];
 		if ( !acc || acc.closed )
 			return;
 		
 		acc.updateIdentity( update );
+	});
+}
+
+ns.UserCtrl.prototype.handleIdOnline = function( accId, isOnline ) {
+	const self = this;
+	const affected = self.worgs.getContactList( accId, isOnline );
+	affected.forEach( cId => {
+		const acc = self.accounts[ cId ];
+		if ( !acc )
+			return;
+		
+		if ( isOnline )
+			acc.addContact( accId );
+		else
+			acc.removeContact( accId );
+	});
+}
+
+ns.UserCtrl.prototype.handleInvalidateANCache = function( time ) {
+	const self = this;
+	self.accIds.forEach( accId => {
+		const account = self.accounts[ accId ];
+		account.invalidateANCache();
 	});
 }
 
@@ -309,12 +341,13 @@ ns.UserCtrl.prototype.handleWorgUserRemoved = function( removedAccId, worgId ) {
 
 ns.UserCtrl.prototype.handleWorgRegenerate = function( affectedAccIds ) {
 	const self = this;
+	
 	affectedAccIds.forEach( accId => {
 		const acc = self.accounts[ accId ];
 		if ( !acc || acc.closed )
 			return;
 		
-		acc.updateContacts();
+		acc.updateWorkgroupContacts();
 	});
 }
 

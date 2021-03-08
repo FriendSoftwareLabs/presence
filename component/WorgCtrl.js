@@ -38,6 +38,7 @@ ns.WorgCtrl = function( dbPool, idCache ) {
 	self.fIds = [];
 	self.cIds = [];
 	self.worgUsers = {}; // each workgroup has a list of members.
+	self.worgOnlines = {}; // each workgroup has a list of online members.
 	self.userWorgs = {}; // each user has a list of memberships.
 	self.streamers = {}; // each streamer has a list of streamWorgs
 	self.streamWorgs = []; // worg ids for streaming
@@ -73,6 +74,7 @@ ns.WorgCtrl.prototype.add = function( worg ) {
 	self.fIds.push( fId );
 	self.cIds.push( cId );
 	self.worgUsers[ cId ] = [];
+	self.worgOnlines[ cId ] = [];
 	if ( worg.parentId )
 		self.setSuperChild( worg.clientId );
 	
@@ -147,6 +149,7 @@ ns.WorgCtrl.prototype.remove = function( worgId ) {
 	self.sendRegenerate( members );
 	
 	delete self.worgUsers[ wId ];
+	delete self.worgOnlines[ wId ];
 	delete self.fMap[ fId ];
 	delete self.cMap[ wId ];
 }
@@ -222,9 +225,12 @@ ns.WorgCtrl.prototype.addUser = function( accId, worgs ) {
 	}
 }
 
-ns.WorgCtrl.prototype.getUserList = function( worgId ) {
+ns.WorgCtrl.prototype.getUserList = function( worgId, isOnline ) {
 	const self = this;
-	return self.worgUsers[ worgId ] || [];
+	if ( isOnline )
+		return self.worgOnlines[ worgId ] || [];
+	else
+		return self.worgUsers[ worgId ] || [];
 }
 
 ns.WorgCtrl.prototype.getMemberOf = function( userId ) {
@@ -238,19 +244,29 @@ ns.WorgCtrl.prototype.getMemberOfAsFID = function( accId ) {
 	return self.cId_to_fId_list( cId_list );
 }
 
-ns.WorgCtrl.prototype.getContactList = function( accId ) {
+ns.WorgCtrl.prototype.getContactList = function( accId, isOnline ) {
 	const self = this;
-	const member = self.getMemberOf( accId );
-	const allLists = member.map( getWorgUserList );
-	const flatted = {};
-	allLists.forEach( flatten );
+	const flatted = self.getFlatMap( accId, isOnline );
 	const list = Object.keys( flatted );
 	return list;
+}
+
+ns.WorgCtrl.prototype.getContactListSorted = function( accId, isOnline ) {
+	const self = this;
+	const flatted = self.getFlatMap( accId, isOnline );
+	const ANList = self.idc.getAlphaNumList();
+	const sorted = ANList.filter( cId => !!flatted[ cId ]);
+	return sorted;
+}
+
+ns.WorgCtrl.prototype.getFlatMap = function( accId, isOnline ) {
+	const self = this;
+	const memberOf = self.getMemberOf( accId );
+	const allLists = memberOf.map( wId => self.getUserList( wId, isOnline ));
+	const flatted = {};
+	allLists.forEach( flatten );
 	
-	function getWorgUserList( wId ) {
-		let list = self.getUserList( wId );
-		return list;
-	}
+	return flatted;
 	
 	function flatten( list ) {
 		list.forEach( accId => {
@@ -383,18 +399,46 @@ ns.WorgCtrl.prototype.init = function( dbPool ) {
 	const self = this;
 	log( 'WorgCtrl o7 o7 o8 o7' );
 	self.bindService();
-	//self.idc.on( 'update', e => self.handleIdUpdate( e ));
+	self.idc.on( 'update', e => self.handleIdUpdate( e ));
 	self.roomDb = new dFace.RoomDB( dbPool );
 	
 }
 
 ns.WorgCtrl.prototype.handleIdUpdate = function( update ) {
 	const self = this;
-	if ( 'fIsDisabled' !== update.key )
+	if ( 'isOnline' !== update.key )
 		return;
 	
-	log( 'handleIdUpdate', update );
+	self.handleUserOnline( update.clientId, update.value );
 	
+}
+
+ns.WorgCtrl.prototype.handleUserOnline = function( userId, isOnline ) {
+	const self = this;
+	const userWs = self.userWorgs[ userId ];
+	if ( null == userWs )
+		return;
+	
+	if ( isOnline )
+		addTo( userId, userWs );
+	else
+		removeFrom( userId, userWs );
+	
+	function addTo( uId, wIds ) {
+		wIds.forEach( wId => {
+			const ol = self.worgOnlines[ wId ];
+			ol.push( uId );
+		});
+	}
+	
+	function removeFrom( uId, wIds ) {
+		wIds.forEach( wId => {
+			const ol = self.worgOnlines[ wId ];
+			const idx = ol.indexOf( uId );
+			//if ( -1 != idx )
+			ol.splice( idx, 1 );
+		});
+	}
 }
 
 ns.WorgCtrl.prototype.bindService = function() {
@@ -417,10 +461,6 @@ ns.WorgCtrl.prototype.bindService = function() {
 ns.WorgCtrl.prototype.handleGroupCreate = function( swg ) {
 	const self = this;
 	const wg = self.normalizeServiceWorg( swg );
-	log( 'handleGroupCreate', {
-		swg : swg,
-		wg  : wg,
-	}, 3 );
 	self.add( wg );
 }
 
@@ -467,11 +507,6 @@ ns.WorgCtrl.prototype.handleGroupDelete = function( swg ) {
 	const self = this;
 	const fId = self.makeFId( swg.id );
 	const wId = self.makeClientId( fId );
-	log( 'handleGroupDelete', {
-		swg : swg,
-		fId : fId,
-		wId : wId,
-	}, 3 );
 	self.remove( wId );
 }
 
@@ -518,9 +553,9 @@ ns.WorgCtrl.prototype.handleSetUsers = async function( event ) {
 	
 	const worgId = worg.clientId;
 	const update = await self.getUIdsForFUsers( event.userids );
-	const current = self.worgUsers[ worg.clientId ];
+	const current = self.worgUsers[ worgId ];
 	const add = update.filter( notInCurrent );
-	const affected = [ ...current, ...add ];
+	
 	const remove = current.filter( notInUpdate );
 	const removed = self.removeUsers( worgId, remove );
 	const added = self.addUsers( worgId, add );
@@ -530,6 +565,8 @@ ns.WorgCtrl.prototype.handleSetUsers = async function( event ) {
 	if ( added && added.length )
 		self.sendAddedTo( worgId, added );
 	
+	const online = self.worgOnlines[ worgId ];
+	const affected = [ ...online, ...add ];
 	self.sendRegenerate( affected );
 	
 	function notInCurrent( uId ) {
@@ -557,14 +594,15 @@ ns.WorgCtrl.prototype.handleRemoveUsers = async function( event ) {
 	}
 	
 	const worgId = worg.clientId;
-	const members = self.worgUsers[ worgId ];
-	const affected = [ ...members ];
+	
 	const uIds = await self.getUIdsForFUsers( event.userids );
 	const removed = self.removeUsers( worgId, uIds );
 	if ( !removed || !removed.length )
 		return;
 	
 	self.sendRemovedFrom( worgId, removed );
+	
+	const affected = self.worgOnlines[ worgId ];
 	self.sendRegenerate( affected );
 }
 
@@ -1028,24 +1066,30 @@ ns.WorgCtrl.prototype.removeStreamWorg = function( worgId ) {
 ns.WorgCtrl.prototype.addToWorg = function( worgId, userId ) {
 	const self = this;
 	const worg = self.worgUsers[ worgId ];
-	let user = self.userWorgs[ userId ];
+	const isOnline = self.idc.checkOnline( userId );
+	let userW = self.userWorgs[ userId ];
 	if ( !worg ) {
 		log( 'addToWorg - no worg', {
-			wId  : worgId,
-			uId  : userId,
-			worg : worg,
-			user : user,
+			wId   : worgId,
+			uId   : userId,
+			worg  : worg,
+			userW : userW,
+			user  : user,
 		});
 		return null;
 	}
 	
-	if ( !user ) {
-		user = [];
-		self.userWorgs[ userId ] = user;
+	if ( !userW ) {
+		userW = [];
+		self.userWorgs[ userId ] = userW;
 	}
 	
 	worg.push( userId );
-	user.push( worgId );
+	userW.push( worgId );
+	if ( isOnline ) {
+		const wOnline = self.worgOnlines[ worgId ];
+		wOnline.push( userId );
+	}
 	
 	self.checkAddStreamer( worgId, userId );
 	
@@ -1060,13 +1104,14 @@ ns.WorgCtrl.prototype.sendAddedTo = function( worgId, userIds ) {
 ns.WorgCtrl.prototype.removeFromWorg = function( worgId, userId ) {
 	const self = this;
 	const worg = self.worgUsers[ worgId ];
-	const user = self.userWorgs[ userId ];
-	if ( !worg || !user ) {
+	const online = self.worgOnlines[ worgId ];
+	const userW = self.userWorgs[ userId ];
+	if ( !worg || !userW ) {
 		log( 'removeFromWorg - no worg/user', {
 			wId  : worgId,
 			uId  : userId,
 			worg : worg,
-			user : user,
+			userW : userW,
 		});
 		return false;
 	}
@@ -1079,9 +1124,13 @@ ns.WorgCtrl.prototype.removeFromWorg = function( worgId, userId ) {
 	else
 		return false;
 	
-	const wIndex = user.indexOf( worgId );
+	const oIndex = online.indexOf( userId );
+	if ( -1 != oIndex )
+		online.splice( oIndex, 1 );
+	
+	const wIndex = userW.indexOf( worgId );
 	if ( -1 != wIndex )
-		user.splice( wIndex, 1 );
+		userW.splice( wIndex, 1 );
 	
 	return true;
 }

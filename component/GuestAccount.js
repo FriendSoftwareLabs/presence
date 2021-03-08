@@ -33,7 +33,8 @@ ns.GuestAccount = function(
 		clientId,
 		roomId,
 		idCache,
-		roomCtrl
+		roomCtrl,
+		worgCtrl
 	) {
 	const self = this;
 	self.roomId = roomId;
@@ -44,7 +45,7 @@ ns.GuestAccount = function(
 			null,
 			idCache,
 			roomCtrl,
-			null
+			worgCtrl
 		)
 			.then( accReady )
 			.catch( accFail );
@@ -109,11 +110,10 @@ ns.GuestAccount.prototype.initializeClient = async function( event, clientId ) {
 				isGuest  : self.isGuest,
 			},
 			rooms    : [],
-			contacts : {},
+			contacts : [],
 		},
 	};
 	
-	self.log( 'initializeClient', state );
 	self.conn.send( state, clientId );
 	const room = await self.roomCtrl.guestJoinRoom( self.id, self.roomId );
 	if ( !room )

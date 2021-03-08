@@ -16,6 +16,7 @@ DROP PROCEDURE IF EXISTS account_set_fuserid;
 DROP PROCEDURE IF EXISTS account_read_id;
 DROP PROCEDURE IF EXISTS account_read_fuserid;
 DROP PROCEDURE IF EXISTS account_read_fusername;
+DROP PROCEDURE IF EXISTS account_read_alphanum;
 DROP PROCEDURE IF EXISTS account_update;
 DROP PROCEDURE IF EXISTS account_delete;
 DROP PROCEDURE IF EXISTS account_touch;
@@ -227,6 +228,14 @@ CREATE PROCEDURE account_read_fusername(
 BEGIN
 	SELECT * FROM account
 	WHERE account.fUsername = `fUsername`;
+END//
+
+#
+#
+CREATE PROCEDURE account_read_alphanum()
+BEGIN
+SELECT a.clientId FROM account AS a
+ORDER BY a.name ASC;
 END//
 
 #
