@@ -848,6 +848,9 @@ ns.RoomDB.prototype.getRelation = async function( accIdA, accIdB ) {
 ns.RoomDB.prototype.getRelationFor = async function( accId, contactId ) {
 	const self = this;
 	const both = await self.getRelation( accId, contactId );
+	if ( null == both )
+		return null;
+	
 	const relation = both[ accId ];
 	return relation;
 }
@@ -1456,6 +1459,7 @@ ns.MessageDB.prototype.getForView = async function(
 		afterTime || null,
 		length,
 	];
+	msgLog( 'getForView', values );
 	let res = null;
 	res = await self.query( 'message_get_for_view', values );
 	if ( !res )

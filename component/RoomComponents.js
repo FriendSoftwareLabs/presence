@@ -2982,17 +2982,18 @@ ns.Log.prototype.loadAfter = async function( conf, worg ) {
 ns.Log.prototype.buildLogEvent = async function( type, events ) {
 	const self = this;
 	let unknownIds = null;
+	/*
 	try {
 		unknownIds = await self.getUnknownIdentities( events );
 	} catch ( e ) {
 		llLog( 'getunown e', e );
 	}
-	
+	*/
 	let log = {
 		type : type,
 		data : {
 			events : events,
-			ids    : unknownIds,
+			//ids    : unknownIds,
 		},
 	};
 	return log;

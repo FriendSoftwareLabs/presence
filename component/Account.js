@@ -552,7 +552,17 @@ ns.Account.prototype.connectToContact = async function( contactId ) {
 	}
 	
 	const roomDb = new dFace.RoomDB( self.dbPool );
-	let relation = await roomDb.getRelationFor( self.id, contactId );
+	const relation = await roomDb.getRelationFor( self.id, contactId );
+	if ( null == relation ) {
+		contact = await self.idCache.get( contactId );
+		self.log( 'connectToContact - no db relation for', {
+			accId     : self.id,
+			contactId : contactId,
+			contact   : contact,
+		});
+		return;
+	}
+	
 	await self.registerRelation( relation );
 	await self.joinedARoomHooray( room );
 	
@@ -1194,7 +1204,7 @@ ns.Account.prototype.handleDisableChange = function( update ) {
 		
 		const roomDb = new dFace.RoomDB( self.dbPool );
 		const relation = await roomDb.getRelationFor( self.id, cId );
-		if ( !relation )
+		if ( null == relation )
 			return;
 		
 		self.registerRelation( relation );

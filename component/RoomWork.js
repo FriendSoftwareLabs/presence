@@ -128,6 +128,7 @@ ns.WorkRoom.prototype.unsetSuper = function() {
 
 ns.WorkRoom.prototype.connectViewer = async function( userId ) {
 	const self = this;
+	console.log( 'connectViewer', userId );
 	if ( !self.users.checkIsViewer( userId )) {
 		log( 'connectViewer - not a viewer', {
 			viewers : self.users.viewers,
@@ -782,6 +783,7 @@ ns.WorkRoom.prototype.bindViewer = async function( userId ) {
 
 ns.WorkRoom.prototype.getRoomRelation = async function( userId, isViewer ) {
 	const self = this;
+	log( 'getRoomRelation', [ userId, isViewer ]);
 	const unread = await self.log.getUnreadForUser( userId, isViewer );
 	let lastMessages =  null;
 	if ( isViewer )
@@ -876,6 +878,7 @@ ns.WorkRoom.prototype.initialize = async function( requestId, userId ) {
 
 ns.WorkRoom.prototype.initializeViewer = async function( requestId, userId ) {
 	const self = this;
+	log( 'initializeViewer', userId );
 	const workgroups = buildWorkgroupConf();
 	const relation = await self.getRoomRelation( userId, true );
 	const online = self.users.getOnline();
@@ -1766,6 +1769,7 @@ ns.WorkLog.prototype.getLastForView = function( userId, num ) {
 
 ns.WorkLog.prototype.getForView = async function( conf, userId ) {
 	const self = this;
+	llLog( 'getForView', [ conf, userId ], 3 );
 	if ( !conf )
 		conf = {
 			firstTime : Date.now(),
@@ -1818,6 +1822,10 @@ ns.WorkLog.prototype.load = function( conf ) {
 ns.WorkLog.prototype.loadBeforeView = async function( conf, userId ) {
 	const self = this;
 	let items = null;
+	llLog( 'loadBeforeView, inputs', [
+		self.workgroupId,
+		userId,
+	]);
 	items = await self.msgDb.getForView(
 		self.workgroupId,
 		userId,
@@ -1826,6 +1834,7 @@ ns.WorkLog.prototype.loadBeforeView = async function( conf, userId ) {
 		conf.length
 	);
 	
+	llLog( 'loadBeforeView', items, 3 );
 	return await self.buildLogEvent( 'before', items );
 }
 

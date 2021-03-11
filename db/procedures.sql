@@ -1464,8 +1464,8 @@ FROM (
 			( `from` IS NOT NULL AND m.timestamp > `from` )
 		  )
 	  AND (
-	  		( t.target = `worgId` AND m.fromId = `userId` )
-	  		OR
+			( t.target = `worgId` AND m.fromId = `userId` )
+			OR
 			( t.source = `worgId` AND t.memberId = `userId` )
 		  )
 	GROUP BY t.msgId
