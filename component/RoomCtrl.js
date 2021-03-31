@@ -111,6 +111,15 @@ ns.RoomCtrl.prototype.readRoomState = function( rID ) {
 	return room.getState();
 }
 
+ns.RoomCtrl.prototype.getRelation = async function( accId, contactId ) {
+	const self = this;
+	let both = await self.readRelation( accId, contactId );
+	if ( !both )
+		both = await self.createRelation( accId, contactId );
+	
+	return both[ accId ];
+}
+
 ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
 	const self = this;
 	if ( accId === contactId )
@@ -136,11 +145,11 @@ ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
 		return null;
 	}
 	
-	const join = {
-		type : 'contact-join',
+	const active = {
+		type : 'contact-active',
 		data : null,
 	};
-	self.emit( contactId, join, accId );
+	self.emit( contactId, active, accId );
 	return user;
 }
 
@@ -533,7 +542,6 @@ ns.RoomCtrl.prototype.handleServiceGet = async function( roomId ) {
 		
 		const users = self.worgs.getUserList( wg.clientId ) || [];
 		wg.users = users.length;
-		//log( 'wg', wg );
 		return wg;
 	}
 }
@@ -549,12 +557,6 @@ ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {
 		});
 		return;
 	}
-	/*
-	if ( wRoom ) {
-		updateSubs( worgId, subs );
-		return;
-	}
-	*/
 	
 	wRoom = await self.setWorkRoom( worgId, 2 );
 	if ( !wRoom )
@@ -565,13 +567,6 @@ ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {
 		await Promise.all( subs.map( await openSub ));
 	
 	await Promise.all( subs.map( connect ));
-	
-	/*
-	const members = self.worgs.getUserList( worgId );
-	log( 'superAdded - members', members );
-	self.addUsersToWorkRooms( worgId, members );
-	*/
-	
 	const parentId = self.worgs.getSuperParent( worgId );
 	if ( !parentId )
 		return;
@@ -1302,9 +1297,9 @@ ns.RoomCtrl.prototype.getContactRoom = async function( accId, contactId ) {
 		return null;
 	}
 	
-	relation = await self.getRelation( accId, contactId );
+	relation = await self.readRelation( accId, contactId );
 	if ( !relation )
-		relation = await self.setRelation( accId, contactId );
+		relation = await self.createRelation( accId, contactId );
 	
 	if ( !relation )
 		return null;
@@ -1376,13 +1371,13 @@ ns.RoomCtrl.prototype.createContactRoom = async function( relationId ) {
 	return roomConf.clientId;
 }
 
-ns.RoomCtrl.prototype.setRelation = async function( accIdA, accIdB ) {
+ns.RoomCtrl.prototype.createRelation = async function( accIdA, accIdB ) {
 	const self = this;
 	let relation = null;
 	try {
 		relation = await self.roomDb.setRelation( accIdA, accIdB );
 	} catch( e ) {
-		log( 'setRelation - db err setting realtion', {
+		log( 'createRelation - db err setting realtion', {
 			accA : accIdA,
 			accB : accIdB,
 			err  : e.stack || e,
@@ -1391,7 +1386,7 @@ ns.RoomCtrl.prototype.setRelation = async function( accIdA, accIdB ) {
 	}
 	
 	if ( !relation ) {
-		log( 'setRelation - failed to set realtion for', {
+		log( 'createRelation - failed to set realtion for', {
 			a : accIdA,
 			b : accIdB,
 		});
@@ -1403,13 +1398,13 @@ ns.RoomCtrl.prototype.setRelation = async function( accIdA, accIdB ) {
 	return relation;
 }
 
-ns.RoomCtrl.prototype.getRelation = async function( accIdA, accIdB ) {
+ns.RoomCtrl.prototype.readRelation = async function( accIdA, accIdB ) {
 	const self = this;
 	let relation;
 	try {
 		relation = await self.roomDb.getRelation( accIdA, accIdB );
 	} catch( e ) {
-		log( 'getRelation - db.getRelation failed', e.stack || e );
+		log( 'readRelation - db.readRelation failed', e.stack || e );
 		return null;
 	}
 	

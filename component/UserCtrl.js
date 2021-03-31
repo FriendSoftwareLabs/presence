@@ -21,6 +21,7 @@
 
 const log = require( './Log' )( 'UserCtrl' );
 const events = require( './Events' );
+const dFace = require( './DFace' );
 const Account = require( './Account' );
 const Guest = require( './GuestAccount' );
 const FService = require( '../api/FService' );
@@ -192,7 +193,7 @@ ns.UserCtrl.prototype.close = function() {
 
 // Private
 
-ns.UserCtrl.prototype.init = function( dbPool ) {
+ns.UserCtrl.prototype.init = function() {
 	const self = this;
 	log( ':3' );
 	self.service = new FService();
@@ -209,8 +210,8 @@ ns.UserCtrl.prototype.init = function( dbPool ) {
 	
 	self.worgs.on( 'users-added', ( worgId, accIds ) =>
 		self.handleWorgUsersAdded( worgId, accIds ));
-	self.worgs.on( 'regenerate', accIds => 
-		self.handleWorgRegenerate( accIds ));
+	self.worgs.on( 'regenerate', ( regen, add, rem ) => 
+		self.handleWorgRegenerate( regen, add, rem ));
 	
 }
 
@@ -246,7 +247,6 @@ ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 
 ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds ) {
 	const self = this;
-	// these are offline, we dont push those to accounts anymore
 	if ( !addedAccIds || !addedAccIds.length ) {
 		log( 'handleWorgUsersAdded - not really', addedAccIds );
 		return;
@@ -282,9 +282,8 @@ ns.UserCtrl.prototype.handleIdUpdate = function( update ) {
 	const self = this;
 	const accId = update.clientId;
 	if ( 'fIsDisabled' == update.key ) {
-		if ( true === update.value )
-			self.remove( accId );
-		
+		self.handleUserDisableChange( update );
+		return;
 	}
 	
 	if ( 'isOnline' == update.key )
@@ -315,6 +314,45 @@ ns.UserCtrl.prototype.handleIdOnline = function( accId, isOnline ) {
 	});
 }
 
+ns.UserCtrl.prototype.handleUserDisableChange = function( idUpdate ) {
+	const self = this;
+	const accId = idUpdate.clientId;
+	const isDisabled = idUpdate.value;
+	if ( isDisabled )
+		disable( accId, idUpdate );
+	else
+		enable( accId, idUpdate );
+	
+	async function enable( accId, uptd ) {
+		const roomDb = new dFace.RoomDB( self.dbPool );
+		const affected = await roomDb.getRelationListFor( accId );
+		affected.forEach( contactId => {
+			const acc = self.accounts[ contactId ];
+			if ( null == acc )
+				return;
+			
+			acc.addRelation( accId );
+		});
+		
+		roomDb.close();
+	}
+	
+	async function disable( accId, uptd ) {
+		const roomDb = new dFace.RoomDB( self.dbPool );
+		const affected = await roomDb.getRelationListFor( accId );
+		affected.forEach( contactId => {
+			const acc = self.accounts[ contactId ];
+			if ( null == acc )
+				return;
+			
+			acc.removeRelation( accId );
+		});
+		
+		roomDb.close();
+		self.remove( accId );
+	}
+}
+
 ns.UserCtrl.prototype.handleInvalidateANCache = function( time ) {
 	const self = this;
 	self.accIds.forEach( accId => {
@@ -339,9 +377,8 @@ ns.UserCtrl.prototype.handleWorgUserRemoved = function( removedAccId, worgId ) {
 }
 */
 
-ns.UserCtrl.prototype.handleWorgRegenerate = function( affectedAccIds ) {
+ns.UserCtrl.prototype.handleWorgRegenerate = function( affectedAccIds, added, removed ) {
 	const self = this;
-	
 	affectedAccIds.forEach( accId => {
 		const acc = self.accounts[ accId ];
 		if ( !acc || acc.closed )

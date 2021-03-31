@@ -67,7 +67,7 @@ ns.ContactRoom.prototype.connect = async function( userId ) {
 	const self = this;
 	const authed = self.checkIsAuthed( userId );
 	if ( !authed ) {
-		log( 'connect - no authed' );
+		log( 'connect - no authed', userId );
 		return false;
 	}
 	
@@ -176,7 +176,7 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 	const id = self.users.get( userId );
 	if ( id.close ) {
 		//log( 'bindUser - user already bound' );
-		return;
+		return id;
 	}
 	
 	if ( !id ) {

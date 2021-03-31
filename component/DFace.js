@@ -875,6 +875,25 @@ ns.RoomDB.prototype.getRelationsFor = async function( accId, includeDisabled ) {
 	return res;
 }
 
+ns.RoomDB.prototype.getRelationListFor = async function( accId, includeDisabled ) {
+	const self = this;
+	let res = null;
+	try {
+		res = await self.getRelationsFor( accId, includeDisabled );
+	} catch( ex ) {
+		return [];
+	}
+	
+	if ( null == res )
+		return [];
+	
+	const list = res.map( rel => {
+		return rel.contactId;
+	});
+	
+	return list;
+}
+
 ns.RoomDB.prototype.authorize = async function( roomId, accountIds ) {
 	const self = this;
 	const accountIdStr = accountIds.join( '|' );
@@ -1459,7 +1478,6 @@ ns.MessageDB.prototype.getForView = async function(
 		afterTime || null,
 		length,
 	];
-	msgLog( 'getForView', values );
 	let res = null;
 	res = await self.query( 'message_get_for_view', values );
 	if ( !res )

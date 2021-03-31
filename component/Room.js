@@ -775,7 +775,6 @@ ns.Room.prototype.releaseUser = async function( userId ) {
 ns.Room.prototype.onJoin = function( identity ) {
 	const self = this;
 	const cId = identity.clientId;
-	//self.users.setRecent( cId );
 	const joinEvent = {
 		type : 'join',
 		data : {
@@ -789,7 +788,6 @@ ns.Room.prototype.onJoin = function( identity ) {
 			workgroups : self.worgs.getUserWorkgroupList( cId ),
 		},
 	};
-	//log( 'sending join', joinEvent );
 	self.users.broadcast( null, joinEvent, cId );
 }
 

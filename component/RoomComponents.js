@@ -32,15 +32,14 @@ const uLog = require( './Log' )( 'Room > Users' );
 ns.Users = function(
 	dbPool,
 	roomId,
-	isPersistent,
-	workroomId
+	isPersistent
 ) {
 	const self = this;
 	events.Emitter.call( self );
 	
 	self.isPersistent = isPersistent;
 	self.roomId = roomId;
-	self.workId = workroomId;
+	self.workId = null;
 	self.superId = null;
 	
 	self.everyone = {};
@@ -126,7 +125,7 @@ ns.Users.prototype.set = async function( user ) {
 	if ( user.isAdmin )
 		self.setAdmin( cId );
 	
-	self.addAtName( user.name );
+	self.addAtName( cId );
 	
 	return true;
 	
@@ -327,14 +326,14 @@ ns.Users.prototype.getAdmins = function() {
 	return self.admins;
 }
 
-ns.Users.prototype.addAtName = function( name, isIdUpdate ) {
+ns.Users.prototype.addAtName = function( userId, isIdUpdate ) {
 	const self = this;
-	const nIdx = self.atNames.indexOf( name );
-	if ( -1 != nIdx )
+	const name = self.checkAddToAtList( userId );
+	if ( null == name )
 		return;
 	
 	self.atNames.push( name );
-	if ( !isIdUpdate )
+	if ( isIdUpdate )
 		return;
 	
 	const add = {
@@ -342,6 +341,22 @@ ns.Users.prototype.addAtName = function( name, isIdUpdate ) {
 		data : name,
 	};
 	self.broadcast( null, add );
+}
+
+ns.Users.prototype.checkAddToAtList = function( userId ) {
+	const self = this;
+	const user = self.get( userId );
+	if ( null == user ) {
+		uLog( 'checkAddToAtList - no user was found for', userId );
+		return;
+	}
+	
+	const name = user.name;
+	const nIdx = self.atNames.indexOf( name );
+	if ( -1 != nIdx )
+		return;
+	
+	return name;
 }
 
 ns.Users.prototype.removeAtName = function( name ) {
@@ -363,8 +378,11 @@ ns.Users.prototype.doAtNameUpdate = function() {
 	self.atNameRemoveList = [];
 	const names = {};
 	self.everyId.forEach( uId => {
-		const user = self.everyone[ uId ];
-		names[ user.name ] = true;
+		const name = self.checkAddToAtList( uId );
+		if ( null == name )
+			return;
+		
+		names[ name ] = true;
 	});
 	self.atNames = Object.keys( names );
 	const uptd = {
@@ -780,13 +798,6 @@ ns.Users.prototype.startTrimRecentInterval = function() {
 
 ns.Users.prototype.trimRecent = function() {
 	const self = this;
-	/*
-	uLog( 'trimRecent', {
-		recent : self.recent,
-		list   : self.recentIds,
-		max    : self.recentMaxMS,
-	});
-	*/
 	if ( !self.recentIds.length )
 		return;
 	
@@ -820,11 +831,6 @@ ns.Users.prototype._send = function( targetId, event ) {
 	const self = this;
 	const user = self.get( targetId );
 	if ( !user || !user.send ) {
-		uLog( 'could not send to', {
-			r : self.workId,
-			t : targetId,
-			e : event,
-		}, 3 );
 		return;
 	}
 	
@@ -1258,46 +1264,11 @@ ns.Chat.prototype.relay = function( event, targetId, sourceId ) {
 ns.Chat.prototype.broadcast = function( event, sourceId, wrapSource ) {
 	const self = this;
 	self.users.broadcastChat( null, event, sourceId, wrapSource );
-	
-	/*
-	if ( wrapSource )
-		event = {
-			type : sourceId,
-			data : event,
-		};
-	
-	self.onlineList.forEach( sendTo );
-	function sendTo( userId ) {
-		if ( sourceId === userId )
-			return;
-		
-		self.send( event, userId );
-	}
-	*/
 }
 
 ns.Chat.prototype.send = function( event, userId ) {
 	const self = this;
 	self.users.sendChat( userId, event );
-	/*
-	const user = self.users[ userId ];
-	if ( !user ) {
-		cLog( 'send - no user for userId', {
-			uid : userId,
-			users : Object.keys( self.users ),
-		});
-		return;
-	}
-	
-	if ( !user.send ) // no .send() means an offline user
-		return;
-	
-	const chat = {
-		type : 'chat',
-		data : event,
-	};
-	user.send( chat );
-	*/
 }
 
 // LIVE - collection of users in a live session
@@ -1554,7 +1525,6 @@ ns.Live.prototype.isStreamChanged = function( isStream ) {
 
 ns.Live.prototype.isRecordingChanged = function( isRecording ) {
 	const self = this;
-	lLog( 'isRecordingChanged', isRecording );
 	self.isRecording = isRecording;
 	if ( self.proxy )
 		self.proxy.setRecording( self.isRecording );
@@ -2101,22 +2071,15 @@ ns.Live.prototype.updateQualityScale = function() {
 		return;
 	}
 	
-	//lLog( 'lastScaleUpdate', self.lastScaleUpdate );
-	//lLog( 'peers', peers );
 	const change = peers - self.lastScaleUpdate;
-	//lLog( 'change', change );
 	let direction = ( 0 < change ) ? 1 : -1;
-	//lLog( 'direction', direction )
 	const delta = Math.abs ( change );
-	//lLog( 'delta', delta );
 	
 	if ( !self.lastScaleDirection ) {
-		//lLog( 'lastScaleDirection isnt set', self.lastScaleDirection );
 		self.lastScaleDirection = 1;
 	}
 	
 	if ( self.lastScaleDirection !== direction ) {
-		//lLog( 'direction change', direction );
 		self.lastScaleUpdate = peers - direction;
 	}
 	
@@ -2982,13 +2945,6 @@ ns.Log.prototype.loadAfter = async function( conf, worg ) {
 ns.Log.prototype.buildLogEvent = async function( type, events ) {
 	const self = this;
 	let unknownIds = null;
-	/*
-	try {
-		unknownIds = await self.getUnknownIdentities( events );
-	} catch ( e ) {
-		llLog( 'getunown e', e );
-	}
-	*/
 	let log = {
 		type : type,
 		data : {
@@ -2998,48 +2954,6 @@ ns.Log.prototype.buildLogEvent = async function( type, events ) {
 	};
 	return log;
 	
-}
-
-ns.Log.prototype.getUnknownIdentities = async function( events ) {
-	const self = this;
-	if ( !events || !events.length )
-		return null;
-	
-	const unknownIds = {};
-	const start = Date.now();
-	await Promise.all( events.map( check ));
-	const end = Date.now();
-	const total = end - start;
-	/*
-	llLog( 'getUnknwon completed in ( ms ):', {
-		length : events.length,
-		time   : total,
-		start  : start,
-		end    : end,
-	}, 3 );
-	*/
-	return unknownIds;
-	
-	async function check( event ) {
-		const msg = event.data;
-		//llLog( 'msg', msg );
-		let uId = msg.fromId;
-		//llLog( 'checking', uId );
-		if ( !uId )
-			return;
-		
-		if ( unknownIds[ uId ])
-			return;
-		
-		let user = self.users.get( uId );
-		if ( user )
-			return;
-		
-		unknownIds[ uId ] = true;
-		let id = await self.idCache.get( uId );
-		unknownIds[ uId ] = id;
-		return;
-	}
 }
 
 ns.Log.prototype.persist = async function( event ) {
@@ -3729,12 +3643,6 @@ ns.Settings.prototype.init = async function( dbPool, name ) {
 	
 	await self.normalizeSettings( dbSetts );
 	self.set( 'roomName', name );
-	/*
-	if ( !dbSetts )
-		self.set( 'roomName', name );
-	else
-		self.set( 'roomName', dbSetts.roomName );
-	*/
 	
 	self.events = new events.RequestNode( null, onSend, sSink, true );
 	self.events.on( 'get', ( ...args ) => {

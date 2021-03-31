@@ -142,6 +142,16 @@ ns.IDC.prototype.getAlphaNumList = function() {
 	return self.alphaNumList;
 }
 
+ns.IDC.prototype.updateWorkgroups = function( userId, workgroups ) {
+	const self = this;
+	const id = self.getSync( userId );
+	if ( null == id )
+		return;
+	
+	id.workgroups = workgroups;
+	self.sendUpdate( userId, 'workgroups' );
+}
+
 ns.IDC.prototype.getMap = async function( idList ) {
 	const self = this;
 	const ids = {};

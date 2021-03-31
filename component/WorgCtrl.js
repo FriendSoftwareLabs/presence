@@ -197,6 +197,7 @@ ns.WorgCtrl.prototype.addUser = function( accId, worgs ) {
 	//addNewWorgs( worgs );
 	addSupers( worgs.superGroups );
 	registerUser( accId, worgs );
+	self.updateIdentityWorgs( accId );
 	
 	function addNewWorgs( worgs ) {
 		if ( worgs.available )
@@ -285,6 +286,7 @@ ns.WorgCtrl.prototype.removeUser = function( userId ) {
 	delete self.streamers[ userId ];
 	const affectedUIds = {};
 	memberOf.forEach( removeFrom );
+	self.updateIdentityWorgs( userId );
 	const affectedList = Object.keys( affectedUIds );
 	self.sendRegenerate( affectedList );
 	
@@ -531,6 +533,7 @@ ns.WorgCtrl.prototype.handleAddUsers = async function( event ) {
 	if ( !added )
 		return;
 	
+	added.forEach( aId => self.updateIdentityWorgs( aId ));
 	self.sendAddedTo( worgId, added );
 }
 
@@ -559,15 +562,19 @@ ns.WorgCtrl.prototype.handleSetUsers = async function( event ) {
 	const remove = current.filter( notInUpdate );
 	const removed = self.removeUsers( worgId, remove );
 	const added = self.addUsers( worgId, add );
-	if ( removed && removed.length )
+	if ( removed && removed.length ) {
+		removed.forEach( rId => self.updateIdentityWorgs( rId ));
 		self.sendRemovedFrom( worgId, removed );
+	}
 	
-	if ( added && added.length )
+	if ( added && added.length ) {
+		added.forEach( aId => self.updateIdentityWorgs( aId ));
 		self.sendAddedTo( worgId, added );
+	}
 	
 	const online = self.worgOnlines[ worgId ];
-	const affected = [ ...online, ...add ];
-	self.sendRegenerate( affected );
+	const affected = [ ...online, ...removed ];
+	self.sendRegenerate( affected, added, removed );
 	
 	function notInCurrent( uId ) {
 		return !current.some( cId => cId === uId );
@@ -600,10 +607,11 @@ ns.WorgCtrl.prototype.handleRemoveUsers = async function( event ) {
 	if ( !removed || !removed.length )
 		return;
 	
+	removed.forEach( rId => self.updateIdentityWorgs( rId ));
 	self.sendRemovedFrom( worgId, removed );
 	
 	const affected = self.worgOnlines[ worgId ];
-	self.sendRegenerate( affected );
+	self.sendRegenerate( affected, null, removed );
 }
 
 ns.WorgCtrl.prototype.addUsers = function( worgId, userList ) {
@@ -876,6 +884,7 @@ ns.WorgCtrl.prototype.updateUserWorgs = function( accId, worgs ) {
 	const removedFrom = self.cIds.map( removeFrom )
 		.filter( wId => !!wId );
 	
+	self.updateIdentityWorgs( accId );
 	if ( addedTo && addedTo.length )
 		addedTo.forEach( wId => {
 			self.sendAddedTo( wId, [ accId ]);
@@ -918,6 +927,7 @@ ns.WorgCtrl.prototype.updateUserWorgs = function( accId, worgs ) {
 		
 		uList.splice( index, 1 );
 		*/
+		
 		const removed = self.removeFromWorg( wId, accId );
 		if ( removed )
 			return wId;
@@ -937,6 +947,7 @@ ns.WorgCtrl.prototype.updateUserWorgs = function( accId, worgs ) {
 		});
 	}
 }
+
 
 ns.WorgCtrl.prototype.updateStreamWorgs = function( accId, streamWorgNames ) {
 	const self = this;
@@ -1135,14 +1146,20 @@ ns.WorgCtrl.prototype.removeFromWorg = function( worgId, userId ) {
 	return true;
 }
 
-ns.WorgCtrl.prototype.sendRemovedFrom = function( worgId, removedUIds ) {
+ns.WorgCtrl.prototype.updateIdentityWorgs = function( userId ) {
+	const self = this;
+	const worgs = self.getMemberOf( userId );
+	self.idc.updateWorkgroups( userId, worgs );
+}
+
+ns.WorgCtrl.prototype.sendRemovedFrom = async function( worgId, removedUIds ) {
 	const self = this;
 	self.emit( 'users-removed', worgId, removedUIds );
 }
 
-ns.WorgCtrl.prototype.sendRegenerate = function( userList ) {
+ns.WorgCtrl.prototype.sendRegenerate = function( affected, added, removed ) {
 	const self = this;
-	self.emit( 'regenerate', userList );
+	self.emit( 'regenerate', affected, added, removed );
 }
 
 ns.WorgCtrl.prototype.sendUpdate = function( clientId ) {

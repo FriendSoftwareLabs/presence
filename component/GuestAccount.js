@@ -55,7 +55,7 @@ ns.GuestAccount = function(
 		}
 		
 		function accFail( err ) {
-			console.log( 'GuestAccount - accFail', err );
+			log( 'GuestAccount - accFail', err );
 			resolve( null );
 		}
 	});
@@ -95,7 +95,6 @@ ns.GuestAccount.prototype.setLogger = function() {
 	const self = this;
 	const logStr = 'GuestAccount-' + self.identity.name;
 	self.log = require( './Log' )( logStr );
-	self.log( 'logger set OwO' );
 }
 
 ns.GuestAccount.prototype.initializeClient = async function( event, clientId ) {

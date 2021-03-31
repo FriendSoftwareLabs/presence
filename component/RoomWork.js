@@ -128,7 +128,6 @@ ns.WorkRoom.prototype.unsetSuper = function() {
 
 ns.WorkRoom.prototype.connectViewer = async function( userId ) {
 	const self = this;
-	console.log( 'connectViewer', userId );
 	if ( !self.users.checkIsViewer( userId )) {
 		log( 'connectViewer - not a viewer', {
 			viewers : self.users.viewers,
@@ -202,7 +201,7 @@ ns.WorkRoom.prototype.addUser = async function( userId, worgId ) {
 		return userId;
 	
 	announce( user );
-	self.onJoin( userId );
+	self.onJoin( user );
 	
 	return userId;
 	
@@ -307,7 +306,7 @@ ns.WorkRoom.prototype.init = async function( worgCtrl ) {
 	const self = this;
 	self.service = new FService();
 	self.roomDb = new dFace.RoomDB( self.dbPool, self.id );
-	self.users = new components.Users(
+	self.users = new ns.WorkUsers(
 		self.dbPool,
 		self.id,
 		self.persistent,
@@ -783,7 +782,6 @@ ns.WorkRoom.prototype.bindViewer = async function( userId ) {
 
 ns.WorkRoom.prototype.getRoomRelation = async function( userId, isViewer ) {
 	const self = this;
-	log( 'getRoomRelation', [ userId, isViewer ]);
 	const unread = await self.log.getUnreadForUser( userId, isViewer );
 	let lastMessages =  null;
 	if ( isViewer )
@@ -815,6 +813,7 @@ ns.WorkRoom.prototype.initialize = async function( requestId, userId ) {
 		admins      : self.users.getAdmins(),
 		online      : self.users.getOnline(),
 		recent      : self.users.getRecent(),
+		atNames     : self.users.getAtNames(),
 		peers       : self.live.getPeers(),
 		workgroups  : workgroups,
 		relation    : relation,
@@ -846,21 +845,14 @@ ns.WorkRoom.prototype.initialize = async function( requestId, userId ) {
 	function buildWorkgroupConf() {
 		const workgroups = self.worgs.get();
 		const superId = self.supergroupId;
-		workgroups.superId = superId;
 		workgroups.workId = self.workgroupId;
 		workgroups.subIds = self.subIds;
+		workgroups.superId = superId;
 		workgroups.members = {};
 		workgroups.rooms = {};
-		workgroups.users = [];
 		if ( superId ) {
 			const members = self.super.getMemberList();
-			if ( global.config.server.workroom.subsHaveSuperView ) {
-				workgroups.members[ superId ] = [];
-				workgroups.users = members;
-			}
-			else
-				workgroups.members[ superId ] = members;
-			
+			workgroups.members[ superId ] = members;
 			workgroups.rooms[ superId ] = self.super.getRoomId();
 		}
 		
@@ -878,10 +870,9 @@ ns.WorkRoom.prototype.initialize = async function( requestId, userId ) {
 
 ns.WorkRoom.prototype.initializeViewer = async function( requestId, userId ) {
 	const self = this;
-	log( 'initializeViewer', userId );
 	const workgroups = buildWorkgroupConf();
 	const relation = await self.getRoomRelation( userId, true );
-	const online = self.users.getOnline();
+	const online = []; //self.users.getOnline();
 	const state = {
 		id          : self.id,
 		name        : self.name,
@@ -889,7 +880,7 @@ ns.WorkRoom.prototype.initializeViewer = async function( requestId, userId ) {
 		persistent  : true,
 		settings    : self.settings.get(),
 		guestAvatar : self.guestAvatar,
-		users       : self.users.getList(),
+		users       : [], //self.users.getList(),
 		online      : [ ...online, userId ],
 		peers       : [],
 		workgroups  : workgroups,
@@ -927,7 +918,7 @@ ns.WorkRoom.prototype.initializeViewer = async function( requestId, userId ) {
 		const uWorgs = self.users.getWorgsFor( userId );
 		workgroups.superId = null;
 		workgroups.workId = self.workgroupId;
-		workgroups.subIds = uWorgs;
+		workgroups.subIds = [];
 		workgroups.members = {};
 		workgroups.rooms = {};
 		uWorgs.forEach( uwId => {
@@ -935,6 +926,7 @@ ns.WorkRoom.prototype.initializeViewer = async function( requestId, userId ) {
 			if ( !sub )
 				return;
 			
+			workgroups.subIds.push( uwId );
 			workgroups.members[ uwId ] = [ userId ];
 			workgroups.rooms[ uwId ] = sub.getRoomId();
 		});
@@ -947,7 +939,7 @@ ns.WorkRoom.prototype.checkIsAuthed = function( userId ) {
 	return false;
 }
 
-ns.WorkRoom.prototype.onJoin = function( userId ) {
+ns.WorkRoom.prototype.onJoin = function( user ) {
 	const self = this;
 	if ( self.onJoinTimeout )
 		clearTimeout( self.onJoinTimeout );
@@ -973,6 +965,63 @@ ns.WorkRoom.prototype.onLeave = function( userId ) {
 		self.sendSuper( 'members', memberList );
 		self.sendSub( null, 'members', memberList );
 	}
+}
+
+
+const uLog = require( './Log')( 'WorkRoom > Users' );
+ns.WorkUsers = function(
+	dbPool,
+	roomId,
+	isPersistent,
+	workroomId
+) {
+	const self = this;
+	components.Users.call( self,
+		dbPool,
+		roomId,
+		isPersistent
+	);
+	
+	self.workId = workroomId;
+}
+
+util.inherits( ns.WorkUsers, components.Users );
+
+ns.WorkUsers.prototype.addAtName = function( userId, isIdUpdate ) {
+	const self = this;
+	const name = self.checkAddToAtList( userId );
+	if ( null == name )
+		return;
+	
+	self.atNames.push( name );
+	if ( isIdUpdate )
+		return;
+	
+	const add = {
+		type : 'at-add',
+		data : name,
+	};
+	self.broadcast( null, add );
+}
+
+ns.WorkUsers.prototype.checkAddToAtList = function( userId ) {
+	const self = this;
+	const user = self.get( userId );
+	if ( null == user ) {
+		uLog( 'checkAddToAtList - no user for', userId );
+		return;
+	}
+	
+	const isUser = self.checkIsMemberOf( userId, self.workId );
+	if ( !isUser )
+		return;
+	
+	const name = user.name;
+	const nIdx = self.atNames.indexOf( name );
+	if ( -1 != nIdx )
+		return;
+	
+	return name;
 }
 
 /*
@@ -1769,7 +1818,6 @@ ns.WorkLog.prototype.getLastForView = function( userId, num ) {
 
 ns.WorkLog.prototype.getForView = async function( conf, userId ) {
 	const self = this;
-	llLog( 'getForView', [ conf, userId ], 3 );
 	if ( !conf )
 		conf = {
 			firstTime : Date.now(),
@@ -1822,10 +1870,6 @@ ns.WorkLog.prototype.load = function( conf ) {
 ns.WorkLog.prototype.loadBeforeView = async function( conf, userId ) {
 	const self = this;
 	let items = null;
-	llLog( 'loadBeforeView, inputs', [
-		self.workgroupId,
-		userId,
-	]);
 	items = await self.msgDb.getForView(
 		self.workgroupId,
 		userId,
@@ -1834,7 +1878,6 @@ ns.WorkLog.prototype.loadBeforeView = async function( conf, userId ) {
 		conf.length
 	);
 	
-	llLog( 'loadBeforeView', items, 3 );
 	return await self.buildLogEvent( 'before', items );
 }
 
@@ -1850,67 +1893,6 @@ ns.WorkLog.prototype.loadAfterView = async function( conf, userId ) {
 	);
 	
 	return await self.buildLogEvent( 'after', items );
-}
-
-ns.WorkLog.prototype.getUnknownIdentities = async function( events ) {
-	const self = this;
-	if ( !events || !events.length )
-		return null;
-	
-	const unknownIds = {};
-	const start = Date.now();
-	await Promise.all( events.map( check ));
-	const end = Date.now();
-	const total = end - start;
-	/*
-	llLog( 'getUnknwon completed in ( ms ):', {
-		length : events.length,
-		time   : total,
-		start  : start,
-		end    : end,
-		unown  : Object.keys( unknownIds ),
-	}, 3 );
-	*/
-	return unknownIds;
-	
-	async function check( event ) {
-		const msg = event.data;
-		let uId = msg.fromId;
-		let targets = msg.targets;
-		if ( uId )
-			await checkUser( uId );
-		
-		if ( targets )
-			await checkTargets( targets );
-		
-		return true;
-	}
-	
-	async function checkTargets( targets ) {
-		const tIds = Object.keys( targets );
-		await Promise.all( tIds.map( checkTarget ));
-		async function checkTarget( tId ) {
-			const target = targets[ tId ];
-			if ( !target || ( target === true ))
-				return;
-			
-			await Promise.all( target.map( checkUser ));
-		}
-	}
-	
-	async function checkUser( uId ) {
-		if ( unknownIds[ uId ])
-			return;
-		
-		let user = self.users.get( uId );
-		if ( user )
-			return;
-		
-		unknownIds[ uId ] = true;
-		let id = await self.idCache.get( uId );
-		unknownIds[ uId ] = id;
-		return;
-	}
 }
 
 //
