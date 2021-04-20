@@ -329,6 +329,11 @@ ns.RoomCtrl.prototype.rejectInvite = async function( accountId, response ) {
 		return true;
 	
 	const room = await self.getRoom( invite.roomId );
+	if ( null == room ) {
+		log( 'rejectInvite - no room found for', response );
+		return;
+	}
+	
 	await room.authenticateInvite( invite.token, accountId );
 	return true;
 }
@@ -1270,14 +1275,15 @@ ns.RoomCtrl.prototype.getRoom = async function( rid ) {
 	}
 }
 
-ns.RoomCtrl.prototype.removeRoom = function( rid ) {
+ns.RoomCtrl.prototype.removeRoom = function( rId ) {
 	const self = this;
-	const room = self.rooms[ rid ];
+	log( 'removeRoom', rId );
+	const room = self.rooms[ rId ];
 	if ( !room )
 		return;
 	
 	room.close();
-	delete self.rooms[ rid ];
+	delete self.rooms[ rId ];
 	self.roomIds = Object.keys( self.rooms );
 }
 
