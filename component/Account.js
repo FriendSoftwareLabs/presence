@@ -179,7 +179,7 @@ ns.Account.prototype.removeContact = function( contactId ) {
 	delete self.contacts[ contactId ];
 	self.contactIds = Object.keys( self.contacts );
 	if ( !self.isLoaded )
-		return accId;
+		return contactId;
 	
 	const cRemove = {
 		type : 'contact-remove',
