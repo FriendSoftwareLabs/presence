@@ -199,6 +199,13 @@ ns.UserCtrl.prototype.init = function() {
 	self.service = new FService();
 	self.serviceConn = new events.EventNode( 'user', self.service, serviceSink );
 	self.serviceConn.on( 'update', e => self.handleFUserUpdate( e ));
+	self.serviceConn.on( 'relation-add', e => { 
+		try {
+			return self.createUserRelation( e );
+		} catch( ex ) {
+			log( 'createUserRelation ex', ex );
+		}
+	});
 	
 	function serviceSink( ...args ) {
 		log( 'serviceSink - user', args, 3 );
@@ -243,6 +250,85 @@ ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 		self.update( fUser );
 	}
 	*/
+}
+
+ns.UserCtrl.prototype.createUserRelation = async function( req ) {
+	const self = this;
+	if ( null == req.sourceId ) {
+		log( 'createUserRelation - no sourceId', req );
+		return [];
+	}
+	
+	const sId = req.sourceId;
+	const contacts = req.contactIds;
+	log( 'contacts', contacts );
+	if (( null == contacts ) || !contacts.length ) {
+		log( 'createUserRelation - no contactIds', req );
+		return [];
+	}
+	
+	const roomDb = new dFace.RoomDB( self.dbPool );
+	const waiters = contacts.map( cId => addPair( sId, cId ));
+	let related = await Promise.all( waiters );
+	related = related.filter( cId => !!cId );
+	roomDb.close();
+	
+	addContacts( sId, related );
+	
+	return related;
+	
+	async function addPair( fUId, fCId ) {
+		const user = await self.idc.getByFUserId( fUId );
+		const contact = await self.idc.getByFUserId( fCId );
+		if ( !user || !contact )
+			return null;
+		
+		const uId = user.clientId;
+		const cId = contact.clientId;
+		let relation = null;
+		try {
+			relation = await roomDb.getRelation( uId, cId );
+		} catch( ex ) {
+			log( 'createUserRelation, addPair - readRelation failed', ex );
+		}
+		
+		if ( null != relation )
+			return fCId;
+		
+		try {
+			relation = await roomDb.setRelation( uId, cId );
+		} catch( ex ) {
+			log( 'createUserRelation, addPair - setRelation failed', ex );
+			return null;
+		}
+		
+		if ( null == relation )
+			return null;
+		
+		return fCId;
+	}
+	
+	async function addContacts( fAccId, fresh ) {
+		if ( !fresh.length )
+			return;
+		
+		const user = await self.idc.getByFUserId( fAccId );
+		const accId = user.clientId;
+		const acc = self.accounts[ accId ];
+		
+		const waiters = fresh.map( fCId => self.idc.getByFUserId( fCId ));
+		const ids = await Promise.all( waiters );
+		const cIds = ids.map( id => id.clientId );
+		
+		cIds.forEach( cId => {
+			if ( null != acc )
+				acc.addRelation( cId );
+			
+			const contact = self.accounts[ cId ];
+			if ( null != contact )
+				contact.addRelation( accId );
+		});
+	}
 }
 
 ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds ) {

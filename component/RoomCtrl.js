@@ -1061,6 +1061,8 @@ ns.RoomCtrl.prototype.addUsersToWorkRooms = async function( worgId, userList ) {
 	const roomId = wRoom.id;
 	sendJoin( userList, worgId, roomId );
 	
+	return;
+	
 	if ( global.config.server.workroom.subsHaveSuperView )
 		await addToSuperView( worgId, userList );
 	

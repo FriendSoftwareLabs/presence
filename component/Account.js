@@ -211,6 +211,7 @@ ns.Account.prototype.updateContactStatus = function( type, contactId, data ) {
 
 ns.Account.prototype.addRelation = async function( conId ) {
 	const self = this;
+	self.log( 'addRelation', conId );
 	let rel = self.relations[ conId ];
 	if ( null != rel )
 		return;
