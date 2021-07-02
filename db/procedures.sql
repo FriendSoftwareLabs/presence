@@ -10,6 +10,10 @@ DELIMITER //
 #
 DROP PROCEDURE IF EXISTS set_last_patch_version;
 
+# STATISTICS
+DROP PROCEDURE IF EXISTS stats_user_relation_date;
+DROP PROCEDURE IF EXISTS stats_user_chats_date;
+
 # ACCOUNT
 DROP PROCEDURE IF EXISTS account_create;
 DROP PROCEDURE IF EXISTS account_set_fuserid;
@@ -145,6 +149,42 @@ BEGIN
 		`version`,
 		`comment`
 	);
+END//
+
+#
+# STATS
+#
+
+# return # of user-to-user connections for this user this day
+
+CREATE PROCEDURE stats_user_relation_date(
+	IN `fUserId` VARCHAR( 191 ),
+	IN `date`    DATE
+)
+BEGIN
+SELECT count(*) FROM user_relation AS ur
+LEFT JOIN account AS a
+ON a.clientId=ur.userId
+WHERE a.fUserId=`fUserId`
+AND DATE(ur.created)=DATE(`date`);
+END//
+
+# return # of people this user has sent a message to this day
+
+CREATE PROCEDURE stats_user_chats_date(
+	IN `fUserId` VARCHAR( 191 ),
+	IN `date`    DATE
+)
+BEGIN
+SELECT count(*) FROM user_relation AS ur
+LEFT JOIN account AS a
+ON a.clientId=ur.userId
+WHERE a.fUserId=`fUserId`
+AND ur.roomId IN (
+	SELECT m.roomId FROM message AS m
+	WHERE m.fromId=a.clientId
+	AND DATE( FROM_UNIXTIME( m.timestamp / 1000 ))=DATE( `date` )
+);
 END//
 
 #
