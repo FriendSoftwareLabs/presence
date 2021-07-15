@@ -346,8 +346,10 @@ ns.Account.prototype.bindConn = function() {
 	function handleContact( e, cId ) { self.handleContactEvent( e, cId ); }
 	
 	// requests
-	self.conn.on( 'friend-get', e => self.handleFriendGet( e ));
-	self.conn.on( 'relation-add', e => self.handleAddRelation( e ));
+	self.conn.on( 'friend-get'           , e => self.handleFriendGet( e ));
+	self.conn.on( 'relation-add'         , e => self.handleAddRelation( e ));
+	self.conn.on( 'search-user'          , e => self.handleSearchUser( e ));
+	self.conn.on( 'account-settings-set' , e => self.handleAccSettingSet( e ));
 	
 	//function fGet( e ) { return self.handleFriendGet( e ); }
 	
@@ -1217,25 +1219,54 @@ ns.Account.prototype.handleOpenContactChat = async function( contactId, clientId
 	await self.connectToContact( contactId );
 }
 
-ns.Account.prototype.someContactFnNotInUse = async function( event, clientId ) {
-	const self = this;
-	const contactId = event.clientId;
-	const room = self.rooms.get( contactId );
-	if ( room )
-		return room;
-	
-	const contact = await self.roomCtrl.connectContact( self.id, contactId );
-	if ( !contact )
-		return;
-	
-	await self.joinedARoomHooray( contact );
-	return contact;
-}
-
 ns.Account.prototype.handleFriendGet = async function( event ) {
 	const self = this;
 	let id = await self.idCache.getByFUserId( event.friendId );
 	return id || null;
+}
+
+ns.Account.prototype.handleSearchUser = async function( req ) {
+	const self = this;
+	self.log( 'handleSearchUser', req );
+	let cIds = await self.idCache.search( req.needle );
+	
+	let flatContacts = null;
+	const waiters = cIds.map( allowInSearch );
+	cIds = await Promise.all( waiters );
+	self.log( 'cids before filter', cIds );
+	cIds = cIds.filter( cId => !!cId );
+	
+	const waits = cIds.map( cId => self.idCache.get( cId ));
+	const items = await Promise.all( waits );
+	
+	return items;
+	
+	async function allowInSearch( cId ) {
+		const settings = await self.idCache.getSettingsFor( cId );
+		if ( null == settings.hideInSearch )
+			return cId;
+		
+		if ( false == settings.hideInSearch )
+			return cId;
+		
+		self.log( 'check this one more', cId );
+		if ( null == flatContacts ) {
+			self.log( 'get flat ones' );
+			flatContacts = self.worgCtrl.getFlatContacts( self.id );
+		}
+		
+		if ( flatContacts[ cId ])
+			return cId;
+		
+		return null;
+	}
+}
+
+ns.Account.prototype.handleAccSettingSet = async function( e ) {
+	const self = this;
+	self.log( 'handleAccSettingsSet', e );
+	const res = self.idCache.setSetting( self.id, e.key, e.value );
+	return res;
 }
 
 ns.Account.prototype.handleAddRelation = async function( event ) {

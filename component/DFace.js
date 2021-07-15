@@ -33,6 +33,7 @@ const accLog = require( './Log' )( 'DB-Account' );
 const roomLog = require( './Log' )( 'DB-Room' );
 const msgLog = require( './Log' )( 'DB-Message' );
 const invLog = require( './Log' )( 'DB-Invite' );
+const iSLog = require( './Log' )( 'ISettings' );
 const uuid = require( './UuidPrefix' )();
 
 var ns = {};
@@ -53,8 +54,10 @@ ns.DB = function( pool ) {
 
 ns.DB.prototype.close = function() {
 	const self = this;
-	if ( !self.pool )
-		return;
+	if ( self.settings ) {
+		self.settings.close();
+		delete self.settings;
+	}
 	
 	delete self.pool;
 }
@@ -325,6 +328,33 @@ ns.AccountDB.prototype.getAlphaNumList = async function() {
 	return list;
 }
 
+ns.AccountDB.prototype.search = async function( needle ) {
+	const self = this;
+	if ( null == needle || !needle.trim ) {
+		accLog( 'search - invalid needle', needle );
+		return [];
+	}
+	
+	const searchStr = needle.trim();
+	if ( '' == searchStr ) {
+		accLog( 'search - empty search string after trim', needle );
+		return [];
+	}
+	
+	const values = [ needle ];
+	let rows = null;
+	try {
+		rows = await self.query( 'account_search', values );
+	} catch( qex ) {
+		accLog( 'search, query ex', qex );
+		return [];
+	}
+	
+	accLog( 'search rows', rows );
+	return rows.map( r => r.clientId );
+	
+}
+
 ns.AccountDB.prototype.remove = function( clientId ) {
 	const self = this;
 	const values = [ clientId ];
@@ -411,18 +441,9 @@ ns.AccountDB.prototype.updateFLastUpdate = async function( clientId, updateTime 
 	return true;
 }
 
-ns.AccountDB.prototype.setSetting = function( clientId, key, value ) {
+ns.AccountDB.prototype.setSetting = async function( clientId, key, value ) {
 	const self = this;
-	return new Promise( setting );
-	function setting( resolve, reject ) {
-		resolve( value );
-	}
-	// load settings
-	
-	// update with key/value
-	
-	// store settings
-	//self.query( 'account_set_settings', values );
+	return await self.settings.setSetting( clientId, key, value );
 }
 
 ns.AccountDB.prototype.getSettings = function( clientId ) {
@@ -442,6 +463,7 @@ ns.AccountDB.prototype.setActive = function( clientId, isActive ) {
 // Private
 ns.AccountDB.prototype.init = function() {
 	const self = this;
+	self.settings = new ns.ISettings( self, 'account' );
 	
 }
 
@@ -983,66 +1005,22 @@ ns.RoomDB.prototype.getForWorkgroup = async function( worgId ) {
 ns.RoomDB.prototype.getSettings = async function( roomId ) {
 	const self = this;
 	roomId = roomId || self.id;
-	if ( !roomId ) {
-		reject( 'ERR_NO_ROOMID' );
-		return;
-	}
-	
-	let values = [ roomId ];
-	let res = null;
-	try {
-		res = await self.query( 'room_settings_get', values );
-	} catch( ex ) {
-		roomLog( 'getSettings - query ex', ex );
-		throw new Error( 'ERR_QUERY' );
-	}
-
-	if ( !res )
-		throw new Error( 'ERR_NO_ROWS' );
-		
-	let obj = res[ 0 ];
-	if ( !obj || !obj.settings ) {
-		roomLog( 'RoomDB.getSettings - no settings', res );
-		throw new Error( 'ERR_NO_SETTINGS' );
-	}
-	
-	if ( 'string' !== typeof( obj.settings ))
-		return obj.settings;
-	
-	let settings = null
-	try {
-		settings = JSON.parse( obj.settings );
-	} catch( e ) {
-		roomLog( 'getSettings - probably already obj', obj.settings );
-		throw new Error( 'ERR_INVALID_JSON' );
-	}
-	
+	const settings = await self.settings.getSettings( roomId );
+	roomLog( 'getSettings back', settings );
 	return settings;
 }
 
-ns.RoomDB.prototype.setSetting = function( key, value, roomId ) {
+ns.RoomDB.prototype.setSetting = async function( key, value, roomId ) {
 	const self = this;
-	let obj = {};
-	obj[ key ] = value;
-	let jsonStr = JSON.stringify( obj );
 	roomId = roomId || self.id;
-	const values = [
-		roomId,
-		key,
-		jsonStr,
-	];
+	return await self.settings.setSetting( roomId, key, value );
 	
-	return self.query( 'room_settings_set_key_value', values );
 }
 
-ns.RoomDB.prototype.removeSetting = function( key, roomId ) {
+ns.RoomDB.prototype.removeSetting = async function( key, roomId ) {
 	const self = this;
 	roomId = roomId || self.id;
-	const values = [
-		roomId,
-		key,
-	];
-	return self.query( 'room_settings_remove_key', values );
+	return await self.settings.removeSetting( roomId, key );
 }
 
 
@@ -1050,6 +1028,7 @@ ns.RoomDB.prototype.removeSetting = function( key, roomId ) {
 
 ns.RoomDB.prototype.init = function() {
 	const self = this;
+	self.settings = new ns.ISettings( self, 'room' );
 	
 }
 
@@ -1927,6 +1906,103 @@ ns.InviteDB.prototype.invalidate = function( token, invalidatedBy ) {
 ns.InviteDB.prototype.init = function() {
 	const self = this;
 }
+
+
+// Interface Settings
+
+ns.ISettings = function( db, table ) {
+	const self = this;
+	//iSLog( 'yep', [ db, table ]);
+	self.db = db;
+	self.table = table;
+	
+	self.init();
+}
+
+// Public
+
+ns.ISettings.prototype.close = function() {
+	const self = this;
+	delete self.db;
+	delete self.prefix;
+}
+
+ns.ISettings.prototype.getSettings = async function( clientId ) {
+	const self = this;
+	const values = [ clientId ];
+	iSLog( 'getSettings', values );
+	let res = null;
+	const fun = self.table + '_settings_get';
+	try {
+		res = await self.db.query( fun, values );
+	} catch( ex ) {
+		iSLog( 'getSettings - query ex', ex );
+		return null;
+	}
+	
+	if ( null == res )
+		return null;
+	
+	let obj = res[ 0 ];
+	iSLog( 'obj', res, 3 );
+	if ( !obj || !obj.settings ) {
+		iSLog( 'getSettings - no settings', res );
+		return null;
+	}
+	
+	if ( 'string' !== typeof( obj.settings ))
+		return obj.settings;
+	
+	let settings = null
+	try {
+		settings = JSON.parse( obj.settings );
+	} catch( e ) {
+		iSLog( 'getSettings - invalid JSON', obj.settings );
+		throw new Error( 'ERR_INVALID_JSON' );
+	}
+	
+	return settings;
+}
+
+ns.ISettings.prototype.getSetting = function( clientId, key ) {
+	const self = this;
+	iSLog( 'getSetting NYI', [ key, clientId ]);
+	throw new Error( 'ERR_NYI' );
+}
+
+ns.ISettings.prototype.setSetting = function( clientId, key, value ) {
+	const self = this;
+	iSLog( 'setSetting', [ clientId, key, value ]);
+	let obj = {};
+	obj[ key ] = value;
+	let jsonStr = JSON.stringify( obj );
+	const values = [
+		clientId,
+		key,
+		jsonStr,
+	];
+	
+	const fun = self.table + '_settings_set_key_value';
+	return self.db.query( fun, values );
+}
+
+ns.ISettings.prototype.removeSetting = function( clientId, key ) {
+	const self = this;
+	const values = [
+		clientId,
+		key,
+	];
+	
+	const fun = self.table + '_settings_remove_key';
+	return self.db.query( fun, values );
+}
+
+// Private
+
+ns.ISettings.prototype.init = function() {
+	const self = this;
+}
+
 
 
 module.exports = ns;
