@@ -432,7 +432,6 @@ ns.IDC.prototype.loadFID = async function( fId ) {
 
 ns.IDC.prototype.setDBID = async function( dbId ) {
 	const self = this;
-	log( 'setDBID', dbId, 3 );
 	let cId = dbId.clientId;
 	let identity = {
 		clientId    : cId,
