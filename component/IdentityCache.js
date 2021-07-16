@@ -37,6 +37,7 @@ ns.IDC = function( dbPool ) {
 	
 	self.IDs = {};
 	self.FIDs = {};
+	self.settings = {};
 	self.lastAccess = {};
 	self.TIMEOUT = 1000 * 60 * 60 * 36;
 	self.accDB = null;
@@ -200,6 +201,12 @@ ns.IDC.prototype.getByFUsername = async function( fUsername ) {
 	return id || null;
 }
 
+ns.IDC.prototype.search = async function( needle ) {
+	const self = this;
+	let cIds = await self.accDB.search( needle );
+	return cIds;
+}
+
 ns.IDC.prototype.update = async function( identity ) {
 	const self = this;
 	let cId = identity.clientId;
@@ -301,6 +308,31 @@ ns.IDC.prototype.checkOnline = function( clientId ) {
 		return false;
 	
 	return id.isOnline;
+}
+
+ns.IDC.prototype.getSettingsFor = async function( clientId ) {
+	const self = this;
+	let settings = self.settings[ clientId ];
+	if (  null != settings )
+		return settings;
+	
+	const exists = await self.load( clientId );
+	if ( !exists )
+		return null;
+	
+	settings = self.settings[ clientId ];
+	return settings;
+}
+
+ns.IDC.prototype.setSetting = async function( clientId, key, value ) {
+	const self = this;
+	const res = await self.accDB.setSetting( clientId, key, value );
+	if ( !res )
+		return false;
+	
+	const settings = self.settings[ clientId ];
+	settings[ key ] = value;
+	return true;
 }
 
 ns.IDC.prototype.addGuest = function( id ) {
@@ -406,14 +438,14 @@ ns.IDC.prototype.setDBID = async function( dbId ) {
 		isOnline    : false,
 	};
 	
-	self.add( identity );
+	self.add( identity, dbId.settings );
 	if ( !identity.avatar )
 		await self.setPixelAvatar( cId );
 	
 	return identity;
 }
 
-ns.IDC.prototype.add = function( id ) {
+ns.IDC.prototype.add = function( id, settings ) {
 	const self = this;
 	const cId = id.clientId;
 	const fId = id.fUserId;
@@ -421,13 +453,16 @@ ns.IDC.prototype.add = function( id ) {
 		self.FIDs[ fId ] = id;
 	
 	self.IDs[ cId ] = id;
+	self.settings[ cId ] = settings;
 	const stamp = self.touch( cId );
-	id.lastUpdate = stamp;
+	
 }
 
 ns.IDC.prototype.touch = function( userId ) {
 	const self = this;
 	const stamp = Date.now();
+	const id = self.IDs[ userId ];
+	id.lastUpdate = stamp;
 	self.lastAccess[ userId ] = stamp;
 	return stamp;
 }

@@ -247,20 +247,20 @@ ns.WorgCtrl.prototype.getMemberOfAsFID = function( accId ) {
 
 ns.WorgCtrl.prototype.getContactList = function( accId, isOnline ) {
 	const self = this;
-	const flatted = self.getFlatMap( accId, isOnline );
+	const flatted = self.getFlatContacts( accId, isOnline );
 	const list = Object.keys( flatted );
 	return list;
 }
 
 ns.WorgCtrl.prototype.getContactListSorted = function( accId, isOnline ) {
 	const self = this;
-	const flatted = self.getFlatMap( accId, isOnline );
+	const flatted = self.getFlatContacts( accId, isOnline );
 	const ANList = self.idc.getAlphaNumList();
 	const sorted = ANList.filter( cId => !!flatted[ cId ]);
 	return sorted;
 }
 
-ns.WorgCtrl.prototype.getFlatMap = function( accId, isOnline ) {
+ns.WorgCtrl.prototype.getFlatContacts = function( accId, isOnline ) {
 	const self = this;
 	const memberOf = self.getMemberOf( accId );
 	const allLists = memberOf.map( wId => self.getUserList( wId, isOnline ));
