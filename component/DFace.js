@@ -350,7 +350,6 @@ ns.AccountDB.prototype.search = async function( needle ) {
 		return [];
 	}
 	
-	accLog( 'search rows', rows );
 	return rows.map( r => r.clientId );
 	
 }
