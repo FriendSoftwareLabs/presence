@@ -296,17 +296,6 @@ ns.AccountDB.prototype.getById = async function( accountId ) {
 	}
 	
 	if ( !res || !res[ 0 ]) {
-		/*
-		accLog( 'getById - no id for', {
-			accId : accountId,
-			res   : res,
-		}, 3 );
-		try {
-			throw new Error( 'trace' );
-		} catch ( ex ) {
-			accLog( 'trace', ex );
-		}
-		*/
 		return null;
 	}
 	
@@ -447,7 +436,7 @@ ns.AccountDB.prototype.setSetting = async function( clientId, key, value ) {
 
 ns.AccountDB.prototype.getSettings = function( clientId ) {
 	const self = this;
-	accLog( 'getSettings - NYI', clientId );
+	//accLog( 'getSettings - NYI', clientId );
 }
 
 ns.AccountDB.prototype.setActive = function( clientId, isActive ) {
@@ -555,7 +544,6 @@ ns.RoomDB.prototype.getInfo = async function( clientId ) {
 	if ( !res )
 		return null;
 	
-	//roomLog( 'getInfo - res', res, 2 );
 	const info = {
 		room        : res[ 0 ][ 0 ],
 		authorized  : res[ 1 ],

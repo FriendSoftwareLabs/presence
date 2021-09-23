@@ -193,7 +193,6 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 		return null;
 	}
 	
-	// removing basic user obj
 	const otherAcc = self.users.getOther( userId );
 	const otherId = otherAcc.clientId;
 	const otherName = otherAcc.name;
@@ -230,9 +229,9 @@ ns.ContactRoom.prototype.bindUser = function( userId ) {
 	function persist( e ) { self.handlePersist( e, uid ); }
 	function goOffline( e ) { self.disconnect( uid ); }
 	function leaveRoom( e ) { self.handleLeave( uid ); }
-	function joinLive( e ) { self.handleJoinLive( e, uid ); }
-	function restoreLive( e ) { self.handleRestoreLive( e, uid ); }
-	function leaveLive( e ) { self.handleLeaveLive( e, uid ); }
+	function joinLive( e ) { self.handleJoinLive( uid, e ); }
+	function restoreLive( e ) { self.handleRestoreLive( uid, e ); }
+	function leaveLive( e ) { self.handleLeaveLive( uid, e ); }
 	function active( e ) { self.handleActive( e, uid ); }
 	function open( e ) { self.handleOpen( uid ); }
 	

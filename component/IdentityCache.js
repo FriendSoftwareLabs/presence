@@ -257,8 +257,8 @@ ns.IDC.prototype.update = async function( identity ) {
 	return cache;
 	
 	async function load( id ) {
-		const fId = identity.fUserId;
-		const fName = identity.fUsername;
+		const fId = id.fUserId;
+		const fName = id.fUsername;
 		let cache = null;
 		if ( fId )
 			cache = await self.getByFUserId( fId );
@@ -381,10 +381,8 @@ ns.IDC.prototype.trimIds = function() {
 ns.IDC.prototype.getSync = function( cId ) {
 	const self = this;
 	let identity = self.IDs[ cId ];
-	if ( !identity ) {
-		log( 'getSync - no id', cId );
+	if ( !identity )
 		return null;
-	}
 	
 	self.touch( cId );
 	return identity;
@@ -597,6 +595,16 @@ ns.IDC.prototype.checkDisabled = async function( id, c ) {
 ns.IDC.prototype.sendUpdate = function( userId, type ) {
 	const self = this;
 	const id = self.getSync( userId );
+	if ( null == id ) {
+		log( 'sendUpdate - id not in cache', {
+			userId : userId,
+			type   : type,
+			cache  : Object.keys( self.IDs ),
+		});
+		
+		return;
+	}
+	
 	id.lastUpdate = Date.now();
 	const update = {
 		key        : type,

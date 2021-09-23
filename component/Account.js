@@ -211,12 +211,14 @@ ns.Account.prototype.updateContactStatus = function( type, contactId, data ) {
 
 ns.Account.prototype.addRelation = async function( conId ) {
 	const self = this;
-	self.log( 'addRelation', conId );
 	let rel = self.relations[ conId ];
 	if ( null != rel )
 		return;
 	
 	rel = await self.roomCtrl.getRelation( self.id, conId );
+	if ( null == rel )
+		throw 'ERR_COULD_NOT_RELATE';
+	
 	self.registerRelation( rel );
 	
 	return conId;
@@ -292,7 +294,7 @@ ns.Account.prototype.bindRoomCtrl = function() {
 	self.roomCtrl.on( self.id, roomCtrlEvent );
 	self.roomCtrlEvents = {
 		'workroom-join'  : workRoomJoin,
-		'workroom-view'  : workRoomView,
+		//'workroom-view'  : workRoomView,
 		'workgroup-join' : workgroupJoin,
 		'contact-active' : contactActive,
 		'contact-event'  : contactRoomEvent,
@@ -302,7 +304,7 @@ ns.Account.prototype.bindRoomCtrl = function() {
 	
 	function roomCtrlEvent(    e, rid ) { self.handleRoomCtrlEvent(    e, rid ); }
 	function workRoomJoin(     e, rid ) { self.handleWorkRoomJoin(     e, rid ); }
-	function workRoomView(     e, rid ) { self.handleWorkRoomView(     e, rid ); }
+	//function workRoomView(     e, rid ) { self.handleWorkRoomView(     e, rid ); }
 	function workgroupJoin(    e, rid ) { self.handleWorkgroupJoin(    e, rid ); }
 	function contactActive(    e, rid ) { self.handleContactActive(    e, rid ); }
 	function contactRoomEvent( e, rid ) { self.handleContactRoomEvent( e, rid ); }
@@ -443,7 +445,7 @@ ns.Account.prototype.handleRoomCtrlEvent = function( event, roomId ) {
 	const self = this;
 	const handler = self.roomCtrlEvents[ event.type ];
 	if ( !handler ) {
-		self.log( 'handleRoomCtrlEvent - no handler for', event );
+		self.log( 'handleRoomCtrlEvent - no handler for', [ event.type, event.data, roomId ]);
 		return;
 	}
 	
@@ -458,7 +460,7 @@ ns.Account.prototype.handleWorkRoomJoin = async function( worgId, roomId ) {
 	
 	let room = await self.roomCtrl.connectWorkRoom( self.id, worgId );
 	if ( !room ) {
-		self.log( 'loadWorkRoom - could not connect to room', worgId );
+		//self.log( 'loadWorkRoom - could not connect to room', worgId );
 		self.clearConnecting( roomId );
 		return;
 	}
@@ -466,6 +468,7 @@ ns.Account.prototype.handleWorkRoomJoin = async function( worgId, roomId ) {
 	await self.joinedARoomHooray( room );
 }
 
+/*
 ns.Account.prototype.handleWorkRoomView = async function( worgId, roomId ) {
 	const self = this;
 	const canConnect = self.doPreConnect( roomId );
@@ -481,6 +484,7 @@ ns.Account.prototype.handleWorkRoomView = async function( worgId, roomId ) {
 	
 	await self.joinedARoomHooray( room );
 }
+*/
 
 ns.Account.prototype.handleWorkgroupJoin = async function( event, roomId ) {
 	const self = this;
@@ -849,7 +853,7 @@ ns.Account.prototype.loadWorkRooms = async function() {
 	const works = rooms.works;
 	const views = rooms.views;
 	await Promise.all( works.map( await connectWork ));
-	await Promise.all( views.map( await connectView ));
+	await Promise.all( views.map( await connectWork ));
 	
 	async function connectWork( conf ) {
 		const rId = conf.clientId;
@@ -860,13 +864,15 @@ ns.Account.prototype.loadWorkRooms = async function() {
 		
 		let room = await self.roomCtrl.connectWorkRoom( self.id, wId );
 		if ( !room ) {
-			self.log( 'loadWorkRoom - could not connect to room', wId );
+			self.clearConnecting( rId );
+			//self.log( 'loadWorkRooms - could not connect to room', wId );
 			return;
 		}
 		
 		await self.joinedARoomHooray( room );
 	}
 	
+	/*
 	async function connectView( conf ) {
 		const rId = conf.clientId;
 		const wId = conf.worgId;
@@ -882,6 +888,7 @@ ns.Account.prototype.loadWorkRooms = async function() {
 		
 		await self.joinedARoomHooray( room );
 	}
+	*/
 }
 
 ns.Account.prototype.getRoom = function( roomId, cId ) {
@@ -1266,9 +1273,14 @@ ns.Account.prototype.handleAccSettingSet = async function( e ) {
 
 ns.Account.prototype.handleAddRelation = async function( event ) {
 	const self = this;
+	console.log( 'handleAddRelation', event );
 	const cId = event.clientId;
 	if ( !cId )
 		throw new Error( 'ERR_INVALID_ID' );
+	
+	const id = await self.idCache.get( cId );
+	if ( !id )
+		throw new Error( 'ERR_NOT_A_USER' );
 	
 	return await self.addRelation( cId );
 }

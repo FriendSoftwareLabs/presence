@@ -1454,7 +1454,7 @@ FROM (
 		  )
 	GROUP BY t.msgId
 	ORDER BY m.timestamp DESC
-	LIMIT `limit`
+	#LIMIT `limit`
 ) AS T );
 
 SELECT

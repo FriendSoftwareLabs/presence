@@ -152,6 +152,8 @@ ns.WorgCtrl.prototype.remove = function( worgId ) {
 	delete self.worgOnlines[ wId ];
 	delete self.fMap[ fId ];
 	delete self.cMap[ wId ];
+	self.fIds = Object.keys( self.fMap );
+	self.cIds = Object.keys( self.cMap );
 }
 
 ns.WorgCtrl.prototype.getByFId = function( fWorgId ) {
@@ -481,10 +483,6 @@ ns.WorgCtrl.prototype.handleGroupUpdate = function( swg ) {
 	let sendUpdate = false;
 	const cId = curr.clientId;
 	if ( uptd.fParentId !== curr.fParentId ) {
-		log( 'parent id change, handle!', {
-			c : curr,
-			u : uptd,
-		});
 		if ( curr.parentId )
 			self.removeSuperChild( cId );
 		
@@ -948,7 +946,6 @@ ns.WorgCtrl.prototype.updateUserWorgs = function( accId, worgs ) {
 	}
 }
 
-
 ns.WorgCtrl.prototype.updateStreamWorgs = function( accId, streamWorgNames ) {
 	const self = this;
 	if ( !streamWorgNames || !streamWorgNames.length )
@@ -991,6 +988,15 @@ ns.WorgCtrl.prototype.getWorgByName = function( worgName ) {
 	
 	function lookup( wId ) {
 		let worg = self.cMap[ wId ];
+		if ( null == worg ) {
+			log( 'getWorgByName - no worg for cId ??', {
+				wId  : wId,
+				cIds : self.cIds,
+				cMap : self.cMap,
+			});
+			return false;
+		}
+		
 		if ( worgName === worg.name ) {
 			namedWorg = worg;
 			return true;

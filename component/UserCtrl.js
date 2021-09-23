@@ -261,7 +261,6 @@ ns.UserCtrl.prototype.createUserRelation = async function( req ) {
 	
 	const sId = req.sourceId;
 	const contacts = req.contactIds;
-	log( 'contacts', contacts );
 	if (( null == contacts ) || !contacts.length ) {
 		log( 'createUserRelation - no contactIds', req );
 		return [];

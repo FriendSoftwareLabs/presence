@@ -33,15 +33,14 @@ var ns = {};
 
 ns.WorkRoom = function( conf, db, idCache, worgCtrl ) {
 	const self = this;
-	self.workgroupId = conf.workgroupId;
 	self.priority = conf.priority;
+	self.workgroupId = conf.workgroupId;
 	
 	self.supergroupId = null;
 	self.super = null;
 	self.superConn = null;
 	self.subs = {};
 	self.subIds = [];
-	self.subMembers = {};
 	conf.persistent = true;
 	
 	Room.call( self, conf, db, idCache, worgCtrl );
@@ -92,14 +91,16 @@ ns.WorkRoom.prototype.attach = async function( subRoom ) {
 	self.bindSubRoom( sId );
 	self.sendSubUpdate();
 	const members = subRoom.getMemberList();
-	await self.addUsers( members, sId );
-	self.sendWorkMembers( sId, members );
+	await self.addViewers( members, sId );
+	self.sendWorkMembersToClient( sId, members );
 }
 
 ns.WorkRoom.prototype.detach = function( subId ) {
 	const self = this;
 	self.releaseSubRoom( subId );
 	self.subIds = Object.keys( self.subs );
+	const subMembers = self.users.getListForWorg( subId );
+	[ ...subMembers ].forEach( uId => self.removeUser( uId, subId ));
 	self.users.removeSub( subId );
 	self.sendSubUpdate();
 }
@@ -115,10 +116,20 @@ ns.WorkRoom.prototype.setSuper = function( superRoom ) {
 	self.users.setSuper( roomInfo );
 	self.bindSuperRoom();
 	self.updateUserRoomPriority();
+	if ( !global.config.server.workroom.supersHaveSubRoom )
+		return;
+	
+	const supMembers = superRoom.getMemberList();
+	self.addUsers( supMembers, self.supergroupId );
 }
 
 ns.WorkRoom.prototype.unsetSuper = function() {
 	const self = this;
+	const supId = self.supergroupId;
+	
+	const supMembers = self.users.getListForWorg( supId );
+	[ supMembers ].forEach( uId => self.removeUser( uId, supId ));
+	
 	self.releaseSuperRoom();
 	delete self.super;
 	self.users.setSuper( null );
@@ -126,22 +137,48 @@ ns.WorkRoom.prototype.unsetSuper = function() {
 	self.updateUserRoomPriority();
 }
 
+ns.WorkRoom.prototype.connect = async function( userId ) {
+	const self = this;
+	const exists = self.users.exists( userId );
+	if ( !exists ) {
+		return null;
+	}
+	
+	let isSuper = false;
+	if ( self.supergroupId )
+		isSuper = self.users.checkIsMemberOf( userId, self.supergroupId );
+	
+	const isUser = self.users.checkIsMemberOf( userId, self.workgroupId );
+	const isViewer = self.users.checkIsViewer( userId );
+	let signal = null;
+	if ( isUser )
+		return signal = self.bindUser( userId );
+	if ( isSuper )
+		return signal = self.bindUser( userId, isSuper );
+	if ( isViewer )
+		return signal = self.bindViewer( userId );
+	
+}
+
+/*
 ns.WorkRoom.prototype.connectViewer = async function( userId ) {
 	const self = this;
+	
 	if ( !self.users.checkIsViewer( userId )) {
 		log( 'connectViewer - not a viewer', {
 			viewers : self.users.viewers,
-			user : userId,
+			user    : userId,
 		});
 		return null;
 	}
 	
 	return self.bindViewer( userId );
 }
+*/
 
 ns.WorkRoom.prototype.updateUserRoomPriority = function() {
 	const self = this;
-	const connected = self.users.getOnline();
+	const connected = self.users.getOnline( true, true );
 	connected.forEach( uId => {
 		const prio = self.getUserRoomPriority( uId );
 		const user = self.users.get( uId );
@@ -155,8 +192,13 @@ ns.WorkRoom.prototype.updateUserRoomPriority = function() {
 ns.WorkRoom.prototype.getUserRoomPriority = function( userId ) {
 	const self = this;
 	let priority = self.priority;
+	const isUser = self.users.checkIsMemberOf( userId, self.workgroupId );
+	if ( isUser )
+		return priority;
+	
 	if ( global.config.server.workroom.supersHaveSubRoom && self.supergroupId ) {
-		if ( self.users.checkIsMemberOf( userId, self.supergroupId ))
+		const isSuper = self.users.checkIsMemberOf( userId, self.supergroupId );
+		if ( isSuper )
 			priority = 0;
 	}
 	
@@ -168,9 +210,19 @@ ns.WorkRoom.prototype.disconnect = async function( userId ) {
 	self.releaseUser( userId );
 }
 
+ns.WorkRoom.prototype.addUsers = async function( userList, worgId ) {
+	const self = this;
+	const addToRoom = await Promise.all( userList.map( add ));
+	self.sendJoinWorkroom( addToRoom );
+	
+	function add( uId ) {
+		return self.addUser( uId, worgId );
+	}
+}
+
 ns.WorkRoom.prototype.addViewers = async function( userList, worgId ) {
 	const self = this;
-	await Promise.all( userList.map( add ));
+	const addToRoom = await Promise.all( userList.map( add ));
 	self.users.addViewGroup( worgId );
 	return true;
 	
@@ -189,43 +241,56 @@ ns.WorkRoom.prototype.addUser = async function( userId, worgId ) {
 	if ( !worgId )
 		return false;
 	
-	self.users.addForWorkgroup( worgId, userId );
-	if ( self.users.exists( userId ))
-		return;
+	let addedId = null;
+	let user = self.users.get( userId );
+	let addedUser = false;
+	const added = self.users.addForWorkgroup( worgId, userId );
+	if ( added )
+		addedUser = ( worgId === self.workgroupId );
 	
-	let user = await self.idCache.get( userId );
-	//if ( !self.users.exists( userId ))
-	self.users.set( user );
+	if ( user ) {
+		if ( added )
+			self.updateUser( userId, worgId );
 	
-	if (  worgId !== self.workgroupId )
-		return userId;
+	} else {
+		user = await self.idCache.get( userId );
+		//if ( !self.users.exists( userId ))
+		const ok = await self.users.set( user );
+		addedId = userId;
+	}
 	
-	announce( user );
+	if ( !addedUser )
+		return addedId;
+	
 	self.onJoin( user );
 	
-	return userId;
+	return addedId;
 	
-	function announce( user ) {
-		// tell peoples
-		const uId = user.clientId;
-		const joinEvent = {
-			type : 'join',
-			data : {
-				clientId   : uId,
-				isAuthed   : self.checkIsAuthed( uId ),
-				workgroups : self.worgs.getUserWorkgroupList( uId ),
-			},
-		};
-		self.users.broadcast( null, joinEvent );
-	}
+}
+
+ns.WorkRoom.prototype.updateUser = function( userId, worgId ) {
+	const self = this;
+	const user = self.users.get( userId );
+	if ( null == user.close )
+		return null;
+	
+	const isUser = self.users.checkIsMemberOf( userId, self.workgroupId );
+	const currentlyUser = !user.isView;
+	const mustChange = ( isUser != currentlyUser );
+	if ( !mustChange )
+		return;
+	
+	self.emit( 'reconnect', userId );
+	return null;
 }
 
 ns.WorkRoom.prototype.removeUser = async function( userId, worgId ) {
 	const self = this;
-	if ( !self.users.exists( userId )) {
+	const user = self.users.get( userId );
+	if ( null == user ) {
 		log( 'removeUser - user not found', {
-			aid : userId,
-			usr : self.users.getList(),
+			uid  : userId,
+			list : self.users.getList(),
 		}, 3 );
 		return false;
 	}
@@ -240,40 +305,37 @@ ns.WorkRoom.prototype.removeUser = async function( userId, worgId ) {
 	}
 	
 	self.users.removeFromWorg( worgId, userId );
-	const worgs = self.users.getWorgsFor( userId );
-	if ( !worgs || !worgs.length )
+	const wasUser = ( worgId === self.workgroupId );
+	const currentWorgs = self.users.getWorgsFor( userId );
+	if ( !currentWorgs || !currentWorgs.length )
 		await remove( userId );
 	else
-		update( userId, worgId );
+		self.updateUser( userId, worgId );
 	
-	if ( worgId === self.workgroupId )
+	if ( wasUser ) {
+		self.sendLeave( userId );
 		self.onLeave( userId );
+	}
 	
 	return true;
 	
 	async function remove( userId ) {
 		const user = self.users.get( userId );
 		await self.releaseUser( userId );
-		sendLeave( userId );
 		if ( user && user.close )
 			user.close();
 		
 		self.users.remove( userId );
 	}
-	
-	function update( userId, worgId ) {
-		if ( worgId === self.workgroupId )
-			sendLeave( userId );
-	}
-	
-	// tell everyone
-	function sendLeave( userId ) {
-		const leave = {
-			type : 'leave',
-			data : userId,
-		};
-		self.users.broadcast( null, leave );
-	}
+}
+
+ns.WorkRoom.prototype.sendLeave = function( userId ) {
+	const self = this;
+	const leave = {
+		type : 'leave',
+		data : userId,
+	};
+	self.users.broadcast( null, leave );
 }
 
 ns.WorkRoom.prototype.roomClose = ns.WorkRoom.prototype.close;
@@ -282,8 +344,8 @@ ns.WorkRoom.prototype.close = function() {
 	self.unsetSuper();
 	self.closeSubs();
 	delete self.workgroupId;
-	if ( self.onJoinTimeout )
-		clearTimeout( self.onJoinTimeout );
+	if ( self.sendMembersTimeout )
+		clearTimeout( self.sendMembersTimeout );
 	if ( self.onLeaveTimeout )
 		clearTimeout( self.onLeaveTimeout );
 	
@@ -314,6 +376,7 @@ ns.WorkRoom.prototype.init = async function( worgCtrl ) {
 	);
 	await self.users.initialize();
 	self.users.on( 'viewers-updated', e => self.handleViewersUpdated( e ));
+	//self.user.son( 'members-updated', e => self.handleMembersUpdated( e ));
 	
 	self.settings = new ns.WorkSettings(
 		self.dbPool,
@@ -407,8 +470,21 @@ ns.WorkRoom.prototype.handleViewersUpdated = function( viewerList ) {
 		return true;
 	});
 	
-	self.emit( 'join-view', joinList );
+	self.sendJoinWorkroom( viewerList );
+	//self.emit( 'join-view', joinList );
 }
+
+ns.WorkRoom.prototype.sendJoinWorkroom = function( joinList ) {
+	const self = this;
+	joinList = joinList.filter( uId => !!uId );
+	self.emit( 'join-work', joinList );
+}
+
+/*
+ns.WorkRoom.prototype.handleMembersUpdated = function( memberList, worgId ) {
+	const self = this;
+}
+*/
 
 ns.WorkRoom.prototype.handleRemovedFromWorgs = function( userId ) {
 	const self = this;
@@ -536,7 +612,7 @@ ns.WorkRoom.prototype.sendSubUpdate = function() {
 	self.worgs.broadcast( subs );
 }
 
-ns.WorkRoom.prototype.sendWorkMembers = function( worgId, memberList ) {
+ns.WorkRoom.prototype.sendWorkMembersToClient = function( worgId, memberList ) {
 	const self = this;
 	const subRoom = self.subs[ worgId ];
 	if ( null == memberList )
@@ -564,14 +640,12 @@ ns.WorkRoom.prototype.handleWorkMessage = function( worgId, msg ) {
 
 ns.WorkRoom.prototype.handleWorkMembers = function( worgId, memberList ) {
 	const self = this;
-	if ( worgId === self.supergroupId &&
-		global.config.server.workroom.subsHaveSuperView
-	) {
-		self.sendWorkUsers( self.supergroupId, memberList );
-		return;
-	}
+	if ( self.supergroupId === worgId )
+		self.addUsers( memberList, worgId );
+	else
+		self.addViewers( memberList, worgId );
 	
-	self.sendWorkMembers( worgId, memberList );
+	self.sendWorkMembersToClient( worgId, memberList );
 }
 
 ns.WorkRoom.prototype.handleWorkMsgUpdate = function( worgId, event ) {
@@ -588,7 +662,6 @@ ns.WorkRoom.prototype.closeSubs = function() {
 ns.WorkRoom.prototype.releaseSubRoom = function( subId ) {
 	const self = this;
 	const subRoom = self.subs[ subId ];
-	delete self.subMembers[ subId ];
 	delete self.subs[ subId ];
 	if( !subRoom )
 		return;
@@ -656,7 +729,7 @@ ns.WorkRoom.prototype.sendSuper = function( type, data ) {
 	self.emit( type, data );
 }
 
-ns.WorkRoom.prototype.bindUser = async function( userId ) {
+ns.WorkRoom.prototype.bindUser = async function( userId, isSuper ) {
 	const self = this;
 	let user = self.users.get( userId );
 	if ( !user ) {
@@ -666,7 +739,7 @@ ns.WorkRoom.prototype.bindUser = async function( userId ) {
 			users  : self.users,
 		}, 4 );
 		try {
-			throw new Error( 'blah' );
+			throw new Error( 'trace' );
 		} catch( e ) {
 			log( 'trace', e.stack || e );
 		}
@@ -702,17 +775,18 @@ ns.WorkRoom.prototype.bindUser = async function( userId ) {
 	self.users.set( user );
 	
 	// bind users events
-	user.on( 'initialize', init );
-	user.on( 'disconnect', disconnect );
-	user.on( 'live-join', joinLive );
-	user.on( 'live-leave', leaveLive );
-	user.on( 'active', active );
-	
 	let uid = userId;
+	user.on( 'initialize'  , init );
+	user.on( 'disconnect'  , disconnect );
+	user.on( 'live-join'   , e => self.handleJoinLive( uid, e ));
+	user.on( 'live-restore', e => self.handleRestoreLive( uid, e ));
+	user.on( 'live-leave'  , e => self.handleLeaveLive( uid, e ));
+	user.on( 'active'      , active );
+	
 	function init( e ) { self.initialize( e, uid ); }
 	function disconnect( e ) { self.disconnect( uid ); }
-	function joinLive( e ) { self.handleJoinLive( e, uid ); }
-	function leaveLive( e ) { self.handleLeaveLive( e, uid ); }
+	function joinLive( e ) { self.handleJoinLive( uid, e ); }
+	function leaveLive( e ) { self.handleLeaveLive( uid, e ); }
 	function active( e ) { self.handleActive( e, uid ); }
 	
 	// add to components
@@ -720,7 +794,11 @@ ns.WorkRoom.prototype.bindUser = async function( userId ) {
 	self.settings.bind( userId );
 	
 	// show online
-	self.users.setOnline( userId );
+	if ( isSuper )
+		self.users.setOnline( userId, true );
+	else
+		self.users.setOnline( userId );
+	
 	return user;
 }
 
@@ -728,7 +806,6 @@ ns.WorkRoom.prototype.bindViewer = async function( userId ) {
 	const self = this;
 	let user = self.users.get( userId );
 	if ( !user ) {
-		log( 'not user in room', userId );
 		user = await self.idCache.get( userId );
 	}
 	
@@ -758,7 +835,7 @@ ns.WorkRoom.prototype.bindViewer = async function( userId ) {
 	
 	user = new Signal( sigConf );
 	self.users.set( user );
-	
+		
 	// bind users events
 	user.on( 'initialize', init );
 	user.on( 'disconnect', goOffline );
@@ -776,7 +853,7 @@ ns.WorkRoom.prototype.bindViewer = async function( userId ) {
 	self.settings.bind( userId );
 	
 	// show online
-	//self.users.setOnline( userId );
+	self.users.setOnline( userId, null, true );
 	return user;
 }
 
@@ -941,12 +1018,28 @@ ns.WorkRoom.prototype.checkIsAuthed = function( userId ) {
 
 ns.WorkRoom.prototype.onJoin = function( user ) {
 	const self = this;
-	if ( self.onJoinTimeout )
-		clearTimeout( self.onJoinTimeout );
+	// tell peoples
+	const uId = user.clientId;
+	const joinEvent = {
+		type : 'join',
+		data : {
+			clientId   : uId,
+			isAuthed   : self.checkIsAuthed( uId ),
+			workgroups : self.worgs.getUserWorkgroupList( uId ),
+		},
+	};
+	self.users.broadcast( null, joinEvent );
+	self.sendMembersToRooms();
+}
+
+ns.WorkRoom.prototype.sendMembersToRooms = function() {
+	const self = this;
+	if ( self.sendMembersTimeout )
+		clearTimeout( self.sendMembersTimeout );
 	
-	self.onJoinTimeout = setTimeout( sendThings, 200 );
+	self.sendMembersTimeout = setTimeout( sendThings, 100 );
 	function sendThings() {
-		self.onJoinTimeout = null;
+		self.sendMembersTimeout = null;
 		const memberList = self.users.getList( self.workgroupId );
 		self.sendSuper( 'members', memberList );
 		self.sendSub( null, 'members', memberList );
@@ -955,16 +1048,7 @@ ns.WorkRoom.prototype.onJoin = function( user ) {
 
 ns.WorkRoom.prototype.onLeave = function( userId ) {
 	const self = this;
-	if ( self.onLeaveTimeout )
-		clearTimeout( self.onLeaveTimeout );
-	
-	self.onLeaveTimeout = setTimeout( sendThings, 200 );
-	function sendThings() {
-		self.onLeaveTimeout = null;
-		const memberList = self.users.getList( self.workgroupId );
-		self.sendSuper( 'members', memberList );
-		self.sendSub( null, 'members', memberList );
-	}
+	self.sendMembersToRooms();
 }
 
 
@@ -983,6 +1067,8 @@ ns.WorkUsers = function(
 	);
 	
 	self.workId = workroomId;
+	self.onlineSupers = [];
+	self.onlineViewers = [];
 }
 
 util.inherits( ns.WorkUsers, components.Users );
@@ -1022,6 +1108,74 @@ ns.WorkUsers.prototype.checkAddToAtList = function( userId ) {
 		return;
 	
 	return name;
+}
+
+ns.WorkUsers.prototype.setOnline = function( userId, isSuper, isViewer ) {
+	const self = this;
+	let list = self.online;
+	if ( isSuper )
+		list = self.onlineSupers;
+	if ( isViewer )
+		list = self.onlineViewers;
+	
+	const user = self.get( userId );
+	if ( !user || !user.close ) {
+		uLog( 'setOnline - no a connected user', [ userId, isSuper, isViewer ]);
+		return null;
+	}
+	
+	if ( list.some( lId => lId === userId ))
+		return user;
+	
+	list.push( userId );
+	return user;
+}
+
+ns.WorkUsers.prototype.setOffline = function( userId ) {
+	const self = this;
+	let uIdx = self.online.indexOf( userId );
+	if ( -1 != uIdx ) {
+		self.online.splice( uIdx, 1 );
+		return true;
+	}
+	
+	uIdx = self.onlineSupers.indexOf( userId );
+	if ( -1 != uIdx ) {
+		self.onlineSupers.splice( uIdx, 1 );
+		return true;
+	}
+	
+	uIdx = self.onlineViewers.indexOf( userId );
+	if ( -1 != uIdx ) {
+		self.onlineViewers.splice( uIdx, 1 );
+		return true;
+	}
+	
+	return false;
+}
+
+ns.WorkUsers.prototype.getOnline = function( includeSupers, includeViewers ) {
+	const self = this;
+	let supers = [];
+	let viewers = [];
+	if ( includeSupers )
+		supers = self.onlineSupers;
+	if ( includeViewers )
+		viewers = self.onlineViewers;
+	
+	const online = [ ...self.online, ...supers, ...viewers ];
+	
+	return online;
+}
+
+ns.WorkUsers.prototype.getOnlineSupers = function() {
+	const self = this;
+	return self.onlineSupers;
+}
+
+ns.WorkUsers.prototype.getOnlineViewers = function() {
+	const self = this;
+	return self.onlineViewers;
 }
 
 /*
@@ -1258,6 +1412,9 @@ ns.WorkChat.prototype.handleLog = async function( event, userId ) {
 	}
 	
 	function checkUserIsSuper( uId, sId ) {
+		if ( !sId )
+			return false;
+		
 		return !!self.users.checkIsMemberOf( uId, sId );
 	}
 }
@@ -1626,15 +1783,18 @@ ns.WorkChat.prototype.broadcastEdit = async function( type, eventId ) {
 		self.emit( 'msg-update', type, event );
 }
 
-ns.WorkChat.prototype.broadcast = function( event, sourceId, wrapSource, viewers ) {
+ns.WorkChat.prototype.broadcast = function( event, sourceId, wrapSource, extraTargets ) {
 	const self = this;
-	let userList = null;
-	if ( viewers ) {
-		const online = self.users.getOnline();
-		userList = [ ...online, ...viewers ];
-	}
+	let sendTo = [];
+	if ( global.config.server.workroom.supersHaveSubRoom )
+		sendTo = self.users.getOnline( true );
+	else
+		sendTo = self.users.getOnline();
 	
-	self.users.broadcastChat( userList, event, sourceId, wrapSource );
+	if ( extraTargets )
+		sendTo = [ ...sendTo, ...extraTargets ];
+	
+	self.users.broadcastChat( sendTo, event, sourceId, wrapSource );
 }
 
 /*
@@ -1758,6 +1918,9 @@ ns.WorkLog.prototype.getLast = function( userId, num ) {
 	return log;
 	
 	function checkUserIsSuper( uId, sId ) {
+		if ( !sId )
+			return false;
+		
 		return !!self.users.checkIsMemberOf( uId, sId );
 	}
 	
@@ -1856,6 +2019,7 @@ ns.WorkLog.prototype.close = function() {
 
 ns.WorkLog.prototype.load = function( conf ) {
 	const self = this;
+	
 	if ( !conf ) {
 		conf = {};
 		return self.loadBefore( conf, self.workgroupId );
@@ -1884,7 +2048,7 @@ ns.WorkLog.prototype.loadBeforeView = async function( conf, userId ) {
 ns.WorkLog.prototype.loadAfterView = async function( conf, userId ) {
 	const self = this;
 	let items = null;
-	items = await self.msgDb.getAfterView(
+	items = await self.msgDb.getForView(
 		self.workgroupId,
 		userId,
 		null,

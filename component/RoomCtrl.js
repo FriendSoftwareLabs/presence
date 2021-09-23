@@ -114,8 +114,13 @@ ns.RoomCtrl.prototype.readRoomState = function( rID ) {
 ns.RoomCtrl.prototype.getRelation = async function( accId, contactId ) {
 	const self = this;
 	let both = await self.readRelation( accId, contactId );
-	if ( !both )
+	if ( !both ) {
 		both = await self.createRelation( accId, contactId );
+		log( 'addRelation - create', both, 3 );
+	}
+	
+	if ( null == both )
+		return null;
 	
 	return both[ accId ];
 }
@@ -187,6 +192,7 @@ ns.RoomCtrl.prototype.getWorkRooms = function( accountId ) {
 	let member = worgs.filter( wId => {
 		return !!self.workRooms[ wId ];
 	});
+	
 	let subs = null;
 	let views = null;
 	if ( global.config.server.workroom.supersHaveSubRoom )
@@ -204,14 +210,17 @@ ns.RoomCtrl.prototype.getWorkRooms = function( accountId ) {
 	return rooms;
 	
 	function getSubs( works ) {
-		let add = null;
+		let subs = [];
 		works.forEach( wId => {
-			const subs = self.worgs.getSuperChildren( wId );
-			add = subs.filter( sId => {
+			const subWorgs = self.worgs.getSuperChildren( wId );
+			const subRooms = subWorgs.filter( sId => {
 				return !!self.workRooms[ sId ];
 			});
+			
+			subs = [ ...subs, ...subRooms ];
+			
 		});
-		return add || [];
+		return subs;
 	}
 	
 	function getViews( works ) {
@@ -219,6 +228,7 @@ ns.RoomCtrl.prototype.getWorkRooms = function( accountId ) {
 		works.forEach( wId => {
 			const room = self.getWorkRoom( wId );
 			const superId = room.getSuperId();
+			
 			if ( !superId )
 				return;
 			
@@ -366,6 +376,7 @@ ns.RoomCtrl.prototype.connectWorkRoom = async function( accountId, workgroupId )
 	return user;
 }
 
+/*
 // allows a user from a sub room to have a view into a parent room
 ns.RoomCtrl.prototype.connectWorkView = async function( accountId, workgroupId ) {
 	const self = this;
@@ -376,6 +387,7 @@ ns.RoomCtrl.prototype.connectWorkView = async function( accountId, workgroupId )
 	const user = await room.connectViewer( accountId );
 	return user;
 }
+*/
 
 // go online in a room  - the room will start sending events to this client
 // only an authorized user can .connect directly
@@ -567,13 +579,14 @@ ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {
 	if ( !wRoom )
 		return null;
 	
+	if ( subs ) {
+		const openSubWaiters = subs.map( subId => openSub( subId, worgId ));
+		await Promise.all( openSubWaiters );
+	}
 	
-	if ( subs )
-		await Promise.all( subs.map( await openSub ));
-	
-	await Promise.all( subs.map( connect ));
 	const parentId = self.worgs.getSuperParent( worgId );
 	if ( !parentId )
+		await self.addUsersToWorkRooms( worgId );
 		return;
 	
 	const parent = self.getWorkRoom( parentId );
@@ -581,29 +594,18 @@ ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {
 		return;
 	
 	wRoom.setSuper( parent );
+	await self.addUsersToWorkRooms( worgId );
 	
-	function updateSubs( worgId, subs ) {
-		/*
-		log( 'updateSubs - NYI', {
-			super : worgId,
-			subs  : subs,
-		});
-		*/
-	}
-	
-	async function openSub( subId ) {
+	async function openSub( subId, superId ) {
 		let sub = self.getWorkRoom( subId );
 		if ( sub )
 			return;
 		
-		await self.setWorkRoom( subId, 4 );
-	}
-	
-	async function connect( subId ) {
-		let sup = self.getWorkRoom( worgId );
-		let sub = self.getWorkRoom( subId );
-		await sup.attach( sub );
+		sub = await self.setWorkRoom( subId, 4 );
+		const sup = self.getWorkRoom( superId );
 		sub.setSuper( sup );
+		await self.addUsersToWorkRooms( subId );
+		await sup.attach( sub );
 	}
 }
 
@@ -635,6 +637,8 @@ ns.RoomCtrl.prototype.subAdded = async function( childId, superId ) {
 	
 	await sup.attach( sub );
 	sub.setSuper( sup );
+	
+	await self.addUsersToWorkRooms( childId );
 }
 
 ns.RoomCtrl.prototype.subRemoved = async function( subId, superId ) {
@@ -711,10 +715,10 @@ ns.RoomCtrl.prototype.setWorkRoom = async function( worgId, priority ) {
 			room.once( 'open', onOpen );
 			room.on( 'join-work', e => self.handleWorkRoomJoin( e, worgId ));
 			room.on( 'join-view', e => self.handleWorkViewJoin( e, worgId ));
+			room.on( 'reconnect', e => self.handleWorkReconnect( e, worgId ));
 			
 			async function onOpen() {
 				self.workRooms[ roomId ] = room;
-				await self.addUsersToWorkRooms( worgId );
 				resolve( roomId );
 			}
 		});
@@ -996,12 +1000,8 @@ ns.RoomCtrl.prototype.handleWorkgroupUserAdds = async function( worgId, userList
 	const self = this;
 	const wFId = self.worgs.cIdToFId( worgId );
 	const roomIds = await self.roomDb.getAssignedTo( wFId );
-	const wRoom = self.getWorkRoom( worgId );
 	if ( roomIds || roomIds.length )
 		await Promise.all( roomIds.map( addToRoom ));
-	
-	if ( !wRoom )
-		return;
 	
 	self.addUsersToWorkRooms( worgId, userList );
 	
@@ -1019,15 +1019,27 @@ ns.RoomCtrl.prototype.handleWorkgroupUserRemoved = async function( worgId, userL
 	self.removeUsersFromWorkRooms( worgId, userList );
 }
 
-ns.RoomCtrl.prototype.handleWorkRoomJoin = function( e, roomId ) {
+ns.RoomCtrl.prototype.handleWorkRoomJoin = function( joinList, workId ) {
 	const self = this;
-	log( 'handleWorkRoomJoin - NYI', roomId );
+	const room = self.getWorkRoom( workId );
+	const rId = room.id;
+	self.sendWorkRoomJoin( rId, workId, joinList );
 }
 
 ns.RoomCtrl.prototype.handleWorkViewJoin = function( joinList, workId ) {
 	const self = this;
 	const room = self.getWorkRoom( workId );
 	self.sendWorkViewJoin( room.id, workId, joinList );
+}
+
+ns.RoomCtrl.prototype.handleWorkReconnect = function( userId, workId ) {
+	const self = this;
+	const room = self.getWorkRoom( workId );
+	room.disconnect( userId );
+	setTimeout( reconnect, 2000 );
+	function reconnect() {
+		self.sendWorkRoomJoin( room.id, workId, [ userId ]);
+	}
 }
 
 ns.RoomCtrl.prototype.sendWorgJoin = function( roomId, userList ) {
@@ -1046,20 +1058,20 @@ ns.RoomCtrl.prototype.sendWorgJoin = function( roomId, userList ) {
 
 ns.RoomCtrl.prototype.addUsersToWorkRooms = async function( worgId, userList ) {
 	const self = this;
-	if ( !userList )
-		userList = self.worgs.getUserList( worgId );
-	
 	const wRoom = self.getWorkRoom( worgId );
 	if ( !wRoom ) {
 		log( 'addUsersToWorkRoom - no room for', worgId );
 		return;
 	}
 	
+	if ( !userList )
+		userList = self.worgs.getUserList( worgId );
+	
 	if ( userList && userList.length )
 		await wRoom.addUsers( userList, worgId );
 	
 	const roomId = wRoom.id;
-	sendJoin( userList, worgId, roomId );
+	//sendJoin( userList, worgId, roomId );
 	
 	return;
 	
@@ -1119,14 +1131,19 @@ ns.RoomCtrl.prototype.addUsersToWorkRooms = async function( worgId, userList ) {
 	}
 	
 	function sendJoin( userList, worgId, roomId ) {
-		const join = {
-			type : 'workroom-join',
-			data : worgId,
-		};
-		userList.forEach( uId => {
-			self.emit( uId, join, roomId );
-		});
+		//self.sendWorkRoomJoin( roomId, worgId, userList );
 	}
+}
+
+ns.RoomCtrl.prototype.sendWorkRoomJoin = function( roomId, worgId, userList ) {
+	const self = this;
+	const join = {
+		type : 'workroom-join',
+		data : worgId,
+	};
+	userList.forEach( uId => {
+		self.emit( uId, join, roomId );
+	});
 }
 
 ns.RoomCtrl.prototype.sendWorkViewJoin = function( roomId, worgId, userList ) {
@@ -1279,7 +1296,6 @@ ns.RoomCtrl.prototype.getRoom = async function( rid ) {
 
 ns.RoomCtrl.prototype.removeRoom = function( rId ) {
 	const self = this;
-	log( 'removeRoom', rId );
 	const room = self.rooms[ rId ];
 	if ( !room )
 		return;

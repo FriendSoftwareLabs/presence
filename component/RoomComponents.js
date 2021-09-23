@@ -108,7 +108,8 @@ ns.Users.prototype.set = async function( user ) {
 	if ( user.isGuest )
 		self.setGuest( cId );
 	
-	if ( !self.exists( cId )) {
+	let curr = self.get( cId );
+	if ( null == curr ) {
 		let isRegged = self.checkIsRegistered( cId );
 		if ( !isRegged && self.isPersistent ) {
 			deny( user );
@@ -117,6 +118,7 @@ ns.Users.prototype.set = async function( user ) {
 	}
 	
 	self.everyone[ cId ] = user;
+	
 	await self.addLastRead( cId );
 	const uIdx = self.everyId.indexOf( cId );
 	if ( -1 === uIdx )
@@ -416,9 +418,10 @@ ns.Users.prototype.setOffline = function( userId ) {
 	const self = this;
 	const userIndex = self.online.indexOf( userId );
 	if ( -1 === userIndex )
-		return;
+		return false;
 	
 	self.online.splice( userIndex, 1 );
+	return true;
 }
 
 ns.Users.prototype.getOnline = function() {
@@ -473,10 +476,11 @@ ns.Users.prototype.addForWorkgroup = function( worgId, userId ) {
 	const worg = self.worgs[ worgId ];
 	const uIdx = worg.indexOf( userId );
 	if ( -1 !== uIdx )
-		return;
+		return false;
 	
 	worg.push( userId );
 	self.updateViewMembers();
+	return true;
 }
 
 ns.Users.prototype.getWorgsFor = function( userId ) {
@@ -501,6 +505,9 @@ ns.Users.prototype.getListForWorg = function( worgId ) {
 ns.Users.prototype.checkIsMemberOf = function( userId, worgId ) {
 	const self = this;
 	const members = self.worgs[ worgId ];
+	if ( null == worgId )
+		console.trace( 'checkIsMemberOf', [ userId, worgId ]);
+	
 	if ( !members || !members.length )
 		return false;
 	
@@ -645,11 +652,6 @@ ns.Users.prototype.send = function( targetId, event ) {
 
 ns.Users.prototype.broadcast = function( targets, event, source, wrapInSource ) {
 	const self = this;
-	if ( !targets ) {
-		self._broadcast( self.online, event, source, wrapInSource );
-		return;
-	}
-	
 	self._broadcast( targets, event, source, wrapInSource );
 }
 
@@ -668,6 +670,7 @@ ns.Users.prototype.broadcastChat = function( targetList, event, sourceId, wrapIn
 		type : 'chat',
 		data : event,
 	};
+	
 	self._broadcast( targetList, chat, sourceId, wrapInSource );
 }
 
@@ -839,8 +842,9 @@ ns.Users.prototype._send = function( targetId, event ) {
 
 ns.Users.prototype._broadcast = function( targetList, event, source, wrapInSource ) {
 	const self = this;
-	if ( !targetList )
-		targetList = self.online;
+	if ( !targetList ) {
+		targetList = self.getOnline( true, true );
+	}
 	
 	if ( !source ) {
 		targetList.forEach( tId => self._send( tId, event ));
@@ -880,8 +884,13 @@ ns.Users.prototype.checkIsRegistered = function( cId ) {
 
 ns.Users.prototype.updateViewMembers = function() {
 	const self = this;
+	if (( null == self.workId ) && ( null == self.superId ))
+		return;
+	
+	/*
 	if ( !global.config.server.workroom.subsHaveSuperView )
 		return;
+	*/
 	
 	if ( self.updateViewTimeout )
 		clearTimeout( self.updateViewTimeout );
@@ -896,9 +905,6 @@ ns.Users.prototype.updateViewMembers = function() {
 				return;
 			
 			worg.forEach( uId => {
-				if ( viewers[ uId ])
-					return;
-				
 				viewers[ uId ] = uId;
 			});
 		});
@@ -1317,26 +1323,32 @@ ns.Live = function(
 
 // Public
 
-ns.Live.prototype.add = async function( userId, clientId ) { //adds user to existing room
+ns.Live.prototype.add = async function( userId, liveId ) { //adds user to existing room
 	const self = this;
 	const user = self.users.get( userId );
-	if ( !user )
+	if ( !user ) {
+		lLog( 'handleJoinLive - no user?', {
+			userId   : userId,
+			liveId   : liveId,
+			users    : self.users.getList(),
+		});
 		return;
+	}
 	
-	if ( !clientId ) {
+	if ( !liveId ) {
 		lLog( 'add - no clientId', user );
 		return;
 	}
 	
-	const pid = user.clientId;
-	if ( self.peers[ pid ]) {
-		await self.reAdd( pid, clientId );
+	const peerId = user.clientId;
+	if ( self.peers[ peerId ]) {
+		await self.reAdd( peerId, liveId );
 		return;
 	}
 	
-	user.liveId = clientId;
-	self.peers[ pid ] = user;
-	self.peerIds.push( pid );
+	user.liveId = liveId;
+	self.peers[ peerId ] = user;
+	self.peerIds.push( peerId );
 	user.on( 'live', handleLive );
 	self.updateSession();
 	
@@ -1368,26 +1380,26 @@ ns.Live.prototype.add = async function( userId, clientId ) { //adds user to exis
 	self.updateModeFollowSpeaker();
 	
 	// tell everyone
-	self.sendJoin( pid );
+	self.sendJoin( peerId );
 	// tell peer
-	self.sendOpen( pid, clientId );
+	self.sendOpen( peerId, liveId );
 	
 	// tell user who else is in live
-	//self.sendPeerList( pid );
+	//self.sendPeerList( peerId );
 	
-	self.startPing( pid );
+	self.startPing( peerId );
 	
 	function handleLive( e ) {
-		self.handlePeerEvent( e, pid );
+		self.handlePeerEvent( e, peerId );
 	}
 }
 
-ns.Live.prototype.restore = async function( userId ) {
+ns.Live.prototype.restore = async function( userId, conf ) {
 	const self = this;
 	if ( self.peers[ userId ])
 		self.sendOpen( userId );
 	else
-		await self.add( userId );
+		await self.add( userId, conf.clientId );
 	
 	self.sendPeerList( userId );
 }
@@ -1542,7 +1554,7 @@ ns.Live.prototype.updateSession = function() {
 	}
 }
 
-ns.Live.prototype.reAdd = async function( pid, clientId ) {
+ns.Live.prototype.reAdd = async function( pid, liveId ) {
 	const self = this;
 	const curr = self.peerAddTimeouts[ pid ];
 	if ( null != curr ){
@@ -1560,7 +1572,7 @@ ns.Live.prototype.reAdd = async function( pid, clientId ) {
 		return false;
 	}
 	
-	self.add( pid, clientId );
+	self.add( pid, liveId );
 	return true;
 	
 	function wait() {
@@ -2767,28 +2779,27 @@ ns.Log.prototype.add = async function( msg ) {
 	const msgId = await self.persist( msg );
 }
 
-ns.Log.prototype.get = function( conf ) {
+ns.Log.prototype.get = async function( conf ) {
 	const self = this;
-	return new Promise( logs );
-	function logs( resolve, reject ) {
-		if ( null == conf ) {
-			let logs = {
-				type : 'before',
-				data : {
-					events : self.items,
-					ids    : self.ids,
-				},
-			};
-			resolve( logs );
-		} else
-			self.load( conf )
-				.then( resolve )
-				.catch( err );
-		
-		function err( err ) {
+	if ( null == conf ) {
+		let logs = {
+			type : 'before',
+			data : {
+				events : self.items,
+				ids    : self.ids,
+			},
+		};
+		return logs;
+	} else {
+		let logs = null;
+		try {
+			logs = await self.load( conf );
+		} catch( ex ) {
 			llLog( 'load error', err.stack || err );
-			resolve( null );
+			return null;
 		}
+		
+		return logs;
 	}
 }
 

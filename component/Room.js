@@ -114,11 +114,13 @@ ns.Room.prototype.getState = function() {
 ns.Room.prototype.connect = async function( userId ) {
 	const self = this;
 	if ( !self.users.exists( userId )) {
+		/*
 		log( 'connect - user not added yet', {
 			u : userId,
 			l : self.users.getList(),
 			r : self.workgroupId || self.name,
 		});
+		*/
 		const added = await self.addUser( userId );
 		if ( !added )
 			return null;
@@ -203,10 +205,6 @@ ns.Room.prototype.removeUser = async function( userId, worgId ) {
 	const self = this;
 	const user = self.users.get( userId );
 	if ( !user ) {
-		log( 'removeUser - invalid user', {
-			aid : userId,
-			usr : self.users.getList(),
-		}, 3 );
 		return false;
 	}
 	
@@ -496,10 +494,6 @@ ns.Room.prototype.bindUser = async function( userId ) {
 	}
 	
 	if ( user.close ) {
-		log( 'bindUser - user already bound', {
-			room : self.name,
-			user : user.name,
-		}, 3 );
 		return user;
 	}
 	
@@ -534,14 +528,14 @@ ns.Room.prototype.bindUser = async function( userId ) {
 	user.on( 'active', active );
 	
 	let uid = userId;
-	function init( e ) { self.handleInitialize( e, uid ); }
-	function persist( e ) { self.handlePersist( e, uid ); }
-	function goOffline( e ) { self.disconnect( uid ); }
-	function leaveRoom( e ) { self.unAuthUser( uid ); }
-	function joinLive( e ) { self.handleJoinLive( e, uid ); }
-	function restoreLive( e ) { self.handleRestoreLive( e, uid ); }
-	function leaveLive( e ) { self.handleLeaveLive( e, uid ); }
-	function active( e ) { self.handleActive( e, uid ); }
+	function init( e ) { self.handleInitialize(         e, uid ); }
+	function persist( e ) { self.handlePersist(         e, uid ); }
+	function goOffline( e ) { self.disconnect(          uid ); }
+	function leaveRoom( e ) { self.unAuthUser(          uid ); }
+	function joinLive( e ) { self.handleJoinLive(       uid, e ); }
+	function restoreLive( e ) { self.handleRestoreLive( uid, e ); }
+	function leaveLive( e ) { self.handleLeaveLive(     uid, e ); }
+	function active( e ) { self.handleActive(           uid, e ); }
 	
 	// add to components
 	self.invite.bind( userId );
@@ -749,10 +743,6 @@ ns.Room.prototype.releaseUser = async function( userId ) {
 	const self = this;
 	let user = self.users.get( userId );
 	if ( !user ) {
-		log( 'releaseUser - no user', {
-			u : userId,
-			users : self.users.getList(),
-		}, 3 );
 		return;
 	}
 	
@@ -834,32 +824,23 @@ ns.Room.prototype.unAuthUser = async function( uid ) {
 	}
 }
 
-ns.Room.prototype.handleJoinLive = function( conf, uid ) {
+ns.Room.prototype.handleJoinLive = function( uId, liveId ) {
 	const self = this;
-	const user = self.users.get( uid );
-	if ( !user ) {
-		log( 'handleJoinLive - no user?', {
-			id : uid,
-			user : user,
-			users : self.users.getList(),
-		});
-		return;
-	}
-	
-	self.live.add( uid, conf );
+	//const user = self.users.get( uId );
+	self.live.add( uId, liveId );
 }
 
-ns.Room.prototype.handleRestoreLive = function( event, uid ) {
+ns.Room.prototype.handleRestoreLive = function( uId, liveId ) {
 	const self = this;
-	self.live.restore( uid );
+	self.live.restore( uId, liveId );
 }
 
-ns.Room.prototype.handleLeaveLive = function( event, uid ) {
+ns.Room.prototype.handleLeaveLive = function( uid, liveId ) {
 	const self = this;
 	self.live.remove( uid );
 }
 
-ns.Room.prototype.handleActive = function( event, userId ) {
+ns.Room.prototype.handleActive = function( userId, event ) {
 	const self = this;
 	if ( !event )
 		return;
