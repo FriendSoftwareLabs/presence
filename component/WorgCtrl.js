@@ -34,8 +34,10 @@ ns.WorgCtrl = function( dbPool, idCache ) {
 	self.db = null;
 	
 	self.fMap = {}; // fId to worg mapping
+	self.fUMap = {} // fUid to worg mapping
 	self.cMap = {}; // clientId to worg mapping
 	self.fIds = [];
+	self.fUIds = [];
 	self.cIds = [];
 	self.worgUsers = {}; // each workgroup has a list of members.
 	self.worgOnlines = {}; // each workgroup has a list of online members.
@@ -63,6 +65,7 @@ ns.WorgCtrl.prototype.add = function( worg ) {
 		worg = self.setClientId( worg );
 	
 	let fId = worg.fId;
+	let fUId = worg.fUId;
 	let cId = worg.clientId;
 	if ( self.cMap[ cId ]) {
 		self.checkParent( worg );
@@ -70,9 +73,13 @@ ns.WorgCtrl.prototype.add = function( worg ) {
 	}
 	
 	self.fMap[ fId ] = worg;
+	self.fUMap[ fUId ] = worg;
 	self.cMap[ cId ] = worg;
+	
 	self.fIds.push( fId );
+	self.fUIds.push( fUId );
 	self.cIds.push( cId );
+	
 	self.worgUsers[ cId ] = [];
 	self.worgOnlines[ cId ] = [];
 	if ( worg.parentId )
@@ -143,6 +150,7 @@ ns.WorgCtrl.prototype.remove = function( worgId ) {
 	
 	self.emit( 'removed', worg );
 	const fId = worg.fId;
+	const fUId = worg.fUId;
 	const wId = worg.clientId;
 	const members = self.worgUsers[ wId ];
 	self.removeUsers( wId, members );
@@ -151,8 +159,10 @@ ns.WorgCtrl.prototype.remove = function( worgId ) {
 	delete self.worgUsers[ wId ];
 	delete self.worgOnlines[ wId ];
 	delete self.fMap[ fId ];
+	delete self.fUMap[ fUId ];
 	delete self.cMap[ wId ];
 	self.fIds = Object.keys( self.fMap );
+	self.fUIds = Object.keys( self.fUMap );
 	self.cIds = Object.keys( self.cMap );
 }
 
@@ -174,6 +184,20 @@ ns.WorgCtrl.prototype.getByFIdList = function( fIdList ) {
 ns.WorgCtrl.prototype.removeByFID = function( fWorgId ) {
 	const self = this;
 	log( 'removeByFID - NYI', fWorgId );
+}
+
+ns.WorgCtrl.prototype.getByFUId = function( fUWorgId ) {
+	const self = this;
+	const worg = self.fUMap[ fUWorgId ];
+	if ( null == worg ) {
+		log( 'getByFUId - no worg for', {
+			uid : fUWorgId,
+			mapp : Object.keys( self.fUMap ),
+		}, 3 );
+		return null;
+	}
+	
+	return worg;
 }
 
 ns.WorgCtrl.prototype.cIdToFId = function( cId ) {
@@ -431,6 +455,9 @@ ns.WorgCtrl.prototype.handleUserOnline = function( userId, isOnline ) {
 	function addTo( uId, wIds ) {
 		wIds.forEach( wId => {
 			const ol = self.worgOnlines[ wId ];
+			if ( null == ol )
+				return;
+			
 			ol.push( uId );
 		});
 	}
@@ -438,6 +465,9 @@ ns.WorgCtrl.prototype.handleUserOnline = function( userId, isOnline ) {
 	function removeFrom( uId, wIds ) {
 		wIds.forEach( wId => {
 			const ol = self.worgOnlines[ wId ];
+			if ( null == ol )
+				return;
+			
 			const idx = ol.indexOf( uId );
 			//if ( -1 != idx )
 			ol.splice( idx, 1 );
@@ -1211,6 +1241,7 @@ ns.WorgCtrl.prototype.normalizeServiceWorg = function( swg ) {
 	const self = this;
 	const wg = {
 		fId       : self.makeFId( swg.id ),
+		fUId      : swg.uuid,
 		fParentId : getPId( swg.parentid ),
 		name      : swg.name,
 	};

@@ -460,6 +460,7 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.service = new FService();
 	self.serviceConn = new events.RequestNode( 'room', self.service, serviceSink );
 	self.serviceConn.on( 'create', r => self.handleServiceCreate( r ));
+	self.serviceConn.on( 'remove', r => self.handleServiceRemove( r ));
 	self.serviceConn.on( 'get'   , r => self.handleServiceGet( r ));
 	
 	function serviceSink( ...args ) {
@@ -521,23 +522,61 @@ ns.RoomCtrl.prototype.handleServiceCreate = async function( req ) {
 	if ( null == roomName || ( 'string' != typeof( roomName )) || !roomName.length  )
 		throw 'ERR_INVALID_NAME';
 	
+	const worgs = req.workgroups;
+	let assignWorgs = null;
+	if ( null != worgs )
+		assignWorgs = fUIdsToCIds( worgs );
+	
 	let oId = origin.clientId;
 	if ( owner )
 		oId = owner.clientId;
 	
 	const conf = {
-		name : roomName,
+		name        : roomName,
+		assignWorgs : null,
 	};
+	
+	if ( assignWorgs && assignWorgs.length )
+		conf.assignWorgs = assignWorgs;
+	
 	const room = await self.createNamedRoom( oId, conf );
 	const pub = await room.getPublicToken( oId );
+	const roomId = room.id;
+	
+	self.sendRoomJoin( roomId, [ oId ]);
+	
 	const reply = {
-		roomId  : room.id,
-		ownerId : room.ownerId,
+		roomId  : roomId,
+		ownerId : origin.fUserId,
 		name    : room.name,
 		invite  : pub,
 	};
-	
 	return reply;
+	
+	function fUIdsToCIds( uids ) {
+		const cIds = uids.map( uid => {
+			const worg = self.worgs.getByFUId( uid );
+			if ( !worg )
+				return null;
+			else
+				return worg.clientId;
+		}).filter( uid => !!uid );
+		
+		return cIds;
+	}
+}
+
+ns.RoomCtrl.prototype.handleServiceRemove = async function( conf ) {
+	const self = this;
+	const rId = conf.roomId;
+	const room = await self.getRoom( rId );
+	if ( null == room )
+		throw 'ERR_INVALID_ROOM_ID';
+	
+	await room.destroy();
+	room.close();
+	
+	return rId;
 }
 
 ns.RoomCtrl.prototype.handleServiceGet = async function( roomId ) {
@@ -786,6 +825,8 @@ ns.RoomCtrl.prototype.createNamedRoom = async function( ownerId, conf ) {
 		return null;
 	
 	await room.authorizeUser( ownerId );
+	if ( conf.assignWorgs )
+		await room.setWorkgroups( conf.assignWorgs, ownerId );
 	
 	return room;
 }
@@ -1157,6 +1198,17 @@ ns.RoomCtrl.prototype.sendWorkViewJoin = function( roomId, worgId, userList ) {
 	};
 	userList.forEach( uId => {
 		self.emit( uId, join, roomId );
+	});
+}
+
+ns.RoomCtrl.prototype.sendRoomJoin = function( roomId, userList ) {
+	const self = this;
+	const join = {
+		type : 'room-join',
+		data : roomId,
+	};
+	userList.forEach( uId => {
+		self.emit( uId, join );
 	});
 }
 

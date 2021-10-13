@@ -793,17 +793,11 @@ ns.FCWS.prototype.handleFCEvent = function( msgStr ) {
 
 ns.FCWS.prototype.parseToEvent = function( p ) {
 	const self = this;
+	wsLog( 'parseToEvent', p );
 	const path = p.path;
 	const reqId = p.requestId;
 	const payload = p.data;
 	const parts = path.split( '/' );
-	wsLog( 'parseToEvent', {
-		p       : p,
-		path    : path,
-		parts   : parts,
-		reqId   : reqId,
-		payload : payload,
-	}, 3 );
 	let event = null;
 	const inner = {
 		type  : parts.pop(),
@@ -823,7 +817,6 @@ ns.FCWS.prototype.parseToEvent = function( p ) {
 		layer = parts.pop();
 	}
 	
-	wsLog( 'parseToEvent - event', event, 4 );
 	return event;
 	
 	function wrap( type, data ) {

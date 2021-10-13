@@ -771,6 +771,10 @@ ns.Users.prototype.close = function() {
 		user.close();
 	});
 	
+	if ( null != self.removeAtNameTimeout )
+		clearTimeout( self.removeAtNameTimeout );
+	self.removeAtNameTimeout = null;
+	
 	if ( self.msgDb )
 		self.msgDb.close();
 	
@@ -3115,11 +3119,36 @@ ns.Workgroup.prototype.initialize = async function() {
 
 // 
 
+ns.Workgroup.prototype.setAssigned = async function( worgIds, userId ) {
+	const self = this;
+	const currFIds = Object.keys( self.assigned );
+	const curr = currFIds
+		.map( fId => self.worgCtrl.getByFId( fId ))
+		.filter( x => !!x );
+	
+	const dismiss = curr.filter( curr => {
+		const currId = curr.clientId;
+		return !worgIds.some( wId => wId == currId );
+	});
+	
+	const dWaiters = dismiss.map( w => self.dismiss( w ));
+	await Promise.all( dWaiters );
+	
+	const assWaiters = worgIds.map( wId => {
+		const worg = self.worgCtrl.get( wId );
+		return self.assign( worg, userId );
+	});
+	let assFIds = await Promise.all( assWaiters );
+	assFIds = assFIds.filter( aFId => !!aFId );
+	
+	return assFIds;
+}
+
 ns.Workgroup.prototype.get = function() {
 	const self = this;
 	const all = {
 		available : self.getAvailable(),
-		assigned : self.getAssigned(),
+		assigned  : self.getAssigned(),
 	};
 	return all;
 }
@@ -3212,6 +3241,7 @@ ns.Workgroup.prototype.getAssignedForUser = function( userId ) {
 	}
 }
 
+// used by settings
 ns.Workgroup.prototype.updateAssigned = async function( item, userId ) {
 	const self = this;
 	if ( !item || !item.clientId ) {
@@ -3353,11 +3383,11 @@ ns.Workgroup.prototype.init = async function( dbPool ) {
 		self.handleUsersRemoved( worgId, removed ));
 	
 	const assigned = await self.worgCtrl.getAssignedForRoom( self.roomId );
-	self.setAssigned( assigned );
+	self.setDBAssigned( assigned );
 	self.updateSettings();
 }
 
-ns.Workgroup.prototype.setAssigned = function( assigned ) {
+ns.Workgroup.prototype.setDBAssigned = function( assigned ) {
 	const self = this;
 	assigned.forEach( add );
 	self.fIds = Object.keys( self.assigned );

@@ -293,6 +293,7 @@ ns.Account.prototype.bindRoomCtrl = function() {
 	const self = this;
 	self.roomCtrl.on( self.id, roomCtrlEvent );
 	self.roomCtrlEvents = {
+		'room-join'      : rId => self.handleRoomJoin( rId ),
 		'workroom-join'  : workRoomJoin,
 		//'workroom-view'  : workRoomView,
 		'workgroup-join' : workgroupJoin,
@@ -450,6 +451,21 @@ ns.Account.prototype.handleRoomCtrlEvent = function( event, roomId ) {
 	}
 	
 	handler( event.data, roomId );
+}
+
+ns.Account.prototype.handleRoomJoin = async function( roomId ) {
+	const self = this;
+	const canConnect = self.doPreConnect( roomId );
+	if ( !canConnect )
+		return;
+	
+	let room = await self.roomCtrl.connect( self.id, roomId );
+	if ( !room ) {
+		self.clearConnecting( roomId );
+		return;
+	}
+	
+	await self.joinedARoomHooray( room );
 }
 
 ns.Account.prototype.handleWorkRoomJoin = async function( worgId, roomId ) {

@@ -110,6 +110,12 @@ ns.Room.prototype.getState = function() {
 	return state;
 }
 
+ns.Room.prototype.setWorkgroups = async function( worgIds, userId ) {
+	const self = this;
+	const assigned = await self.worgs.setAssigned( worgIds, userId );
+	return assigned;
+}
+
 // when users come online
 ns.Room.prototype.connect = async function( userId ) {
 	const self = this;
@@ -261,6 +267,14 @@ ns.Room.prototype.authenticateInvite = async function( token, userId ) {
 	}
 	
 	return valid;
+}
+
+ns.Room.prototype.destroy = async function() {
+	const self = this;
+	await self.worgs.setAssigned([]);
+	const authed = self.users.getAuthorized();
+	const unsetters = authed.map( uId => self.unAuthUser( uId ));
+	await Promise.all( unsetters );
 }
 
 ns.Room.prototype.close = async function() {
@@ -447,6 +461,9 @@ ns.Room.prototype.loadUsers = async function() {
 
 ns.Room.prototype.checkOnline = function() {
 	const self = this;
+	if ( !self.users )
+		return;
+	
 	const online = self.users.getOnline();
 	if ( 0 !== online.length )
 		return;
@@ -803,7 +820,7 @@ ns.Room.prototype.unAuthUser = async function( uid ) {
 	
 	let ass = self.worgs.getAssignedForUser( uid );
 	if ( !ass || !ass.length )
-		disconnect( uid );
+		await disconnect( uid );
 	else
 		showInWorkgroup( uid, ass[ 0 ]);
 	
@@ -820,7 +837,7 @@ ns.Room.prototype.unAuthUser = async function( uid ) {
 	}
 	
 	function disconnect( uid ) {
-		self.removeUser( uid );
+		return self.removeUser( uid );
 	}
 }
 
