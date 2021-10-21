@@ -779,11 +779,21 @@ ns.FCWS.prototype.handleFCEvent = function( msgStr ) {
 		return;
 	}
 	
-	if ( !event )
+	if ( null == event )
 		return;
 	
-	if ( event.path )
-		event = self.parseToEvent( event );
+	if ( null == event.type ) {
+		try {
+			event = self.parseToEvent( event );
+		} catch( ex ) {
+			wsLog( 'handleFCEvent - failed to parse event', ex );
+		}
+		
+		if ( null == event )
+			return;
+		
+		wsLog( 'parsed event', event, 4 );
+	}
 	
 	if ( self.logEvents && ( 'ping' != event.type ) && ( 'pong' != event.type ))
 		wsLog( 'FCEvent', msgStr );
@@ -791,20 +801,50 @@ ns.FCWS.prototype.handleFCEvent = function( msgStr ) {
 	self.emit( event.type, event.data );
 }
 
-ns.FCWS.prototype.parseToEvent = function( p ) {
+ns.FCWS.prototype.parseToEvent = function( e ) {
 	const self = this;
-	wsLog( 'parseToEvent', p );
-	const path = p.path;
-	const reqId = p.requestId;
-	const payload = p.data;
-	const parts = path.split( '/' );
+	wsLog( 'parseToEvent', e, 4 );
+	let oUId = null;
+	if ( e.originUserId )
+		oUId = e.originUserId;
+	
+	const path = e.path;
+	if ( null == path )
+		return null;
+	
+	const reqId = e.requestId;
+	const payload = e.data;
+	const parts = path
+		.split( '/' )
+		.filter( p => {
+			if ( null == p )
+				return false;
+			if ( '' == p )
+				return false;
+			
+			return true;
+		});
+	
+	if ( 5 < parts.length ) {
+		wsLog( 'parseToEvent - dropped because parts', [ e, parts ], 3 );
+		return null;
+	}
+	
 	let event = null;
 	const inner = {
 		type  : parts.pop(),
-		data  : payload,
+		data  : null,
 	};
 	if ( reqId )
 		inner.requestId = reqId;
+	
+	if ( oUId )
+		inner.data = {
+			originUserId : oUId,
+			data         : payload,
+		}
+	else
+		inner.data = payload;
 	
 	let layer = parts.pop();
 	if ( !layer )

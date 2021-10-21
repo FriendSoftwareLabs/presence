@@ -94,12 +94,16 @@ ns.Emitter.prototype.emit = function( event, ...handlerArgs ) {
 	listenerIds.forEach( sendOnListener );
 	return null;
 	
-	function sendOnListener( id ) {
+	async function sendOnListener( id ) {
 		const listener = self._emitterListeners[ id ];
 		if ( !listener )
 			return;
 		
-		listener.apply( self, handlerArgs );
+		try {
+			await listener.apply( self, handlerArgs );
+		} catch( ex ) {
+			log( 'emit ex', ex );
+		}
 	}
 }
 
@@ -376,7 +380,11 @@ ns.RequestNode.prototype._handleEvent = async function( ...args ) {
 	if ( !reqId ) {
 		args.unshift( event.data );
 		args.unshift( event.type );
-		self.emit.apply( self, args );
+		try {
+			self.emit.apply( self, args );
+		} catch( ex ) {
+			rLog( '_handleEvent - emit ex', ex );
+		}
 		return;
 	}
 	
@@ -394,7 +402,7 @@ ns.RequestNode.prototype._handleRequest = async function( event, sourceId ) {
 		rLog( '_handleRequest', {
 			event    : event,
 			sourceId : sourceId,
-		});
+		}, 3 );
 	
 	const reqId = event.requestId;
 	let response = null;
@@ -419,7 +427,7 @@ ns.RequestNode.prototype._handleRequest = async function( event, sourceId ) {
 		error     : error,
 	};
 	if ( self._eventsDebug )
-		rLog( '_handleRequest - response', response );
+		rLog( '_handleRequest - response', response, 3 );
 	
 	self.send( res, sourceId );
 }

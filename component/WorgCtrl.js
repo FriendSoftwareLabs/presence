@@ -494,12 +494,22 @@ ns.WorgCtrl.prototype.bindService = function() {
 
 ns.WorgCtrl.prototype.handleGroupCreate = function( swg ) {
 	const self = this;
+	if ( null == swg )
+		return;
+	if ( null != swg.originUserId )
+		return;
+	
 	const wg = self.normalizeServiceWorg( swg );
 	self.add( wg );
 }
 
 ns.WorgCtrl.prototype.handleGroupUpdate = function( swg ) {
 	const self = this;
+	if ( null == swg )
+		return;
+	if ( null != swg.originUserId )
+		return;
+	
 	const uptd = self.normalizeServiceWorg( swg );
 	const curr = self.get( uptd.clientId );
 	if ( !curr ) {
@@ -535,6 +545,11 @@ ns.WorgCtrl.prototype.handleGroupUpdate = function( swg ) {
 
 ns.WorgCtrl.prototype.handleGroupDelete = function( swg ) {
 	const self = this;
+	if ( null == swg )
+		return;
+	if ( null != swg.originUserId )
+		return;
+	
 	const fId = self.makeFId( swg.id );
 	const wId = self.makeClientId( fId );
 	self.remove( wId );
@@ -542,6 +557,11 @@ ns.WorgCtrl.prototype.handleGroupDelete = function( swg ) {
 
 ns.WorgCtrl.prototype.handleAddUsers = async function( event ) {
 	const self = this;
+	if ( null == event )
+		return;
+	if ( null != event.originUserId )
+		return;
+	
 	if ( !event.userids || !event.userids.length )
 		return;
 	
@@ -567,6 +587,11 @@ ns.WorgCtrl.prototype.handleAddUsers = async function( event ) {
 
 ns.WorgCtrl.prototype.handleSetUsers = async function( event ) {
 	const self = this;
+	if ( null == event )
+		return;
+	if ( null != event.originUserId )
+		return;
+	
 	if ( !event.groupid || !event.userids ) {
 		log( 'handleSetUsers - invalid event', event );
 		return;
@@ -615,6 +640,11 @@ ns.WorgCtrl.prototype.handleSetUsers = async function( event ) {
 
 ns.WorgCtrl.prototype.handleRemoveUsers = async function( event ) {
 	const self = this;
+	if ( null == event )
+		return;
+	if ( null != event.originUserId )
+		return;
+	
 	if ( !event.userids || !event.userids.length )
 		return;
 	

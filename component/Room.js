@@ -78,6 +78,7 @@ ns.Room.prototype.getInfo = function() {
 		clientId : self.id,
 		name     : self.name,
 		avatar   : self.avatar,
+		owner    : self.ownerId,
 	};
 	return info;
 }

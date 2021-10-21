@@ -224,6 +224,11 @@ ns.UserCtrl.prototype.init = function() {
 
 ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 	const self = this;
+	if ( null == fUpdate )
+		return;
+	if ( null != fUpdate.originUserId )
+		return;
+	
 	const fUId = fUpdate.userid;
 	const fUser = await self.service.getUser( fUId );
 	self.update( fUser );
@@ -254,6 +259,11 @@ ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 
 ns.UserCtrl.prototype.createUserRelation = async function( req ) {
 	const self = this;
+	if ( null == req )
+		return null;
+	if ( null != req.originUserId )
+		return null;
+	
 	if ( null == req.sourceId ) {
 		log( 'createUserRelation - no sourceId', req );
 		return [];

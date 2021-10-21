@@ -458,7 +458,7 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.invDb = new dFace.InviteDB( self.dbPool );
 	
 	self.service = new FService();
-	self.serviceConn = new events.RequestNode( 'room', self.service, serviceSink );
+	self.serviceConn = new events.RequestNode( 'room', self.service, serviceSink, null, true );
 	self.serviceConn.on( 'create', r => self.handleServiceCreate( r ));
 	self.serviceConn.on( 'remove', r => self.handleServiceRemove( r ));
 	self.serviceConn.on( 'get'   , r => self.handleServiceGet( r ));
@@ -505,9 +505,17 @@ ns.RoomCtrl.prototype.handleIdUpdate = async function( update ) {
 
 ns.RoomCtrl.prototype.handleServiceCreate = async function( req ) {
 	const self = this;
-	const origin = await self.idCache.getByFUserId( req.originUserId );
-	if ( !origin )
+	if ( null == req )
+		throw 'ERR_NO_REQ';
+	if ( null == req.originUserId )
 		throw 'ERR_NO_ORIGIN';
+	
+	const oUId = req.originUserId;
+	const data = req.data;
+	
+	const origin = await self.idCache.getByFUserId( oUId );
+	if ( !origin )
+		throw 'ERR_INVALID_ORIGIN';
 	
 	let owner = null;
 	/*
@@ -518,11 +526,11 @@ ns.RoomCtrl.prototype.handleServiceCreate = async function( req ) {
 		throw 'ERR_NOT_ADMIN';
 	*/
 	
-	const roomName = req.name;
+	const roomName = data.name;
 	if ( null == roomName || ( 'string' != typeof( roomName )) || !roomName.length  )
 		throw 'ERR_INVALID_NAME';
 	
-	const worgs = req.workgroups;
+	const worgs = data.workgroups;
 	let assignWorgs = null;
 	if ( null != worgs )
 		assignWorgs = fUIdsToCIds( worgs );
@@ -566,12 +574,28 @@ ns.RoomCtrl.prototype.handleServiceCreate = async function( req ) {
 	}
 }
 
-ns.RoomCtrl.prototype.handleServiceRemove = async function( conf ) {
+ns.RoomCtrl.prototype.handleServiceRemove = async function( req ) {
 	const self = this;
-	const rId = conf.roomId;
+	log( 'handleServiceRemove', req );
+	if ( null == req )
+		throw 'ERR_NO_REQ';
+	if ( null == req.originUserId )
+		throw 'ERR_NO_ORIGIN_USER';
+	
+	const oUId = req.originUserId;
+	const data = req.data;
+	const origin = await self.idCache.getByFUserId( oUId );
+	if ( null == origin )
+		throw 'ERR_INVALID_ORIGIN';
+	
+	const rId = data.roomId;
 	const room = await self.getRoom( rId );
 	if ( null == room )
 		throw 'ERR_INVALID_ROOM_ID';
+	
+	const info = room.getInfo();
+	if ( origin.clientId !== info.ownerId )
+		throw 'ERR_NOT_OWNER';
 	
 	await room.destroy();
 	room.close();
@@ -579,9 +603,19 @@ ns.RoomCtrl.prototype.handleServiceRemove = async function( conf ) {
 	return rId;
 }
 
-ns.RoomCtrl.prototype.handleServiceGet = async function( roomId ) {
+ns.RoomCtrl.prototype.handleServiceGet = async function( req ) {
 	const self = this;
-	const rId = roomId;
+	if( null == req )
+		throw 'ERR_NO_REQ';
+	if ( null == req.originUserId )
+		throw 'ERR_NO_ORIGIN_USER';
+	
+	const oUId = req.originUserId;
+	const roomId = req.data;
+	const origin = await self.idCache.getByFUserId( oUId );
+	if ( null == origin )
+		throw 'ERR_INVALID_ORIGIN';
+	
 	const dbInfo = await self.roomDb.getInfo( roomId );
 	if ( dbInfo.workgroups )
 		dbInfo.workgroups = dbInfo.workgroups.map( addWGUserInfo );
