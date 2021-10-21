@@ -57,6 +57,9 @@ ns.TCPClient = function( tcpSocket ) {
 */
 util.inherits( ns.TCPClient, Emitter );
 
+// returns a promise that resolves when the msg is done sending
+// resolves to null on success
+// resolves to the exception on failure
 ns.TCPClient.prototype.send = function( msg ) {
 	const self = this;
 	const wrap = {
@@ -66,7 +69,8 @@ ns.TCPClient.prototype.send = function( msg ) {
 	return self.sendOnSocket( wrap );
 }
 
-ns.TCPClient.prototype.setSession = function( sid ) {
+// resolves to true or false, does not throw
+ns.TCPClient.prototype.setSession = async function( sid ) {
 	const self = this;
 	if ( sid )
 		self.sessionId = sid;
@@ -75,17 +79,28 @@ ns.TCPClient.prototype.setSession = function( sid ) {
 		type : 'session',
 		data : self.sessionId,
 	};
-	return self.sendCon( set );
+	const ex = await self.sendCon( set );
+	if ( null == ex )
+		return true;
+	
+	log( 'setSession ex', ex );
+	return false;
 }
 
-ns.TCPClient.prototype.unsetSession = function() {
+// resolves to true or false, does not throw
+ns.TCPClient.prototype.unsetSession = async function() {
 	const self = this;
 	self.sessionId = null;
 	const unset = {
 		type : 'session',
 		data : null,
 	};
-	return self.sendCon( unset );
+	const ex = await self.sendCon( unset );
+	if ( null == ex )
+		return true;
+	
+	log( 'unsetSession ex', ex );
+	return false;
 }
 
 ns.TCPClient.prototype.close = function() {
@@ -348,6 +363,7 @@ ns.TCPClient.prototype.handlePing = function( timestamp ) {
 	self.sendCon( pong );
 }
 
+// returns a promise that resolves when the msg is sent, or sending failed
 ns.TCPClient.prototype.sendCon = function( msg ) {
 	const self = this;
 	return self.sendOnSocket( msg );

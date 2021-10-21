@@ -49,7 +49,7 @@ util.inherits( ns.Session, Emitter );
 // Public
 
 // system attaches a new client connection
-ns.Session.prototype.attach = function( conn ) {
+ns.Session.prototype.attach = async function( conn ) {
 	const self = this;
 	if ( !conn )
 		return;
@@ -59,13 +59,19 @@ ns.Session.prototype.attach = function( conn ) {
 		self.sessionTimer = null;
 	}
 	
-	const cid = conn.id;
-	self.connections[ cid ] = conn;
-	self.connIds.push( cid );
-	conn.on( 'msg', handleEvent );
-	conn.setSession( self.id );
 	
-	function handleEvent( e ) { self.handleEvent( e, cid ); }
+	const cId = conn.id;
+	self.connections[ cId ] = conn;
+	self.connIds.push( cId );
+	conn.on( 'msg', e => self.handleEvent( e, cId ));
+	const ok = await conn.setSession( self.id );
+	if ( ok )
+		return true;
+	
+	conn.release( 'msg' );
+	delete self.connections[ cId ];
+	self.connIds = Object.keys( self.connections );
+	return false;
 }
 
 // system detaches a ( most likely closed ) client connection
