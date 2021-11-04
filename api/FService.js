@@ -107,6 +107,9 @@ ns.FService.prototype.sendNotification = async function(
 		destApp
 	) {
 	const self = this;
+	
+	return true;
+	
 	extra = checkExtra( extra );
 	destApp = self.checkString( destApp ) || self.destApp;
 	channel = self.checkString( channel );
@@ -390,7 +393,7 @@ ns.FService.prototype.setCallback = function(
 		event   : req,
 		resolve : resolve,
 		reject  : reject,
-		timeout : setTimeout( timeoutHit, 1000 * 15 ),
+		timeout : setTimeout( timeoutHit, 1000 * 3 ),
 	};
 	
 	function timeoutHit() {
