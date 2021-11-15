@@ -96,7 +96,6 @@ async function loadFromFC( fcInfo ) {
 }
 
 function openComms() {
-	log( 'openComms' );
 	if ( presence.conn )
 		return;
 	
@@ -107,6 +106,8 @@ function openComms() {
 		presence.rooms,
 		fcReq
 	);
+	
+	log( 'now listening for client connections' );
 }
 
 process.on( 'unhandledRejection', err => {

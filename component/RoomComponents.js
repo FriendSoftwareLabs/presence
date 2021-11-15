@@ -1115,17 +1115,60 @@ ns.Chat.prototype.sendMsgNotification = async function( msg, fromId ) {
 	if ( !userList.length )
 		return;
 	
-	try {
-		await self.service.sendNotification(
-			userList,
-			roomName,
-			notie,
-			self.roomId,
-			time,
-			extra
-		);
-	} catch ( err ) {
-		cLog( 'sendMsgNotification - err', err );
+	const notieArgs = [
+		userList,
+		roomName,
+		notie,
+		self.roomId,
+		time,
+		extra,
+	];
+	
+	await self.sendNotification( notieArgs );
+}
+
+ns.Chat.prototype.sendNotification = async function( notieArgs, retries ) {
+	const self = this;
+	if ( null != retries )
+		cLog( 'sendNotification', [ notieArgs.length, retries ]);
+	
+	if ( 3 <= retries ) {
+		cLog( 'sendNotification - too many retries', {
+			msg     : notieArgs,
+			retries : retries,
+		});
+		return false;
+	}
+	
+	const res = await send( notieArgs, retries );
+	if ( null != retries )
+		cLog( 'sendNotification - res', [ res, retries ]);
+	
+	return res;
+	
+	function send( nargs, ries ) {
+		return new Promise(( resolve, reject ) => {
+			self.service.sendNotification( ...notieArgs )
+				.then( resolve )
+				.catch( e => {
+					setTimeout( retry, 1000 * 10 );
+				});
+			
+			async function retry() {
+				if ( null == ries )
+					ries = 1;
+				else
+					ries++;
+				
+				cLog( 'retry', [
+					nargs,
+					ries,
+				]);
+				
+				const res = await self.sendNotification( nargs, ries );
+				resolve( res );
+			}
+		});
 	}
 }
 

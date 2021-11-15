@@ -107,9 +107,6 @@ ns.FService.prototype.sendNotification = async function(
 		destApp
 	) {
 	const self = this;
-	
-	return true;
-	
 	extra = checkExtra( extra );
 	destApp = self.checkString( destApp ) || self.destApp;
 	channel = self.checkString( channel );
@@ -125,25 +122,31 @@ ns.FService.prototype.sendNotification = async function(
 		throw new Error( 'ERR_INVALID_ARGUMENTS' );
 	}
 	
+	const reqId = uuid.get( 'req' );
 	const notie = {
 		type : 'notification',
 		data : {
-			users             : users,
-			channel_id        : channel,
-			notification_type : 1,
-			title             : title,
-			message           : message,
-			timecreated       : timestamp,
-			extra             : extra,
-			application       : destApp,
+			requestid    : reqId,
+			notification : {
+				users             : users,
+				channel_id        : channel,
+				notification_type : 1,
+				title             : title,
+				message           : message,
+				timecreated       : timestamp,
+				extra             : extra,
+				application       : destApp,
+			},
 		},
 	};
 	
-	//log( 'sendNotification', notie, 4 );
-	
-	let err = await self.send( notie );
-	if ( err )
-		throw err;
+	let res = null;
+	try {
+		 res = await self.sendRequest( notie, reqId );
+	} catch( ex ) {
+		log( 'sendNotification error', ex );
+		throw ex;
+	}
 	
 	return true;
 	
@@ -280,6 +283,7 @@ ns.FService.prototype.connect = function() {
 	
 	if ( !self.fcc.serviceKey ) {
 		log( 'FService.connect - no service key, aborting', self.fcc );
+		process.exit( 1 );
 		return;
 	}
 	
@@ -360,6 +364,9 @@ ns.FService.prototype.send = async function( event ) {
 
 ns.FService.prototype.sendRequest = function( req, reqId ) {
 	const self = this;
+	if ( null == reqId )
+		throw 'ERR_NO_REQID';
+	
 	return new Promise(( resolve, reject ) => {
 		self.setCallback(
 			req,
@@ -393,17 +400,14 @@ ns.FService.prototype.setCallback = function(
 		event   : req,
 		resolve : resolve,
 		reject  : reject,
-		timeout : setTimeout( timeoutHit, 1000 * 3 ),
+		timeout : setTimeout( timeoutHit, 1000 * 5 ),
 	};
 	
 	function timeoutHit() {
-		const req = self.requests[ reqId ];
 		log( 'request timeout hit', req, 3 );
-		if ( !req )
-			return;
-		
-		req.timeout = true;
-		req.reject( 'ERR_REQUEST_TIMEOUT' );
+		self.ready = false;
+		self.connect();
+		self.cancelAllRequests( 'ERR_REQUEST_TIMEOUT' );
 	}
 }
 
@@ -442,18 +446,42 @@ ns.FService.prototype.handleReply = function( event ) {
 	
 }
 
+ns.FService.prototype.freezeAllRequests = function() {
+	const self = this;
+	const rIds = Object.keys( self.requests );
+	rIds.forEach( rId => {
+		const req = self.requests[ rId ];
+		if ( null == req )
+			return;
+		
+		if ( null == req.timeout )
+			return;
+		
+		clearTimeout( req.timeout );
+		req.timeout = true;
+	});
+}
+
+ns.FService.prototype.cancelAllRequests = function( errMsg ) {
+	const self = this;
+	const rIds = Object.keys( self.requests );
+	rIds.forEach( rId => {
+		self.cancelRequest( rId, errMsg );
+	});
+}
+
 ns.FService.prototype.cancelRequest = function( reqId, err ) {
 	const self = this;
 	const req = self.requests[ reqId ];
+	delete self.requests[ reqId ];
 	if ( !req )
 		return;
 	
 	const to = req.timeout;
-	if ( true !== to )
+	if (( true !== to ) && ( null != to ))
 		clearTimeout( to );
 	
-	delete self.requests[ reqId ];
-	request.reject( err );
+	req.reject( err );
 }
 
 ns.FService.prototype.checkString = function( str ) {

@@ -1632,18 +1632,16 @@ ns.WorkChat.prototype.sendWorkMsgNotification = async function( msg ) {
 	if ( !userList.length )
 		return;
 	
-	try {
-		await self.service.sendNotification(
-			userList,
-			roomName,
-			notie,
-			extra.roomId,
-			time,
-			extra
-		);
-	} catch ( err ) {
-		cLog( 'sendWorkMsgNotification - err', err );
-	}
+	const notieArgs = [
+		userList,
+		roomName,
+		notie,
+		extra.roomId,
+		time,
+		extra,
+	];
+	
+	await self.sendNotification( notieArgs );
 }
 
 ns.WorkChat.prototype.createMsgView = function( input, userId ) {
