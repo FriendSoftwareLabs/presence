@@ -850,6 +850,7 @@ ns.Room.prototype.handleJoinLive = function( uId, liveId ) {
 
 ns.Room.prototype.handleRestoreLive = function( uId, liveId ) {
 	const self = this;
+	log( 'handleRestoreLive', [ uId, liveId ], 3 );
 	self.live.restore( uId, liveId );
 }
 

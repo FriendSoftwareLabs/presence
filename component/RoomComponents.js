@@ -1383,7 +1383,7 @@ ns.Live.prototype.add = async function( userId, liveId ) { //adds user to existi
 	}
 	
 	if ( !liveId ) {
-		lLog( 'add - no clientId', user );
+		lLog( 'add - no client reference', user );
 		return;
 	}
 	
@@ -1443,10 +1443,17 @@ ns.Live.prototype.add = async function( userId, liveId ) { //adds user to existi
 
 ns.Live.prototype.restore = async function( userId, conf ) {
 	const self = this;
+	const liveId = conf.clientId;
+	lLog( 'restore', {
+		uId    : userId,
+		conf   : conf,
+		liveId : liveId,
+		isPeer : !!self.peers[ userId ],
+	}, 3 );
 	if ( self.peers[ userId ])
-		self.sendOpen( userId );
+		self.sendOpen( userId, liveId );
 	else
-		await self.add( userId, conf.clientId );
+		await self.add( userId, liveId );
 	
 	self.sendPeerList( userId );
 }
@@ -2213,6 +2220,7 @@ ns.Live.prototype.sendJoin = function( joinedId ) {
 
 ns.Live.prototype.sendOpen  = function( pid, clientId ) {
 	const self = this;
+	lLog( 'sendOpen', [ pid, clientId ]);
 	let topology = 'peer';
 	if ( self.proxy )
 		topology = 'star';
@@ -2427,6 +2435,7 @@ ns.Invite.prototype.init = function( pool, roomId ) {
 ns.Invite.prototype.loadTokens = async function() {
 	const self = this;
 	let dbTokens = null;
+	// currently only loads public tokens
 	dbTokens = await self.db.getForRoom();
 	dbTokens.map( inv => {
 		const invite = {

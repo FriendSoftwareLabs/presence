@@ -1776,6 +1776,7 @@ BEGIN
 
 SELECT * FROM invite_token AS inv
 WHERE inv.roomId = roomId
+AND inv.type = 'public'
 AND inv.isValid = 1;
 
 END//

@@ -1806,6 +1806,7 @@ ns.InviteDB.prototype.checkExists = async function( targetId, roomId ) {
 	return !!row;
 }
 
+// currently only loads public tokens
 ns.InviteDB.prototype.getForRoom = async function( roomId ) {
 	const self = this;
 	roomId = roomId || self.roomId;
