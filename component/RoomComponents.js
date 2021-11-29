@@ -96,6 +96,7 @@ ns.Users.prototype.initialize = async function() {
 ns.Users.prototype.set = async function( user ) {
 	const self = this;
 	const cId = user.clientId;
+	uLog( 'set', cId );
 	if ( !cId ) {
 		try {
 			throw new Error( 'not a real user' );
@@ -174,6 +175,7 @@ ns.Users.prototype.getList = function( workgroupId ) {
 ns.Users.prototype.remove = function( userId ) {
 	const self = this;
 	const user = self.everyone[ userId ];
+	let removedUser = null;
 	if ( !user )
 		return;
 	
@@ -182,6 +184,7 @@ ns.Users.prototype.remove = function( userId ) {
 	if ( user.isAdmin )
 		self.removeAdmin( userId );
 	
+	const inEveryone = !!self.everyone[ userId ];
 	delete self.everyone[ userId ];
 	const uIdx = self.everyId.indexOf( userId );
 	if ( -1 !== uIdx )
@@ -190,13 +193,13 @@ ns.Users.prototype.remove = function( userId ) {
 	const aIdx = self.authorized.indexOf( userId );
 	if ( -1 !== aIdx ) {
 		self.authorized.splice( aIdx, 1 );
-		return user;
+		removeUser = user;
 	}
 	
 	const gIdx = self.guests.indexOf( userId );
 	if ( -1 !== gIdx ) {
 		self.guests.splice( gIdx, 1 );
-		return user;
+		removedUser = user;
 	}
 	
 	const removedFromWorg = self.wIds.some( wId => {
@@ -209,15 +212,15 @@ ns.Users.prototype.remove = function( userId ) {
 		return true;
 	});
 	
-	self.removeAtName( user.name );
+	self.removeAtName( userId );
 	
 	if ( removedFromWorg ) {
 		self.updateViewMembers();
-		return user;
+		removedUser = user;
 	}
 	
 	//uLog( 'remove - not found in things', userId );
-	return null;
+	return removedUser;
 }
 
 ns.Users.prototype.setActive = function( isActive, userId ) {
@@ -361,9 +364,9 @@ ns.Users.prototype.checkAddToAtList = function( userId ) {
 	return name;
 }
 
-ns.Users.prototype.removeAtName = function( name ) {
+ns.Users.prototype.removeAtName = function( userId ) {
 	const self = this;
-	self.atNameRemoveList.push( name );
+	self.atNameRemoveList.push( userId );
 	if ( null != self.removeAtNameTimeout )
 		return;
 	
@@ -380,12 +383,11 @@ ns.Users.prototype.doAtNameUpdate = function() {
 	self.atNameRemoveList = [];
 	const names = {};
 	self.everyId.forEach( uId => {
-		const name = self.checkAddToAtList( uId );
-		if ( null == name )
-			return;
-		
+		const user = self.get( uId );
+		const name = user.name;
 		names[ name ] = true;
 	});
+	
 	self.atNames = Object.keys( names );
 	const uptd = {
 		type : 'at-names',

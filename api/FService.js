@@ -193,10 +193,10 @@ ns.FService.prototype.getWorkgroupList = async function() {
 /* Get a list of all Friend users and when they were last updated
 
 Returns a promise that resolves to a list of user objects:
-{
+[{
 	userid     : <uuid string>
 	lastupdate : <unix timestamp>
-}
+}, .. ]
 */
 ns.FService.prototype.getUserList = async function() {
 	const self = this;
