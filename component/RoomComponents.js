@@ -96,7 +96,6 @@ ns.Users.prototype.initialize = async function() {
 ns.Users.prototype.set = async function( user ) {
 	const self = this;
 	const cId = user.clientId;
-	uLog( 'set', cId );
 	if ( !cId ) {
 		try {
 			throw new Error( 'not a real user' );
@@ -642,9 +641,21 @@ ns.Users.prototype.removeViewGroup = function( worgId ) {
 	self.updateViewMembers();
 }
 
-ns.Users.prototype.setPersistent = function( isPersistent ) {
+ns.Users.prototype.setPersistent = async function( isPersistent ) {
 	const self = this;
+	if ( isPersistent === self.isPersistent )
+		return;
+	
 	self.isPersistent = !!isPersistent;
+	if ( true !== self.isPersistent )
+		return;
+	
+	const uIds = Object.keys( self.lastRead );
+	const setters = uIds.map( uId => {
+		return self.msgDb.setRoomUserMessages( uId );
+	});
+	
+	const res = await Promise.all( setters );
 }
 
 ns.Users.prototype.send = function( targetId, event ) {
@@ -828,11 +839,15 @@ ns.Users.prototype.trimRecent = function() {
 
 ns.Users.prototype.addLastRead = async function( userId ) {
 	const self = this;
-	if ( undefined !== self.lastRead[ userId ]) {
+	const LR = self.lastRead[ userId ];
+	if ( undefined !== LR ) {
 		return;
 	}
 	
 	self.lastRead[ userId ] = null;
+	if ( !self.isPersistent )
+		return;
+	
 	const res = await self.msgDb.setRoomUserMessages( userId );
 }
 
@@ -928,6 +943,7 @@ const cLog = require( './Log' )( 'Room > Chat' );
 ns.Chat = function(
 	roomId,
 	roomName,
+	isPrivate,
 	users,
 	log,
 	service,
@@ -937,6 +953,7 @@ ns.Chat = function(
 	
 	self.roomId = roomId;
 	self.roomName = roomName;
+	self.isPrivate = isPrivate;
 	self.users = users;
 	self.log = log;
 	self.service = service;
@@ -988,8 +1005,8 @@ ns.Chat.prototype.init = function() {
 		'log'       : log,
 		'state'     : state,
 		'confirm'   : confirm,
-		'edit-get'  : ( e, uid ) => { return self.handleEditGet( e, uid ); },
-		'edit-save' : ( e, uid ) => { return self.handleEditSave( e, uid ); },
+		//'edit-get'  : ( e, uid ) => { return self.handleEditGet( e, uid ); },
+		//'edit-save' : ( e, uid ) => { return self.handleEditSave( e, uid ); },
 	};
 	
 	function msg( e, uid ) { self.createMsg( e, uid ); }
@@ -997,7 +1014,7 @@ ns.Chat.prototype.init = function() {
 	function state( e, uid ) { self.handleState( e, uid ); }
 	function confirm( e, uid ) { self.handleConfirm( e, uid ); }
 }
-
+ 
 ns.Chat.prototype.handleChat = function( event, userId ) {
 	const self = this;
 	if ( event.requestId ) {
@@ -1022,24 +1039,23 @@ ns.Chat.prototype.handleRequest = async function( event, userId ) {
 	let res = null;
 	let err = null;
 	try {
+		if ( 'msg-get' === type )
+			res = await self.handleMsgGet( req, userId );
+		
 		if ( 'edit-get' === type )
 			res = await self.handleEditGet( req, userId );
 		
 		if ( 'edit-save' === type )
 			res = await self.handleEditSave( req, userId );
 		
+		if ( 'delete' === type )
+			res = await self.handleDelete( req, userId );
+		
 	} catch( err ) {
 		cLog( 'handleRequest - err', err );
 	}
 	
 	self.returnRequest( err, res, reqId, userId );
-}
-
-ns.Chat.prototype.handleEditGet = async function( event, userId ) {
-	const self = this;
-	const msgId = event.msgId;
-	const msg = await self.log.getEvent( msgId );
-	return msg;
 }
 
 ns.Chat.prototype.returnRequest = function( err, res, reqId, userId ) {
@@ -1131,9 +1147,6 @@ ns.Chat.prototype.sendMsgNotification = async function( msg, fromId ) {
 
 ns.Chat.prototype.sendNotification = async function( notieArgs, retries ) {
 	const self = this;
-	if ( null != retries )
-		cLog( 'sendNotification', [ notieArgs.length, retries ]);
-	
 	if ( 3 <= retries ) {
 		cLog( 'sendNotification - too many retries', {
 			msg     : notieArgs,
@@ -1185,11 +1198,25 @@ ns.Chat.prototype.handleLog = async function( event, userId ) {
 	self.send( log, userId );
 }
 
+ns.Chat.prototype.handleMsgGet = async function( event, userId ) {
+	const self = this;
+	const mId = event.msgId;
+	const msg = await self.log.getEvent( mId );
+	return msg || null;
+}
+
+ns.Chat.prototype.handleEditGet = async function( event, userId ) {
+	const self = this;
+	const msgId = event.msgId;
+	const msg = await self.log.getEvent( msgId );
+	return msg;
+}
+
 ns.Chat.prototype.handleEditSave = async function( event, userId ) {
 	const self = this;
 	const mId = event.msgId;
 	const msg = event.message;
-	const reason = event.reason;
+	const reason = event.reason || '';
 	let dbMsg = await self.log.getEvent( mId );
 	if ( !dbMsg )
 		return error( 'ERR_EVENT_NOT_FOUND' );
@@ -1206,7 +1233,10 @@ ns.Chat.prototype.handleEditSave = async function( event, userId ) {
 		if ( !isAuthor && !isAdmin )
 			return error( 'ERR_EDIT_NOT_ALLOWED' );
 		
-		if ( !reason || !reason.length || !( 'string' === typeof( reason )) )
+		if ( 'string' !== typeof( reason ))
+			return error( 'ERR_EDIT_INVALID_REASON' );
+		
+		if ( !reason.length ) 
 			return error( 'ERR_EDIT_NO_REASON' );
 		
 		result = await editMessage(
@@ -1252,11 +1282,11 @@ ns.Chat.prototype.handleEditSave = async function( event, userId ) {
 	}
 	
 	function error( err ) {
-		const errEv = {
+		const errE = {
 			type : 'error',
 			data : err,
 		};
-		return errEv;
+		return errE;
 	}
 	
 	function checkIsGrace( msgTime ) {
@@ -1274,7 +1304,62 @@ ns.Chat.prototype.handleEditSave = async function( event, userId ) {
 	}
 }
 
-ns.Chat.prototype.broadcastEdit = async function( type, eventId, editerId ) {
+ns.Chat.prototype.handleDelete = async function( event, userId ) {
+	const self = this;
+	const user = self.users.get( userId );
+	if ( !user.isAdmin )
+		return error( 'ERR_NOT_ADMIN' );
+	
+	const mId = event.msgId;
+	const dbE = await self.log.getEvent( mId );
+	const msg = dbE.data;
+	if ( null == msg )
+		return error( 'ERR_NO_MESSAGE' );
+	
+	if ( msg.roomId != self.roomId )
+		return error( 'ERR_DELETE_NOT_ALLOWED' );
+	
+	const lastList = await self.log.getLast();
+	const lastLog = lastList[ 0 ];
+	let deletedLast = false;
+	if ( null != lastLog )
+		if ( lastLog.data.msgId === mId )
+			deletedLast = true;
+	
+	let delMsg = null;
+	try {
+		delMsg = await self.log.deleteEvent( mId, userId );
+	} catch( ex ) {
+		cLog( 'handleDelete deleteEVent ex', ex );
+		return error( ex );
+	}
+	
+	if ( delMsg  )
+		self.broadcastRemove( mId );
+	else
+		return error( 'ERR_DELETE_FAIL' );
+	
+	if ( deletedLast )
+		await self.broadcastLastMessage();
+	
+	return {
+		type : 'delete',
+		data : {
+			msgId : mId,
+		},
+	};
+	
+	function error( err ) {
+		return {
+			type : 'error',
+			data : {
+				error : err,
+			},
+		};
+	}
+}
+
+ns.Chat.prototype.broadcastEdit = async function( type, eventId ) {
 	const self = this;
 	const editedEvent = await self.log.getEvent( eventId );
 	const update = {
@@ -1282,6 +1367,32 @@ ns.Chat.prototype.broadcastEdit = async function( type, eventId, editerId ) {
 		data : editedEvent,
 	};
 	self.broadcast( update );
+}
+
+ns.Chat.prototype.broadcastRemove = function( eventId ) {
+	const self = this;
+	const remove = {
+		type : 'remove',
+		data : eventId,
+	};
+	self.broadcast( remove );
+}
+
+ns.Chat.prototype.broadcastLastMessage = async function() {
+	const self = this;
+	const list = await self.log.getLast( 1, false );
+	if ( null == list )
+		return;
+	
+	const last = list[ 0 ];
+	if ( null == last )
+		return;
+	
+	const lm = {
+		type : 'last-message',
+		data : last,
+	};
+	self.broadcast( lm );
 }
 
 ns.Chat.prototype.handleState = function( state, userId ) {
@@ -1446,14 +1557,8 @@ ns.Live.prototype.add = async function( userId, liveId ) { //adds user to existi
 ns.Live.prototype.restore = async function( userId, conf ) {
 	const self = this;
 	const liveId = conf.clientId;
-	lLog( 'restore', {
-		uId    : userId,
-		conf   : conf,
-		liveId : liveId,
-		isPeer : !!self.peers[ userId ],
-	}, 3 );
 	if ( self.peers[ userId ])
-		self.sendOpen( userId, liveId );
+		await self.sendOpen( userId, liveId );
 	else
 		await self.add( userId, liveId );
 	
@@ -2220,10 +2325,10 @@ ns.Live.prototype.sendJoin = function( joinedId ) {
 	self.broadcastOnline( joined );
 }
 
-ns.Live.prototype.sendOpen  = function( pid, clientId ) {
+ns.Live.prototype.sendOpen  = async function( pid, clientId ) {
 	const self = this;
-	lLog( 'sendOpen', [ pid, clientId ]);
 	let topology = 'peer';
+	const lastLog = await self.log.getLast( 20 );
 	if ( self.proxy )
 		topology = 'star';
 	
@@ -2238,7 +2343,7 @@ ns.Live.prototype.sendOpen  = function( pid, clientId ) {
 			mode           : self.mode,
 			topology       : topology,
 			isRecording    : self.isRecording,
-			logTail        : self.log.getLast( 20 ),
+			logTail        : lastLog,
 			speaking       : {
 				current : self.currentSpeaker,
 				last    : self.lastSpeaker,
@@ -2790,12 +2895,20 @@ ns.Invite.prototype.send = function( event, targetId ) {
 //
 
 const llLog = require( './Log' )( 'Room > Log' );
-ns.Log = function( dbPool, roomId, users, idCache, persistent ) {
+ns.Log = function( 
+	dbPool, 
+	roomId, 
+	users, 
+	idCache, 
+	persistent,
+	includeDeleted 
+) {
 	const self = this;
 	self.roomId = roomId;
 	self.users = users;
 	self.idCache = idCache;
 	self.persistent = persistent;
+	self.includeDeleted = !!includeDeleted;
 	
 	self.items = [];
 	self.ids = {};
@@ -2837,14 +2950,15 @@ ns.Log.prototype.add = async function( msg ) {
 	const msgId = await self.persist( msg );
 }
 
-ns.Log.prototype.get = async function( conf ) {
+ns.Log.prototype.get = async function( conf, includeDeleted ) {
 	const self = this;
-	if ( null == conf ) {
+	const incDel = includeDeleted || self.includeDeleted || false;
+	if ( !incDel && null == conf ) {
 		let logs = {
 			type : 'before',
 			data : {
 				events : self.items,
-				ids    : self.ids,
+				//ids    : self.ids,
 			},
 		};
 		return logs;
@@ -2879,12 +2993,36 @@ ns.Log.prototype.getEvent = function( eId ) {
 	});
 }
 
-ns.Log.prototype.getLast = function( length ) {
+ns.Log.prototype.getLast = async function( length, includeDeleted ) {
 	const self = this;
+	let incDel = false;
+	if ( null == includeDeleted )
+		incDel = !!self.includeDeleted;
+	else
+		incDel = !!includeDeleted;
+	
+	if ( null == length )
+		length = 1;
+	
+	//if ( incDel )
+	const last = await self.msgDb.getBefore( 
+		null, 
+		length, 
+		null, 
+		incDel
+	);
+	
+	if ( null == last )
+		return [];
+	
+	return last;
+	
+	/*
 	if ( !self.items || !self.items.length )
 		return [];
 	
 	return self.items.slice( -length );
+	*/
 }
 
 ns.Log.prototype.updateEvent = async function(
@@ -2934,6 +3072,28 @@ ns.Log.prototype.editEvent = async function(
 	return event;
 }
 
+ns.Log.prototype.deleteEvent = async function( eventId, userId ) {
+	const self = this;
+	let del = null;
+	try {
+		del = await self.msgDb.setStatus(
+			'delete', 
+			eventId, 
+			userId
+		);
+	} catch( dbEx ) {
+		llLog( 'deleteEvent - db err', dbEx );
+		return null;
+	}
+	
+	if ( self.includeDeleted )
+		await self.updateCache( eventId );
+	else
+		self.removeFromCache( eventId );
+	
+	return del;
+}
+
 ns.Log.prototype.setPersistent = function( isPersistent ) {
 	const self = this;
 	if ( self.persistent )
@@ -2975,9 +3135,14 @@ ns.Log.prototype.init = function( pool ) {
 ns.Log.prototype.load = function( conf ) {
 	const self = this;
 	if ( !conf ) {
-		conf = {};
+		conf = {
+			includeDeleted : self.includeDeleted,
+		};
 		return self.loadBefore( conf );
 	}
+	
+	if ( null == conf.includeDeleted )
+		conf.includeDeleted = !!self.includeDeleted;
 	
 	if ( conf.lastTime )
 		return self.loadAfter( conf );
@@ -2989,7 +3154,12 @@ ns.Log.prototype.loadBefore = async function( conf, worg ) {
 	const self = this;
 	let items = null;
 	try {
-	 	items = await self.msgDb.getBefore( conf.firstTime, conf.length, worg );
+	 	items = await self.msgDb.getBefore( 
+	 		conf.firstTime, 
+	 		conf.length, 
+	 		worg, 
+	 		conf.includeDeleted 
+	 	);
 	} catch( err ) {
 		llLog( 'loadBefore - err', err );
 		return null;
@@ -3002,7 +3172,12 @@ ns.Log.prototype.loadAfter = async function( conf, worg ) {
 	const self = this;
 	let items = null;
 	try {
-		items = await self.msgDb.getAfter( conf.lastTime, conf.length, worg );
+		items = await self.msgDb.getAfter( 
+			conf.lastTime, 
+			conf.length, 
+			worg, 
+			conf.includeDeleted
+		);
 	} catch( err ) {
 		llLog( 'loadAfter - err', err );
 		return null;
@@ -3133,6 +3308,21 @@ ns.Log.prototype.updateCache = async function( msgId ) {
 	function update( mIndex, event ) {
 		self.items.splice( mIndex, 1, event );
 	}
+}
+
+ns.Log.prototype.removeFromCache = function( eventId ) {
+	const self = this;
+	const mIdx = self.items.findIndex( item => {
+		if ( item.data.msgId === eventId )
+			return true;
+		
+		return false;
+	});
+	
+	if ( -1 === mIdx )
+		return;
+	
+	self.items.splice( mIdx, 1 );
 }
 
 // Workgroup - must be .initialize()'d after instanciation

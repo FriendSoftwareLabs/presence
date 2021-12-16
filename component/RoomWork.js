@@ -862,13 +862,14 @@ ns.WorkRoom.prototype.getRoomRelation = async function( userId, isViewer ) {
 	const unread = await self.log.getUnreadForUser( userId, isViewer );
 	let lastMessages =  null;
 	if ( isViewer )
-		lastMessages = self.log.getLastForView( userId, 1 );
+		lastMessages = await self.log.getLastForView( userId, 1 );
 	else
-		lastMessages = self.log.getLast( userId, 1 );
+		lastMessages = await self.log.getLast( userId, 1 );
 	
+	const lastMessage = lastMessages[ 0 ];
 	const relation = {
 		unreadMessages : unread || 0,
-		lastMessage    : lastMessages[ 0 ] || null,
+		lastMessage    : lastMessage || null,
 	};
 	
 	return relation;
@@ -1196,6 +1197,7 @@ ns.WorkChat = function(
 	components.Chat.call( self,
 		roomId,
 		roomName,
+		false, // isPrivate
 		users,
 		log,
 		service

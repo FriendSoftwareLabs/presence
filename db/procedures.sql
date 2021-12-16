@@ -83,6 +83,7 @@ DROP PROCEDURE IF EXISTS message_get_work_targets_between;
 DROP PROCEDURE IF EXISTS message_get_for_view;
 DROP PROCEDURE IF EXISTS message_update;
 DROP PROCEDURE IF EXISTS message_set_edit;
+DROP PROCEDURE IF EXISTS message_set_status;
 
 DROP PROCEDURE IF EXISTS room_user_messages_set;
 DROP PROCEDURE IF EXISTS room_user_messages_load;
@@ -105,7 +106,6 @@ DROP FUNCTION IF EXISTS fn_split_str;
 DROP FUNCTION IF EXISTS fn_get_msg_time;
 
 # SETTINGS
-
 DROP PROCEDURE IF EXISTS account_settings_get;
 DROP PROCEDURE IF EXISTS account_settings_get_by_key;
 DROP PROCEDURE IF EXISTS account_settings_set_key_value;
@@ -117,7 +117,7 @@ DROP PROCEDURE IF EXISTS room_settings_set_key_value;
 DROP PROCEDURE IF EXISTS room_settings_remove_key;
 
 #
-# UTIL
+# UTIL 
 #
 
 # RETURN PART OF A DELIMITED STRING BY INDEX
@@ -918,6 +918,8 @@ SELECT
 	m.type,
 	m.name,
 	COALESCE( e.message, m.message ) AS `message`,
+	m.statusId,
+	m.status,
 	m.editId,
 	e.editBy,
 	e.editTime,
@@ -1065,7 +1067,8 @@ INSERT INTO `message` (
 	`timestamp`,
 	`type`,
 	`name`,
-	`message`
+	`message`,
+	`status`
 ) VALUES (
 	`msgId`,
 	`roomId`,
@@ -1073,7 +1076,8 @@ INSERT INTO `message` (
 	`timestamp`,
 	`type`,
 	`name`,
-	`message`
+	`message`,
+	""
 );
 END//
 
@@ -1113,6 +1117,8 @@ SELECT
 	m.type,
 	m.name,
 	COALESCE( e.message, m.message ) AS `message`,
+	m.statusId,
+	m.status,
 	m.editId,
 	e.editBy,
 	e.editTime,
@@ -1137,6 +1143,8 @@ SELECT
 	m.type,
 	m.name,
 	COALESCE( e.message, m.message ) AS `message`,
+	m.statusId,
+	m.status,
 	m.editId,
 	e.editBy,
 	e.editTime,
@@ -1144,6 +1152,7 @@ SELECT
 FROM (
 	SELECT * FROM message AS t
 	WHERE t.roomId = `roomId`
+	AND ( t.status is null OR t.status != "delete" )
 	ORDER BY t._id DESC
 	LIMIT 0, `length`
 ) AS m
@@ -1167,6 +1176,8 @@ SELECT
 	m.type,
 	m.name,
 	COALESCE( e.message, m.message ) AS `message`,
+	m.statusId,
+	m.status,
 	m.editId,
 	e.editBy,
 	e.editTime,
@@ -1174,6 +1185,7 @@ SELECT
 FROM (
 	SELECT * FROM message AS t
 	WHERE t.roomId = `roomId`
+	AND ( t.status is null OR t.status != "delete" )
 	ORDER BY t._id ASC
 	LIMIT 0, `length`
 ) AS m
@@ -1184,9 +1196,10 @@ END//
 
 #mesage_get_after
 CREATE PROCEDURE message_get_after(
-	IN `roomId`   VARCHAR( 191 ),
-	IN `fromTime` BIGINT,
-	IN `length`   INT
+	IN `roomId`    VARCHAR( 191 ),
+	IN `fromTime`  BIGINT,
+	IN `length`    INT,
+	IN `incDelete` BOOL
 )
 BEGIN
 SELECT
@@ -1197,6 +1210,8 @@ SELECT
 	m.type,
 	m.name,
 	COALESCE( e.message, m.message ) AS `message`,
+	m.statusId,
+	m.status,
 	m.editId,
 	e.editBy,
 	e.editTime,
@@ -1204,6 +1219,11 @@ SELECT
 FROM (
 	SELECT * FROM message AS t
 	WHERE t.roomId = `roomId`
+	AND (
+			( 0 = incDelete AND ( t.status is null OR t.status != "delete" ))
+			OR
+			( 1 = incDelete )
+		)
 	AND t.timestamp >= `fromTime`
 	ORDER BY t._id ASC
 	LIMIT `length`
@@ -1215,9 +1235,10 @@ END//
 
 # message_get_before
 CREATE PROCEDURE message_get_before(
-	IN `roomId` VARCHAR( 191 ),
-	IN `toTime` BIGINT,
-	IN `length` INT
+	IN `roomId`    VARCHAR( 191 ),
+	IN `toTime`    BIGINT,
+	IN `length`    INT,
+	IN `incDelete` BOOL
 )
 BEGIN
 SELECT
@@ -1228,6 +1249,8 @@ SELECT
 	m.type,
 	m.name,
 	COALESCE( e.message, m.message ) AS `message`,
+	m.statusId,
+	m.status,
 	m.editId,
 	e.editBy,
 	e.editTime,
@@ -1235,6 +1258,11 @@ SELECT
 FROM (
 	SELECT * FROM message AS t
 	WHERE t.roomId = `roomId`
+	AND (
+			( 0 = incDelete AND ( t.status is null OR t.status != "delete" ))
+			OR
+			( 1 = incDelete )
+		)
 	AND t.timestamp < `toTime`
 	ORDER BY t._id DESC
 	LIMIT `length`
@@ -1258,6 +1286,8 @@ SELECT
 	m.type,
 	m.name,
 	COALESCE( e.message, m.message ) AS `message`,
+	m.statusId,
+	m.status,
 	m.editId,
 	e.editBy,
 	e.editTime,
@@ -1355,6 +1385,8 @@ SELECT
 	m.type,
 	m.name,
 	COALESCE( e.message, m.message ) AS `message`,
+	m.statusId,
+	m.status,
 	m.editId,
 	e.editBy,
 	e.editTime,
@@ -1516,6 +1548,7 @@ UPDATE message AS m
 SET
 	m.message = `update`
 WHERE m.msgId = `msgId`;
+
 SELECT
 	m.msgId,
 	m.roomId,
@@ -1524,6 +1557,8 @@ SELECT
 	m.type,
 	m.name,
 	COALESCE( e.message, m.message ) AS `message`,
+	m.statusId,
+	m.status,
 	m.editId,
 	e.editBy,
 	e.editTime,
@@ -1532,10 +1567,10 @@ FROM message AS m
 LEFT JOIN message_edit AS e
 	ON m.editId = e.clientId
 WHERE m.msgId = `msgId`;
-#msg-902f9106-b9b7-47c1-9ad9-74357e781029
+
 END//
 
-# message_update_with_history
+# message_set_edit
 CREATE PROCEDURE message_set_edit(
 	IN `clientId` VARCHAR( 191 ),
 	IN `msgId`    VARCHAR( 191 ),
@@ -1572,20 +1607,68 @@ LIMIT 1;
 
 END//
 
-#CREATE PROCEDURE message_update_with_history
+# message_set_status
+CREATE PROCEDURE message_set_status(
+	IN `status`   VARCHAR( 20 ),
+	IN `statusId` VARCHAR( 191 ),
+	IN `msgId`    VARCHAR( 191 ),
+	IN `setBy`    VARCHAR( 191 ),
+	IN `setTime`  BIGINT,
+	IN `reason`   TEXT,
+	IN `message`  TEXT
+)
+BEGIN
+INSERT INTO message_status (
+	`status`,
+	`clientId`,
+	`msgId`,
+	`setBy`,
+	`setTime`,
+	`reason`,
+	`message`
+) VALUES (
+	`status`,
+	`statusId`,
+	`msgId`,
+	`setBy`,
+	`setTime`,
+	`reason`,
+	`message`
+);
 
+UPDATE message AS m 
+SET 
+	m.status = `status`,
+	m.statusId = `statusId`
+WHERE m.msgId = `msgId`;
+
+CALL message_get_by_id( `msgId` );
+
+END//
+
+# room_user_messages_set
 CREATE PROCEDURE room_user_messages_set(
 	IN `roomId` VARCHAR( 191 ),
 	IN `userId` VARCHAR( 191 )
 )
 BEGIN
 
+SELECT m.msgId
+INTO @lastMsg 
+FROM message AS m
+WHERE m.roomId = `roomId`
+AND ( m.status is null OR m.status!="delete" )
+ORDER BY m._id DESC
+LIMIT 1;
+
 INSERT INTO room_user_messages (
+	`userId`,
 	`roomId`,
-	`userId`
+	`lastReadId`
 ) VALUES (
+	`userId`,
 	`roomId`,
-	`userId`
+	@lastMsg
 );
 
 SELECT
@@ -1600,6 +1683,7 @@ WHERE
 END//
 
 
+# room_user_messages_load
 CREATE PROCEDURE room_user_messages_load(
 	IN `roomId` VARCHAR( 191 )
 )
@@ -1639,33 +1723,36 @@ WHERE
 END//
 
 
+# room_user_messages_count_unread
 CREATE PROCEDURE room_user_messages_count_unread(
-	IN `roomId` VARCHAR( 191 ),
-	IN `userId` VARCHAR( 191 )
+	IN  `roomId` VARCHAR( 191 ),
+	IN  `userId` VARCHAR( 191 )
 )
 BEGIN
+DECLARE lastReadId VARCHAR( 191 );
 DECLARE lastReadTime BIGINT;
-SELECT 
-	m.timestamp
-INTO
-	lastReadTime
-FROM room_user_messages AS u
-LEFT JOIN message AS m
-ON
-	u.lastReadId = m.msgId
-WHERE
-	u.roomId = `roomId` AND
-	u.userId = `userId`;
+#DECLARE unread INT;
+SELECT COALESCE(
+( 
+	SELECT m.timestamp FROM room_user_messages AS rum
+	LEFT JOIN message AS m 
+		ON rum.lastReadId = m.msgId
+	WHERE rum.roomId = `roomId`
+	AND rum.userId = `userId`
+)
+, 0 ) 
+INTO lastReadTime;
 
-SELECT
-	COUNT(*) AS 'unread'
+SELECT COUNT(*) AS 'unread'
 FROM message AS m
-WHERE
-	m.roomId = `roomId` AND
-	m.timestamp > lastReadTime;
-	
+WHERE m.roomId = `roomId`
+AND ( m.status is null OR m.status!="delete" )
+AND	m.timestamp > lastReadTime;
+
 END//
 
+
+# room_user_messages_count_unread_worg
 CREATE PROCEDURE room_user_messages_count_unread_worg(
 	IN `roomId`       VARCHAR( 191 ),
 	IN `userId`       VARCHAR( 191 ),
@@ -1693,8 +1780,12 @@ SELECT
 	COUNT(*) AS 'unread'
 FROM message AS m
 WHERE
-	m.timestamp > lastReadTime AND
-	m.fromId != `userId` AND
+	( m.status is null OR m.status!="delete" )
+AND
+	m.timestamp > lastReadTime
+AND
+	m.fromId != `userId`
+AND
 	(
 		( 0 = `userIsViewer` AND (
 			( m.roomId = `roomId` AND m.type = 'msg' )

@@ -258,7 +258,8 @@ ns.ContactRoom.prototype.getRoomRelation = async function( userId ) {
 	const other = self.users.getOther( userId );
 	const msgDb = new dFace.MessageDB( self.dbPool );
 	const rel = await msgDb.getRelationState( self.relationId, other.clientId );
-	const lastMessages = self.log.getLast( 1 );
+	const lastMessages = await self.log.getLast( 1, false );
+	const lastMessage = lastMessages[ 0 ];
 	const relation = {
 		unreadMessages : rel ? rel.unreadMessages : 0,
 		lastMessage    : rel ? rel.lastMessage : null,
@@ -367,6 +368,7 @@ ns.ContactChat = function(
 	components.Chat.call( self,
 		roomId,
 		null,
+		true,
 		users,
 		log,
 		service
@@ -403,6 +405,66 @@ ns.ContactChat.prototype.handleConfirm = function( event, userId ) {
 		const other = self.users.getOther( userId );
 		const contactId = other.clientId;
 		self.send( confirm, contactId );
+	}
+}
+
+ns.ContactChat.prototype.handleDelete = async function( event, userId ) {
+	const self = this;
+	const dId = event.msgId;
+	const dbEvent = await self.log.getEvent( dId );
+	if ( null == dbEvent )
+		return error( 'ERR_NO_MESSAGE' );
+	
+	const msg = dbEvent.data;
+	
+	if (( msg.fromId != userId ) || ( msg.roomId != self.roomId ))
+		return error( 'ERR_DELTE_NOT_ALLOWED' );
+	
+	const lastList = await self.log.getLast( 1, false );
+	const lastLog = lastList[ 0 ];
+	let deletedLast = false;
+	if ( null != lastLog )
+		if ( lastLog.data.msgId === dId )
+			deletedLast = true;
+	
+	let delMsg = null;
+	try {
+		delMsg = await self.log.deleteEvent( msg.msgId, userId );
+	} catch( ex ) {
+		cLog( 'handleDelete ex', ex );
+		return error( ex );
+	}
+	
+	if ( delMsg )
+		broadcastDelete( delMsg );
+	else
+		return error( 'ERR_DELETE_FAIL' );
+	
+	if ( deletedLast )
+		await self.broadcastLastMessage();
+	
+	return {
+		type : 'delete',
+		data : {
+			msgId : msg.msgId,
+		},
+	};
+	
+	function error( err ) {
+		return {
+			type : 'error',
+			data : {
+				error : err,
+			},
+		};
+	}
+	
+	function broadcastDelete( msg ) {
+		const del = {
+			type : 'delete',
+			data : msg,
+		};
+		self.broadcast( del );
 	}
 }
 
@@ -528,6 +590,7 @@ ns.ContactLog = function(
 		roomId,
 		users,
 		idCache,
+		true,
 		true
 	);
 }

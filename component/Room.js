@@ -387,6 +387,7 @@ ns.Room.prototype.init = async function( worgCtrl ) {
 	self.chat = new components.Chat(
 		self.id,
 		self.name,
+		self.isPrivate,
 		self.users,
 		self.log,
 		self.service
@@ -567,10 +568,11 @@ ns.Room.prototype.bindUser = async function( userId ) {
 ns.Room.prototype.getRoomRelation = async function( userId ) {
 	const self = this;
 	const unread = await self.log.getUnreadForUser( userId );
-	const lastMessages = self.log.getLast( 1 );
+	const lastMessages = await self.log.getLast( 1 );
+	const lastMessage = lastMessages[ 0 ];
 	const relation = {
 		unreadMessages : unread,
-		lastMessage    : lastMessages[ 0 ],
+		lastMessage    : lastMessage || null,
 	};
 	
 	return relation;
@@ -850,7 +852,6 @@ ns.Room.prototype.handleJoinLive = function( uId, liveId ) {
 
 ns.Room.prototype.handleRestoreLive = function( uId, liveId ) {
 	const self = this;
-	log( 'handleRestoreLive', [ uId, liveId ], 3 );
 	self.live.restore( uId, liveId );
 }
 

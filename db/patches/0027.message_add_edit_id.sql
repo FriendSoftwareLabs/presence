@@ -1,3 +1,3 @@
 ALTER TABLE `message`
-ADD COLUMN `editId` VARCHAR(191) NULL
+ADD COLUMN `status` VARCHAR(191) NULL
 AFTER `message`;

@@ -1250,7 +1250,6 @@ ns.MessageDB.prototype.setRoomUserMessages = async function( userId, roomId ) {
 		msgLog( 'setRoomUserMessages - query err', e );
 		return null;
 	}
-	
 	return res[ 0 ];
 }
 
@@ -1363,18 +1362,24 @@ ns.MessageDB.prototype.get = async function( eventId ) {
 	return events[ 0 ];
 }
 
-ns.MessageDB.prototype.getBefore = async function( beforeTime, length, workgroup ) {
+ns.MessageDB.prototype.getBefore = async function( 
+	beforeTime, 
+	length, 
+	workgroup, 
+	includeDeleted 
+) {
 	const self = this;
 	beforeTime = beforeTime || Date.now();
 	length = length || 30;
+	includeDeleted = !!includeDeleted;
 	const values = [
 		self.roomId,
 		beforeTime,
 		length,
+		includeDeleted
 	];
 	
-	const queryFn = 'message_get_before';
-	let msgRows = await self.query( queryFn, values );
+	let msgRows = await self.query( 'message_get_before', values );
 	let workMessages = null;
 	if ( workgroup ) {
 		if ( 1 )
@@ -1395,18 +1400,24 @@ ns.MessageDB.prototype.getBefore = async function( beforeTime, length, workgroup
 	return self.parseItems( msgRows );
 }
 
-ns.MessageDB.prototype.getAfter = async function( afterTime, length, workgroup ) {
+ns.MessageDB.prototype.getAfter = async function( 
+	afterTime, 
+	length, 
+	workgroup, 
+	includeDeleted 
+) {
 	const self = this;
 	afterTime = afterTime || Date.now();
 	length = length || 30;
+	includeDeleted = !!includeDeleted;
 	const values = [
 		self.roomId,
 		afterTime,
 		length,
+		includeDeleted,
 	];
 	
-	const queryFn = 'message_get_after';
-	let msgRows = await self.query( queryFn, values );
+	let msgRows = await self.query( 'message_get_after', values );
 	let workMessages = null;
 	if ( workgroup ) {
 		if ( 1 )
@@ -1661,7 +1672,7 @@ ns.MessageDB.prototype.setEdit = async function(
 	message,
 ) {
 	const self = this;
-	const editTime = Date.now();
+	const editTime = Date.now(); // let db procedure set this
 	const clientId = uuid.get( 'edit' );
 	const values = [
 		clientId,
@@ -1675,8 +1686,8 @@ ns.MessageDB.prototype.setEdit = async function(
 	try {
 		res = await self.query( 'message_set_edit', values );
 	} catch( e ) {
-		msgLog( 'setEdit - query err', e.stack || e );
 		msgLog( 'setEdit - values', values );
+		msgLog( 'setEdit - query err', e.stack || e );
 		return null;
 	}
 	
@@ -1684,6 +1695,62 @@ ns.MessageDB.prototype.setEdit = async function(
 		return null;
 	
 	return res[ 0 ];
+}
+
+ns.MessageDB.prototype.validMessageStatus = [
+	'moderate',
+	'validate',
+	'delete',
+	'edit',
+	'pin',
+]
+
+ns.MessageDB.prototype.setStatus = async function( 
+	status,
+	eventId,
+	setBy,
+	reason,
+	message
+) {
+	const self = this;
+	const valid = self.validMessageStatus.some( v => v === status );
+	if ( !valid )
+		throw 'ERR_INVALID_STATUS';
+	
+	if (( null == eventId ) || ( null == setBy ))
+		throw 'ERR_MISSING_ARGS';
+	
+	reason = reason || null;
+	message = message || null;
+	const setTime = Date.now();
+	const statusId = uuid.get( status );
+	const values = [
+		status,
+		statusId,
+		eventId,
+		setBy,
+		setTime,
+		reason,
+		message,
+	];
+	
+	let res = null;
+	try {
+		res = await self.query( 'message_set_status', values );
+	} catch( ex ) {
+		msgLog( 'setStatus query ex', ex );
+		return false;
+	}
+	
+	const msg = res[ 0 ];
+	if ( null == msg )
+		return false;
+	
+	const event = {
+		type : msg.type,
+		data : msg,
+	};
+	return event;
 }
 
 // Private

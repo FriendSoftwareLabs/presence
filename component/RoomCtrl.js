@@ -458,7 +458,7 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.invDb = new dFace.InviteDB( self.dbPool );
 	
 	self.service = new FService();
-	self.serviceConn = new events.RequestNode( 'room', self.service, serviceSink, null, true );
+	self.serviceConn = new events.RequestNode( 'room', self.service, serviceSink );
 	self.serviceConn.on( 'create', r => self.handleServiceCreate( r ));
 	self.serviceConn.on( 'remove', r => self.handleServiceRemove( r ));
 	self.serviceConn.on( 'get'   , r => self.handleServiceGet( r ));
