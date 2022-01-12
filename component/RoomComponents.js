@@ -1248,7 +1248,9 @@ ns.Chat.prototype.handleEditSave = async function( event, userId ) {
 	}
 	
 	if ( 'error' !== result.type ) {
-		await self.broadcastEdit( result.type, mId, userId );
+		const type = result.type;
+		const editedEvent = await self.log.getEvent( mId );
+		await self.broadcastUpdate( type, editedEvent );
 	}
 	
 	return result;
@@ -1335,7 +1337,7 @@ ns.Chat.prototype.handleDelete = async function( event, userId ) {
 	}
 	
 	if ( delMsg  )
-		self.broadcastRemove( mId );
+		await self.broadcastRemove( mId );
 	else
 		return error( 'ERR_DELETE_FAIL' );
 	
@@ -1359,23 +1361,10 @@ ns.Chat.prototype.handleDelete = async function( event, userId ) {
 	}
 }
 
-ns.Chat.prototype.broadcastEdit = async function( type, eventId ) {
+ns.Chat.prototype.broadcastRemove = async function( eventId ) {
 	const self = this;
-	const editedEvent = await self.log.getEvent( eventId );
-	const update = {
-		type : type,
-		data : editedEvent,
-	};
-	self.broadcast( update );
-}
-
-ns.Chat.prototype.broadcastRemove = function( eventId ) {
-	const self = this;
-	const remove = {
-		type : 'remove',
-		data : eventId,
-	};
-	self.broadcast( remove );
+	const event = await self.log.getEvent( eventId );
+	self.broadcastUpdate( 'remove', event );
 }
 
 ns.Chat.prototype.broadcastLastMessage = async function() {
@@ -1388,11 +1377,16 @@ ns.Chat.prototype.broadcastLastMessage = async function() {
 	if ( null == last )
 		return;
 	
-	const lm = {
-		type : 'last-message',
-		data : last,
+	self.broadcastUpdate( 'last-message', last );
+}
+
+ns.Chat.prototype.broadcastUpdate = function( type, event ) {
+	const self = this;
+	const uptd = {
+		type : type,
+		data : event,
 	};
-	self.broadcast( lm );
+	self.broadcast( uptd );
 }
 
 ns.Chat.prototype.handleState = function( state, userId ) {
@@ -3312,6 +3306,10 @@ ns.Log.prototype.updateCache = async function( msgId ) {
 
 ns.Log.prototype.removeFromCache = function( eventId ) {
 	const self = this;
+	llLog( 'removeFromCache', {
+		roomId  : self.roomId,
+		eventId : eventId,
+	});
 	const mIdx = self.items.findIndex( item => {
 		if ( item.data.msgId === eventId )
 			return true;

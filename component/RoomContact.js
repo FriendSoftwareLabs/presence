@@ -436,7 +436,7 @@ ns.ContactChat.prototype.handleDelete = async function( event, userId ) {
 	}
 	
 	if ( delMsg )
-		broadcastDelete( delMsg );
+		self.broadcastUpdate( 'delete', delMsg );
 	else
 		return error( 'ERR_DELETE_FAIL' );
 	
@@ -459,6 +459,7 @@ ns.ContactChat.prototype.handleDelete = async function( event, userId ) {
 		};
 	}
 	
+	/*
 	function broadcastDelete( msg ) {
 		const del = {
 			type : 'delete',
@@ -466,6 +467,7 @@ ns.ContactChat.prototype.handleDelete = async function( event, userId ) {
 		};
 		self.broadcast( del );
 	}
+	*/
 }
 
 ns.ContactChat.prototype.sendMsgNotification = async function( msg, fromId ) {

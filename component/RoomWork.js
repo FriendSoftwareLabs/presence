@@ -1276,16 +1276,23 @@ ns.WorkChat.prototype.handleWorkMsg = function( worgId, msg ) {
 	self.users.broadcastChat( userList, event );
 }
 
-ns.WorkChat.prototype.updateWorkMsg = function( sourceId, update ) {
+ns.WorkChat.prototype.updateWorkMsg = async function( sourceId, update ) {
 	const self = this;
+	cLog( 'updateWorkMsg', [ sourceId, update ], 4 );
 	if ( !update || !update.data || !update.data.data ) {
 		cLog( 'updateWorkMsg - invalid update', update );
 		return;
 	}
 	
 	const msg = update.data.data;
+	const msgId = msg.msgId;
 	const fromId = msg.fromId;
-	self.log.updateCache( msg.msgId );
+	const type = update.type;
+	if ( 'remove' == type )
+		await self.log.removeFromCache( msgId );
+	else
+		await self.log.updateCache( msg.msgId );
+	
 	const targets = msg.targets;
 	const worgTarget = targets[ self.workgroupId ];
 	if ( !worgTarget )
@@ -1748,9 +1755,9 @@ ns.WorkChat.prototype.handleRequestView = async function( event, userId ) {
 	return self.handleRequest( event, userId );
 }
 
-ns.WorkChat.prototype.broadcastEdit = async function( type, eventId ) {
+ns.WorkChat.prototype.broadcastUpdate = function( type, event ) {
 	const self = this;
-	const event = await self.log.getEvent( eventId );
+	cLog( 'broadcastUpdate', [ type, event ]);
 	const fromId = event.data.fromId;
 	const targets = event.data.targets;
 	const viewers = [];
@@ -1787,7 +1794,7 @@ ns.WorkChat.prototype.broadcast = function( event, sourceId, wrapSource, extraTa
 	const self = this;
 	let sendTo = [];
 	if ( global.config.server.workroom.supersHaveSubRoom )
-		sendTo = self.users.getOnline( true );
+		sendTo = self.users.getOnline( true ); // includeSupers
 	else
 		sendTo = self.users.getOnline();
 	

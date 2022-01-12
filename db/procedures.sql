@@ -1325,6 +1325,7 @@ FROM `message_work_target` AS t
 	LEFT JOIN `message` AS mt
 	ON t.msgId = mt.msgId
 WHERE mt.timestamp >= `from`
+AND ( mt.status is null OR mt.status != "delete" )
 AND ( t.source = `workgroup` OR t.target = `workgroup` )
 ORDER BY mt.timestamp ASC
 );
@@ -1373,6 +1374,7 @@ FROM `message_work_target` AS t
 	LEFT JOIN `message` AS mt
 	ON t.msgId = mt.msgId
 WHERE mt.timestamp < `to`
+AND ( mt.status is null OR mt.status != "delete" )
 AND ( t.source = `workgroup` OR t.target = `workgroup` )
 ORDER BY mt.timestamp DESC
 );
@@ -1424,6 +1426,7 @@ FROM `message_work_target` AS t
 	ON t.msgId = mt.msgId
 WHERE mt.timestamp >= `from`
 AND mt.timestamp <= `to`
+AND ( mt.status is null OR mt.status != "delete" )
 AND ( t.source = `workgroup` OR t.target = `workgroup` )
 ORDER BY mt.timestamp ASC
 );
@@ -1474,7 +1477,8 @@ FROM (
 	FROM message_work_target AS t
 	LEFT JOIN message AS m
 		ON t.msgId = m.msgId
-	WHERE (
+	WHERE ( m.status is null OR m.status != "delete" )
+	AND (
 			( `to` IS NOT NULL AND m.timestamp < `to` )
 			OR
 			( `from` IS NOT NULL AND m.timestamp > `from` )
