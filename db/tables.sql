@@ -243,6 +243,6 @@ INSERT INTO `db_history`(
 	`version`,
 	`comment`
 ) VALUES (
-	36,
+	39,
 	'tables.sql'
 );
