@@ -462,6 +462,7 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.serviceConn.on( 'create', r => self.handleServiceCreate( r ));
 	self.serviceConn.on( 'remove', r => self.handleServiceRemove( r ));
 	self.serviceConn.on( 'get'   , r => self.handleServiceGet( r ));
+	self.serviceConn.on( 'isUserInRoom', r => self.handleServiceIsUserInRoom( r ));
 	
 	function serviceSink( ...args ) {
 		log( 'serviceSink', args );
@@ -578,7 +579,7 @@ ns.RoomCtrl.prototype.handleServiceRemove = async function( req ) {
 	const self = this;
 	log( 'handleServiceRemove', req );
 	if ( null == req )
-		throw 'ERR_NO_REQ';
+		throw 'ERR_NO_REQUEST';
 	if ( null == req.originUserId )
 		throw 'ERR_NO_ORIGIN_USER';
 	
@@ -606,7 +607,7 @@ ns.RoomCtrl.prototype.handleServiceRemove = async function( req ) {
 ns.RoomCtrl.prototype.handleServiceGet = async function( req ) {
 	const self = this;
 	if( null == req )
-		throw 'ERR_NO_REQ';
+		throw 'ERR_NO_REQUEST';
 	if ( null == req.originUserId )
 		throw 'ERR_NO_ORIGIN_USER';
 	
@@ -634,6 +635,80 @@ ns.RoomCtrl.prototype.handleServiceGet = async function( req ) {
 		wg.users = users.length;
 		return wg;
 	}
+}
+
+ns.RoomCtrl.prototype.handleServiceIsUserInRoom = async function( req ) {
+	const self = this;
+	log( 'handleServiceIsUserInRoom', req );
+	if ( null == req )
+		throw 'ERR_NO_REQUEST';
+	if ( null == req.data )
+		throw 'ERR_NO_REQUEST_DATA';
+	
+	const fId = req.data.userId; // CONVERT FROM FUID
+	const user = await self.idCache.getByFUserId( fId );
+	if ( null == user )
+		throw 'ERR_INVALID_USERID';
+	
+	const uId = user.clientId;
+	const rId = req.data.roomId;
+	if ( !uId || !rId )
+		throw 'ERR_INVALID_ARGS';
+	
+	log( 'inputs', [ uId, rId ]);
+	/* disabled for now
+	const room = self.rooms[ rId ] || self.workRooms[ rId ];
+	if ( room ) {
+		log( 'found room', room );
+		return room.isMember( uId );
+	}
+	*/
+	
+	const roomInfo = await self.roomDb.getInfo( rId );
+	log( 'roomInfo', roomInfo, 3 );
+	if ( null == roomInfo.room )
+		throw 'ERR_NOT_A_ROOM';
+	
+	log( 'roomInfo', roomInfo, 3 );
+	const roomConf = roomInfo.room;
+	const auths = roomInfo.authorized;
+	const worgs = roomInfo.workgroups;
+	
+	// workroom check
+	if ( null != roomConf.workgroupId ) {
+		const memberOf = self.worgs.getMemberOf( uId );
+		const inGroup = memberOf.some( userWorgId => userWorgId == roomConf.workgroupId );
+		log( 'workroom memberof', {
+			memberOf : memberOf,
+			workId   : roomConf.workgroupId,
+			inGroup  : inGroup,
+		});
+		return inGroup;
+	}
+	
+	// authorized ( invited, owner ) check
+	if ( auths && auths.length ) {
+		const isAuthed = roomInfo.authorized.some( auth => {
+			return auth.accountId == uId;
+		});
+		log( 'isAuthed', isAuthed );
+		if ( isAuthed )
+			return true;
+	}
+	
+	// assigned workgroup member check
+	if ( worgs && worgs.length ) {
+		const memberOf = self.worgs.getMemberOfAsFID( uId );
+		log( 'memberof', memberOf );
+		const inGroup = worgs.some( assigned => {
+			return memberOf.some( fWorgId => fWorgId == assigned.fId );
+		});
+		log( 'ingroup', inGroup );
+		if ( inGroup )
+			return true;
+	}
+	
+	return false;
 }
 
 ns.RoomCtrl.prototype.superAdded = async function( worgId, subs ) {

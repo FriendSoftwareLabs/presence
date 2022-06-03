@@ -155,6 +155,12 @@ ns.Room.prototype.disconnect = async function( userId ) {
 	return userId;
 }
 
+ns.Room.prototype.isMember = function( userId ) {
+	const self = this;
+	log( 'isMember', userId );
+	return self.users.exists( userId );
+}
+
 // for real accounts, not for guests
 // authorizes an account to connect to this room
 ns.Room.prototype.authorizeUser = async function( userId ) {

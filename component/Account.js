@@ -1000,6 +1000,15 @@ ns.Account.prototype.joinedARoomHooray = async function( room, reqId  ) {
 	const currentRooms = self.rooms.add( room );
 	
 	self.sendJoined( conf, currentRooms );
+	
+	/*
+	const isRes = await self.roomCtrl.handleServiceIsUserInRoom( { data : {
+		roomId : rId,
+		userId : self.id,
+	}});
+	
+	self.log( 'isRes', isRes );
+	*/
 }
 
 ns.Account.prototype.sendJoined = async function( roomConf, currentRooms, clientId ) {
