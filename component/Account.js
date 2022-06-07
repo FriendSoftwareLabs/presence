@@ -330,7 +330,7 @@ ns.Account.prototype.bindConn = function() {
 	self.conn.on( 'room', handleRoomMsg );
 	self.conn.on( 'room-get', getRoom );
 	self.conn.on( 'room-join', joinRoom );
-	self.conn.on( 'room-create', createRoom );
+	//self.conn.on( 'room-create', createRoom );
 	self.conn.on( 'contact', handleContact );
 	self.conn.on( 'contact-list', ( e, cId ) => self.handleContactList( e, cId ));
 	self.conn.on( 'avatar', ( e, cId ) => self.handleAvatarEvent( e, cId ));
@@ -345,7 +345,7 @@ ns.Account.prototype.bindConn = function() {
 	function handleRoomMsg( e, cId ) { self.log( 'roomMsg - noop', msg ); }
 	function getRoom( e, cId ) { self.getRoom( e, cId ); }
 	function joinRoom( e, cId ) { self.joinRoom( e, cId ); }
-	function createRoom( e, cId ) { self.createRoom( e, cId ); }
+	//function createRoom( e, cId ) { self.createRoom( e, cId ); }
 	function handleContact( e, cId ) { self.handleContactEvent( e, cId ); }
 	
 	// requests
@@ -353,6 +353,7 @@ ns.Account.prototype.bindConn = function() {
 	self.conn.on( 'relation-add'         , e => self.handleAddRelation( e ));
 	self.conn.on( 'search-user'          , e => self.handleSearchUser( e ));
 	self.conn.on( 'account-settings-set' , e => self.handleAccSettingSet( e ));
+	self.conn.on( 'room-create'          , e => self.handleRoomCreate( e ));
 	
 	//function fGet( e ) { return self.handleFriendGet( e ); }
 	
@@ -932,8 +933,9 @@ ns.Account.prototype.joinRoom = async function( conf, cid ) {
 	return true;
 }
 
-ns.Account.prototype.createRoom = async function( conf, cid ) {
+ns.Account.prototype.handleRoomCreate = async function( conf ) {
 	const self = this;
+	self.log( 'handleRoomCreate', conf );
 	conf = conf || {};
 	const room = await self.roomCtrl.createRoom( self.id, conf );
 	if ( !room ) {
@@ -942,11 +944,13 @@ ns.Account.prototype.createRoom = async function( conf, cid ) {
 			room : room,
 			conf : conf,
 		}, 4 );
-		return;
+		throw 'ERR_CREATE_ROOM_COULD_NOT';
 	}
 	
-	await self.joinedARoomHooray( room, conf.req );
-	return true;
+	await self.joinedARoomHooray( room );
+	const roomConf = room.getConf();
+	self.log( 'handleRoomCreate, roomConf', roomConf );
+	return roomConf;
 }
 
 ns.Account.prototype.connectedRoom = async function( room ) {
@@ -990,7 +994,7 @@ ns.Account.prototype.joinedARoomHooray = async function( room, reqId  ) {
 	const self = this;
 	if ( !room || !room.roomId || !room.roomName ) {
 		self.log( 'joinedARoom - didnt join a room', room );
-		return;
+		return null;
 	}
 	
 	const conf = room.getConf();
@@ -1000,6 +1004,8 @@ ns.Account.prototype.joinedARoomHooray = async function( room, reqId  ) {
 	const currentRooms = self.rooms.add( room );
 	
 	self.sendJoined( conf, currentRooms );
+	
+	return null;
 	
 	/*
 	const isRes = await self.roomCtrl.handleServiceIsUserInRoom( { data : {

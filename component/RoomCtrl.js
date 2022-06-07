@@ -161,6 +161,7 @@ ns.RoomCtrl.prototype.connectContact = async function( accId, contactId ) {
 ns.RoomCtrl.prototype.createRoom = async function( accountId, conf ) {
 	const self = this;
 	conf = conf || {};
+	log( 'createRoom', [ accountId, conf ]);
 	let room = null;
 	if ( null == conf.name )
 		room = await self.createAnonRoom( accountId );
@@ -170,8 +171,10 @@ ns.RoomCtrl.prototype.createRoom = async function( accountId, conf ) {
 	if ( !room )
 		return null;
 	
-	const user = await room.connect( accountId );
-	return user;
+	
+	const userRoom = await room.connect( accountId );
+	console.log( 'userRoom', !!userRoom );
+	return userRoom;
 }
 
 ns.RoomCtrl.prototype.joinRoom = async function( accountId, conf ) {
