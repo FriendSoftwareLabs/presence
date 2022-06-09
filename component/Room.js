@@ -386,8 +386,10 @@ ns.Room.prototype.init = async function( worgCtrl ) {
 		self.users,
 		self.persistent
 	);
+	
 	await self.invite.initialize();
-	self.invite.on( 'add'    , e => self.emit( 'invite-add'    , e ));
+	self.invite.on( 'add'    , e => self.handleInviteAdd(        e ));
+	self.invite.on( 'invite' , e => self.emit( 'user-invite'   , e ));
 	self.invite.on( 'invalid', e => self.emit( 'invite-invalid', e ));
 	
 	self.chat = new components.Chat(
@@ -425,8 +427,11 @@ ns.Room.prototype.handleWorkgroupDismissed = function( worg ) {
 	self.emit( 'workgroup-dismissed', worg );
 }
 
-ns.Room.prototype.handleInviteAdd = function( invted ) {
+ns.Room.prototype.handleInviteAdd = async function( userId ) {
 	const self = this;
+	log( 'handleInviteAdd', userId );
+	await self.authorizeUser( userId );
+	self.emit( 'user-add', userId );
 }
 
 ns.Room.prototype.setOpen = function() {

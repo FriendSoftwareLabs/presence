@@ -1055,7 +1055,8 @@ ns.RoomCtrl.prototype.bindRoom = function( room ) {
 	const self = this;
 	const roomId = room.id;
 	room.on( 'empty'              , e => self.removeRoom(               roomId ));
-	room.on( 'invite-add'         , e => self.handleInviteAdd(          e, roomId ));
+	room.on( 'user-add'           , e => self.handleUserAdd(            e, roomId ));
+	room.on( 'user-invite'        , e => self.handleUserInvite(         e, roomId ));
 	room.on( 'invite-invalid'     , e => self.handleInviteInvalid(      e, roomId ));
 	room.on( 'workgroup-assigned' , e => self.handleWorkgroupAssigned(  e, roomId ));
 	room.on( 'workgroup-dismissed', e => self.handleWorkgroupDismissed( e, roomId ));
@@ -1071,7 +1072,17 @@ ns.RoomCtrl.prototype.bindContactRoom = function( room ) {
 	function contactEvent( e ) { self.forwardContactEvent( e, rId ); }
 }
 
-ns.RoomCtrl.prototype.handleInviteAdd = async function( invite, roomId ) {
+ns.RoomCtrl.prototype.handleUserAdd = async function( userId, roomId ) {
+	const self = this;
+	log( 'handleUserAdd', [ userId, roomId ]);
+	const rj = {
+		type : 'room-join',
+		data : roomId,
+	};
+	self.emit( userId, rj );
+}
+
+ns.RoomCtrl.prototype.handleUserInvite = async function( invite, roomId ) {
 	const self = this;
 	invite.roomId = roomId;
 	const token = invite.token;

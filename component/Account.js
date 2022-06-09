@@ -970,10 +970,8 @@ ns.Account.prototype.connectedRoom = async function( room ) {
 
 ns.Account.prototype.doPreConnect = function( roomId ) {
 	const self = this;
-	if ( !roomId || !( 'string' === typeof( roomId ))) {
+	if ( !roomId || !( 'string' === typeof( roomId )))
 		throw new Error( 'no room id' );
-		return;
-	}
 	
 	if ( self.rooms.isParticipant( roomId ))
 		return false;

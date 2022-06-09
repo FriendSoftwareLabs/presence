@@ -2525,11 +2525,12 @@ ns.Invite.prototype.init = function( pool, roomId ) {
 	self.db = new dFace.InviteDB( pool, roomId );
 	
 	self.eventMap = {
-		'state'    : ( e, uid ) => self.handleState( e, uid ),
-		'public'   : ( e, uid ) => self.handlePublic( e, uid ),
-		'private'  : ( e, uid ) => self.handlePrivate( e, uid ),
-		'revoke'   : ( e, uid ) => self.handleRevoke( e, uid ),
-		'room-add' : ( e, uid ) => self.handleRoomAdd( e, uid ),
+		'state'       : ( e, uid ) => self.handleState( e, uid ),
+		'public'      : ( e, uid ) => self.handlePublic( e, uid ),
+		'private'     : ( e, uid ) => self.handlePrivate( e, uid ),
+		'revoke'      : ( e, uid ) => self.handleRevoke( e, uid ),
+		'room-add'    : ( e, uid ) => self.handleRoomAdd( e, uid ),
+		'room-invite' : ( e, uid ) => self.handleRoomInvite( e, uid ),
 	};
 }
 
@@ -2751,6 +2752,11 @@ ns.Invite.prototype.persistCurrentTokens = async function() {
 
 ns.Invite.prototype.handleRoomAdd = async function( invited, userId ) {
 	const self = this;
+	self.emit( 'add', invited.clientId );
+}
+
+ns.Invite.prototype.handleRoomInvite = async function( invited, userId ) {
+	const self = this;
 	const targetId = invited.clientId;
 	const token = await self.createToken( 'room', targetId, userId, true );
 	if ( null == token )
@@ -2765,7 +2771,7 @@ ns.Invite.prototype.handleRoomAdd = async function( invited, userId ) {
 	};
 	self.tokens[ token ] = invite;
 	
-	self.emit( 'add', invite );
+	self.emit( 'invite', invite );
 }
 
 ns.Invite.prototype.handleRevoke = async function( token, userId ) {
