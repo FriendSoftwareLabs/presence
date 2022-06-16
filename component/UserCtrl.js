@@ -45,6 +45,8 @@ ns.UserCtrl = function(
 	self.guests = {};
 	self.guestIds = [];
 	
+	self.fUserUpdateing = {};
+	
 	self.init( dbPool );
 }
 
@@ -161,23 +163,20 @@ ns.UserCtrl.prototype.update = async function( fUser ) {
 	const self = this;
 	if ( !fUser.userid ) {
 		log( 'update - invalid friend user', fUser );
-		return;
+		return false;
 	}
 	
 	const id = self.normalizeFUser( fUser );
 	if ( !id )
-		return;
+		return false;
 	
 	const identity = await self.idc.update( id );
 	if ( !identity )
-		return;
+		return false;
 	
-	if ( null != id.groups ) {
-		if ( id.fIsDisabled )
-			id.groups = [];
-		
-		self.worgs.updateUserWorgs( identity.clientId, id.groups );
-	}
+	self.updateUserWorgs( id, fUser );
+	
+	return true;
 }
 
 ns.UserCtrl.prototype.close = function() {
@@ -198,6 +197,7 @@ ns.UserCtrl.prototype.init = function() {
 	log( ':3' );
 	self.service = new FService();
 	self.serviceConn = new events.EventNode( 'user', self.service, serviceSink );
+	self.serviceConn.on( 'create', e => self.handleFUserCreate( e ));
 	self.serviceConn.on( 'update', e => self.handleFUserUpdate( e ));
 	self.serviceConn.on( 'relation-add', e => { 
 		try {
@@ -222,6 +222,28 @@ ns.UserCtrl.prototype.init = function() {
 	
 }
 
+ns.UserCtrl.prototype.handleFUserCreate = async function( event ) {
+	const self = this;
+	if ( null == event )
+		return;
+	if ( null != event.originUserId )
+		return;
+	
+	const fUId = event.userid;
+	if ( self.fUserUpdateing[ fUId ])
+		return;
+	
+	self.fUserUpdateing[ fUId ] = true;
+	log( 'handleFUserCreate', [ event, fUId ]);
+	let fUser = await self.service.getUser( fUId );
+	fUser = self.normalizeFUser( fUser );
+	const id = await self.idc.set( fUser );
+	
+	self.updateUserWorgs( id, fUser );
+	
+	delete self.fUserUpdateing[ fUId ];
+}
+
 ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 	const self = this;
 	if ( null == fUpdate )
@@ -230,8 +252,14 @@ ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 		return;
 	
 	const fUId = fUpdate.userid;
+	if ( self.fUserUpdateing[ fUId ])
+		return;
+	
+	self.fUserUpdateing[ fUId ] = true;
 	const fUser = await self.service.getUser( fUId );
-	self.update( fUser );
+	await self.update( fUser );
+	
+	delete self.fUserUpdateing[ fUId ];
 	
 	/*
 	const id = await self.idc.getByFUserId( fUId );
@@ -481,6 +509,18 @@ ns.UserCtrl.prototype.handleWorgRegenerate = function( affectedAccIds, added, re
 		
 		acc.updateWorkgroupContacts();
 	});
+}
+
+ns.UserCtrl.prototype.updateUserWorgs = function( id, fUser ) {
+	const self = this;
+	log( 'updateUserWorgs', [ id, fUser ]);
+	if ( null == fUser.groups )
+		return;
+	
+	if ( fUser.fIsDisabled )
+		fUser.groups = [];
+		
+	self.worgs.updateUserWorgs( id.clientId, fUser.groups );
 }
 
 ns.UserCtrl.prototype.normalizeFUser = function( fUser ) {
