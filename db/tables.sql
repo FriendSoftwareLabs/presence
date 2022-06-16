@@ -19,7 +19,7 @@ CREATE TABLE `account` (
 	`_id`         INT UNSIGNED NOT NULL auto_increment,
 	`clientId`    VARCHAR( 191 ) NOT NULL UNIQUE,
 	`fUserId`     VARCHAR( 191 ) NULL,
-	`fUsername`   VARCHAR( 191 ) NOT NULL UNIQUE,
+	`fUsername`   VARCHAR( 191 ) NOT NULL,
 	`fLastUpdate` BIGINT NULL,
 	`fIsDisabled` BOOLEAN NULL,
 	`name`        VARCHAR( 191 ) NOT NULL,

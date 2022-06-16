@@ -3454,8 +3454,10 @@ ns.Workgroup.prototype.getAssigned = function() {
 		if ( !wg )
 			return null;
 		
+		//wLog( 'getAssigned', [ ass, wg ]);
 		ass.clientId = wg.clientId;
 		ass.name = wg.name;
+		ass.fUId = wg.fUId;
 		return ass;
 	}
 }

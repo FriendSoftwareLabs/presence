@@ -238,6 +238,8 @@ ns.UserCtrl.prototype.handleFUserCreate = async function( event ) {
 	let fUser = await self.service.getUser( fUId );
 	fUser = self.normalizeFUser( fUser );
 	const id = await self.idc.set( fUser );
+	if ( null == id )
+		return;
 	
 	self.updateUserWorgs( id, fUser );
 	
