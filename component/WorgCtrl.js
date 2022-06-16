@@ -1151,7 +1151,6 @@ ns.WorgCtrl.prototype.addToWorg = function( worgId, userId ) {
 			uId   : userId,
 			worg  : worg,
 			userW : userW,
-			user  : user,
 		});
 		return null;
 	}
