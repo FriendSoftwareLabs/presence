@@ -192,7 +192,7 @@ ns.Users.prototype.remove = function( userId ) {
 	const aIdx = self.authorized.indexOf( userId );
 	if ( -1 !== aIdx ) {
 		self.authorized.splice( aIdx, 1 );
-		removeUser = user;
+		removedUser = user;
 	}
 	
 	const gIdx = self.guests.indexOf( userId );
