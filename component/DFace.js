@@ -165,8 +165,8 @@ ns.AccountDB.prototype.set = async function(
 	name
 ) {
 	const self = this;
-	if ( !fUsername ) {
-		accLog( 'set - fUsername is required', {
+	if ( !fUserId ) {
+		accLog( 'set - fUserId is required', {
 			i : fUserId,
 			l : fUsername,
 			n : name,
@@ -174,7 +174,6 @@ ns.AccountDB.prototype.set = async function(
 		throw new Error( 'db.account.set - missing parameters' );
 	}
 	
-	fUserId = fUserId || null;
 	fIsDisabled = fIsDisabled || null;
 	name = name || fUsername;
 	const clientId = uuid.get( 'acc' );
