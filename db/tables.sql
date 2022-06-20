@@ -244,6 +244,6 @@ INSERT INTO `db_history`(
 	`version`,
 	`comment`
 ) VALUES (
-	41,
+	42,
 	'tables.sql'
 );
