@@ -141,6 +141,8 @@ ns.Patches =function( db, conf, doneCallback ) {
 	self.procsUpdatePath = self.sqlDirectory + 'procedures.sql';
 	self.patchList = [];
 	
+	self.fails = 0;
+	
 	self.init();
 }
 
@@ -299,7 +301,6 @@ ns.Patches.prototype.getPatchList =function( resultBack ) {
 
 ns.Patches.prototype.getDbVersion = function( resultBack ) {
 	const self = this;
-	self.fails = 0;
 	var query = "SELECT * FROM db_history ORDER BY `_id` DESC LIMIT 1";
 	self.db.query( query, queryBack );
 	function queryBack( err, rows ) {
