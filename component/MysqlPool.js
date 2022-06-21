@@ -56,28 +56,18 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 	self.pool.on( 'connection', logConnection );
 	self.pool.on( 'enqueue', logEnqueue );
 	
-	self.getConnection( systemsCheck );
-	function systemsCheck ( err, conn ) {
-		if ( err ) {
-			log( 'pool check, many sharks', err );
-			if ( conn && conn.release )
-				conn.release();
-			
-			self.done( false );
-			return;
-		}
-		
-		self.applyUpdates( conn, applyDone );
+	systemsCheck();
+	
+	function systemsCheck () {
+		self.applyUpdates( self.pool, applyDone );
 		function applyDone( success ) {
-			conn.release();
-			
 			if ( !success ) {
 				log( 'no-go, db patching failed' );
 				self.done( false );
 				return;
 			}
 			
-			self.runStartupProc( conn, procsDone );
+			self.runStartupProc( self.pool, procsDone );
 		}
 		
 		function procsDone( success ) {
@@ -123,10 +113,7 @@ ns.MysqlPool.prototype.panic = function() {
 
 ns.MysqlPool.prototype.getConnection = function( callback ) {
 	const self = this;
-	if ( self.pool )
-		self.pool.getConnection( callback );
-	else
-		callback( false );
+	return self.pool;
 }
 
 // export module

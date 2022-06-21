@@ -41,9 +41,6 @@ var ns = {};
 //
 // DB
 ns.DB = function( pool ) {
-	if ( !( this instanceof ns.DB))
-		return new ns.DB( pool );
-	
 	const self = this;
 	self.pool = pool;
 	
@@ -67,41 +64,33 @@ ns.DB.prototype.query = function( fnName, values ) {
 	const self = this;
 	return new Promise( execQuery );
 	function execQuery( resolve, reject ) {
-		self.pool.getConnection( connBack );
-		function connBack( err, conn ) {
+		const conn = self.pool.getConnection();
+		values = values || [];
+		const queryString = self.buildCall( fnName, values.length );
+		conn.query( queryString, values, queryBack );
+		function queryBack( err, res ) {
 			if ( err ) {
-				reject( 'Could not obtain pool: ' + err );
+				reject( 'Query failed: ' + err );
 				return;
 			}
 			
-			values = values || [];
-			const queryString = self.buildCall( fnName, values.length );
-			conn.query( queryString, values, queryBack );
-			function queryBack( err, res ) {
-				conn.release();
-				if ( err ) {
-					reject( 'Query failed: ' + err );
-					return;
-				}
-				
-				const data = self.cleanResult( res );
-				if ( null == data ) {
-					reject( 'ERR_DB_PARSE' );
-					return;
-				}
-				
-				if( !data.pop ) {
-					resolve( [] );
-					return;
-				}
-				else
-					data.pop();
-				
-				if ( 1 === data.length )
-					resolve( data[ 0 ] );
-				else
-					resolve( data );
+			const data = self.cleanResult( res );
+			if ( null == data ) {
+				reject( 'ERR_DB_PARSE' );
+				return;
 			}
+			
+			if( !data.pop ) {
+				resolve( [] );
+				return;
+			}
+			else
+				data.pop();
+			
+			if ( 1 === data.length )
+				resolve( data[ 0 ] );
+			else
+				resolve( data );
 		}
 	}
 }
