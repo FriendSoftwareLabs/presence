@@ -57,9 +57,12 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 	self.pool.on( 'enqueue', logEnqueue );
 	self.pool.on( 'error', logError );
 	
-	systemsCheck();
+	log( 'pool created' );
+	setTimeout( systemsCheck, 5000 );
+	//systemsCheck();
 	
 	function systemsCheck () {
+		log( 'systemsCheck' );
 		self.applyUpdates( self.pool, applyDone );
 		function applyDone( success ) {
 			if ( !success ) {
@@ -296,13 +299,25 @@ ns.Patches.prototype.getPatchList =function( resultBack ) {
 
 ns.Patches.prototype.getDbVersion = function( resultBack ) {
 	const self = this;
+	self.fails = 0;
 	var query = "SELECT * FROM db_history ORDER BY `_id` DESC LIMIT 1";
 	self.db.query( query, queryBack );
 	function queryBack( err, rows ) {
 		if ( err ) {
-			resultBack( err, null );
+			log( 'dbV err', [ err, self.fails ] );
+			self.fails++;
+			if ( 3 > self.fails ) {
+				setTimeout( getDbV, 2000 );
+				function getDbV() {
+					self.getDbVersion( resultBack );
+				}
+			} else {
+				resultBack( err, null );
+			}
+			
 			return;
 		}
+		log( 'dbV', rows );
 		
 		var dbState = {
 			version : 0,
