@@ -55,6 +55,7 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 	self.pool = mySQL.createPool( self.poolConf );
 	self.pool.on( 'connection', logConnection );
 	self.pool.on( 'enqueue', logEnqueue );
+	self.pool.on( 'error', logError );
 	
 	systemsCheck();
 	
@@ -80,6 +81,10 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 	
 	function logEnqueue( ...args ) {
 		//log( 'connection requested, queued', args );
+	}
+	
+	function logError( ...args ) {
+		log( 'pool error', args );
 	}
 }
 
