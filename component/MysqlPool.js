@@ -44,6 +44,8 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 		database        : dbConf.name,
 		connectionLimit : self.connectionLimit,
 		charset         : 'utf8mb4',
+		debug           : true,
+		insecureAuth    : true,
 	};
 	
 	if ( null == dbConf.socket ) {
@@ -58,7 +60,7 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 	self.pool.on( 'error', logError );
 	
 	log( 'pool created' );
-	setTimeout( systemsCheck, 5000 );
+	setTimeout( systemsCheck, 3000 );
 	//systemsCheck();
 	
 	function systemsCheck () {
@@ -301,7 +303,7 @@ ns.Patches.prototype.getPatchList =function( resultBack ) {
 
 ns.Patches.prototype.getDbVersion = function( resultBack ) {
 	const self = this;
-	var query = "SELECT * FROM db_history ORDER BY `_id` DESC LIMIT 1";
+	const query = "SELECT * FROM db_history ORDER BY `_id` DESC LIMIT 1";
 	self.db.query( query, queryBack );
 	function queryBack( err, rows ) {
 		if ( err ) {
