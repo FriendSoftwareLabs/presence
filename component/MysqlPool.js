@@ -44,8 +44,6 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 		database        : dbConf.name,
 		connectionLimit : self.connectionLimit,
 		charset         : 'utf8mb4',
-		debug           : true,
-		insecureAuth    : true,
 	};
 	
 	if ( null == dbConf.socket ) {
