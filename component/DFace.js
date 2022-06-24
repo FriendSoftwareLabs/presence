@@ -62,11 +62,9 @@ ns.DB.prototype.close = function() {
 
 ns.DB.prototype.query = function( fnName, values ) {
 	const self = this;
-	dbLog( 'query', [ fnName, values ]);
 	return new Promise( execQuery );
 	function execQuery( resolve, reject ) {
 		const conn = self.pool.getConnection();
-		dbLog( 'conn', conn );
 		values = values || [];
 		const queryString = self.buildCall( fnName, values.length );
 		conn.query( queryString, values, queryBack );

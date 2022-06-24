@@ -58,7 +58,7 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 	self.pool.on( 'error', logError );
 	
 	log( 'pool created' );
-	setTimeout( systemsCheck, 3000 );
+	setTimeout( systemsCheck, 500 );
 	//systemsCheck();
 	
 	function systemsCheck () {
