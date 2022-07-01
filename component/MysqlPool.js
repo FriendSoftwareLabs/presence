@@ -57,12 +57,10 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 	self.pool.on( 'enqueue', logEnqueue );
 	self.pool.on( 'error', logError );
 	
-	log( 'pool created' );
-	setTimeout( systemsCheck, 500 );
+	setTimeout( systemsCheck, 10 );
 	//systemsCheck();
 	
 	function systemsCheck () {
-		log( 'systemsCheck' );
 		self.applyUpdates( self.pool, applyDone );
 		function applyDone( success ) {
 			if ( !success ) {
@@ -115,7 +113,7 @@ ns.MysqlPool.prototype.close = function( callback ) {
 
 ns.MysqlPool.prototype.panic = function() {
 	const self = this;
-	log( 'destroying pool, please panic' );
+	log( 'destroying pool, please panic :)' );
 	self.pool.destroy();
 }
 

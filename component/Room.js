@@ -111,6 +111,13 @@ ns.Room.prototype.getState = function() {
 	return state;
 }
 
+// returns a promise
+ns.Room.prototype.setName = function( name ) {
+	const self = this;
+	log( 'setName', name );
+	return self.settings.setName( name );
+}
+
 ns.Room.prototype.setWorkgroups = async function( worgIds, userId ) {
 	const self = this;
 	const assigned = await self.worgs.setAssigned( worgIds, userId );

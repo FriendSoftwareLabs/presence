@@ -562,6 +562,7 @@ ns.RoomDB.prototype.setName = function( name, roomId ) {
 		roomId,
 		name,
 	];
+	roomLog( 'setName', values );
 	return self.query( 'room_set_name', values );
 }
 

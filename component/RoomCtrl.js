@@ -463,6 +463,7 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.service = new FService();
 	self.serviceConn = new events.RequestNode( 'room', self.service, serviceSink );
 	self.serviceConn.on( 'create', r => self.handleServiceCreate( r ));
+	self.serviceConn.on( 'update', r => self.handleServiceUpdate( r ));
 	self.serviceConn.on( 'remove', r => self.handleServiceRemove( r ));
 	self.serviceConn.on( 'get'   , r => self.handleServiceGet( r ));
 	self.serviceConn.on( 'isUserInRoom', r => self.handleServiceIsUserInRoom( r ));
@@ -509,6 +510,7 @@ ns.RoomCtrl.prototype.handleIdUpdate = async function( update ) {
 
 ns.RoomCtrl.prototype.handleServiceCreate = async function( req ) {
 	const self = this;
+	log( 'handleServiceCreate', req, 3 );
 	if ( null == req )
 		throw 'ERR_NO_REQ';
 	if ( null == req.originUserId )
@@ -578,9 +580,52 @@ ns.RoomCtrl.prototype.handleServiceCreate = async function( req ) {
 	}
 }
 
+ns.RoomCtrl.prototype.handleServiceUpdate = async function( req ) {
+	const self = this;
+	log( 'handleServiceUpdate', req, 3 );
+	if ( null == req )
+		throw 'ERR_NO_REQUEST';
+	if ( null == req.originUserId )
+		throw 'ERR_NO_ORIGIN_USER';
+	
+	const oUId = req.originUserId;
+	const data = req.data;
+	const origin = await self.idCache.getByFUserId( oUId );
+	if ( null == origin )
+		throw 'ERR_INVALID_ORIGIN';
+	
+	const rId = data.roomId;
+	const room = await self.getRoom( rId );
+	if ( null == room )
+		throw 'ERR_INVALID_ROOM_ID';
+	
+	const info = room.getInfo();
+	if ( origin.clientId !== info.ownerId )
+		throw 'ERR_NOT_OWNER';
+	
+	if ( null == data.update || null == data.value )
+		throw 'ERR_MISSING_INPUT';
+	
+	if ( 'name' == data.update ) {
+		try {
+			await room.setName( data.value );
+		} catch( ex ) {
+			throw ex;
+		}
+		
+		return {
+			roomId : rId,
+			name   : data.value,
+		};
+	}
+	
+	throw 'ERR_UNHANDLED_UPDATE';
+	
+}
+
 ns.RoomCtrl.prototype.handleServiceRemove = async function( req ) {
 	const self = this;
-	log( 'handleServiceRemove', req );
+	log( 'handleServiceRemove', req, 3 );
 	if ( null == req )
 		throw 'ERR_NO_REQUEST';
 	if ( null == req.originUserId )

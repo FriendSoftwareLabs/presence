@@ -4098,7 +4098,13 @@ ns.Settings.prototype.checkIsAdmin = function( userId ) {
 
 ns.Settings.prototype.handleRoomName = async function( name, userId ) {
 	const self = this;
-	const err = await self.setRoomName( name );
+	let err = null;
+	try {
+		await self.setRoomName( name );
+	} catch( ex ) {
+		err = ex;
+	}
+	
 	if ( !userId )
 		return err;
 	
@@ -4112,22 +4118,24 @@ ns.Settings.prototype.handleRoomName = async function( name, userId ) {
 
 ns.Settings.prototype.setRoomName = async function( name ) {
 	const self = this;
+	if ( !self.isPersistent )
+		throw 'ERR_ROOM_NOT_PERSISTED';
 	
 	// TODO name/string checks
+	if ( null == name || '' == name )
+		throw 'ERR_INVALID_NAME';
 	
-	if ( self.isPersistent ) {
-		try {
-			self.db.setName( name );
-		} catch( ex ) {
-			sLog( 'setRoomName - db fail', ex );
-			return ex;
-		}
+	try {
+		await self.db.setName( name );
+	} catch( ex ) {
+		sLog( 'setRoomName - db fail', ex );
+		throw ex;
 	}
 	
 	self.set( 'roomName', name );
 	self.emit( 'roomName', name );
 	
-	return null;
+	return name;
 }
 
 ns.Settings.prototype.handleUserLimit = function( value, userId ) {
