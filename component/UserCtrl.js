@@ -170,11 +170,12 @@ ns.UserCtrl.prototype.update = async function( fUser ) {
 	if ( !id )
 		return false;
 	
+	log( 'normalized user', id );
 	const identity = await self.idc.update( id );
 	if ( !identity )
 		return false;
 	
-	self.updateUserWorgs( id, fUser );
+	self.updateUserWorgs( id );
 	
 	return true;
 }
@@ -241,7 +242,7 @@ ns.UserCtrl.prototype.handleFUserCreate = async function( event ) {
 	if ( null == id )
 		return;
 	
-	self.updateUserWorgs( id, fUser );
+	self.updateUserWorgs( id );
 	
 	delete self.fUserUpdateing[ fUId ];
 }
@@ -263,6 +264,7 @@ ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 	
 	delete self.fUserUpdateing[ fUId ];
 	
+	
 	/*
 	const id = await self.idc.getByFUserId( fUId );
 	if ( !id ) {
@@ -270,13 +272,16 @@ ns.UserCtrl.prototype.handleFUserUpdate = async function( fUpdate ) {
 		return;
 	}
 	
+	
 	if ( fUpdate.groups ) {
 		const groups = fUpdate.groups
 			.map( fId => self.worgs.getFIdToCId( fId ))
 			.filter( cId => !!cId );
 		
-		self.worgs.updateUserWorgs( id.clientId, groups );
+		//self.worgs.updateUserWorgs( id.clientId, groups );
+		fUpdate.groups = groups;
 	}
+	
 	
 	update( fUId );
 	
@@ -513,16 +518,16 @@ ns.UserCtrl.prototype.handleWorgRegenerate = function( affectedAccIds, added, re
 	});
 }
 
-ns.UserCtrl.prototype.updateUserWorgs = function( id, fUser ) {
+ns.UserCtrl.prototype.updateUserWorgs = function( id ) {
 	const self = this;
-	log( 'updateUserWorgs', [ id, fUser ]);
-	if ( null == fUser.groups )
+	log( 'updateUserWorgs', id);
+	if ( null == id.groups )
 		return;
 	
-	if ( fUser.fIsDisabled )
-		fUser.groups = [];
+	if ( id.fIsDisabled )
+		id.groups = [];
 		
-	self.worgs.updateUserWorgs( id.clientId, fUser.groups );
+	self.worgs.updateUserWorgs( id.clientId, id.groups );
 }
 
 ns.UserCtrl.prototype.normalizeFUser = function( fUser ) {
