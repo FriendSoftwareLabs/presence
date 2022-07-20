@@ -464,7 +464,8 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.serviceConn = new events.RequestNode( 'room', self.service, serviceSink );
 	self.serviceConn.on( 'create', r => self.handleServiceCreate( r ));
 	self.serviceConn.on( 'update', r => self.handleServiceUpdate( r ));
-	self.serviceConn.on( 'remove', r => self.handleServiceRemove( r ));
+	self.serviceConn.on( 'remove', r => self.handleServiceDelete( r ));
+	self.serviceConn.on( 'delete', r => self.handleServiceRemove( r ));
 	self.serviceConn.on( 'get'   , r => self.handleServiceGet( r ));
 	self.serviceConn.on( 'isUserInRoom', r => self.handleServiceIsUserInRoom( r ));
 	
@@ -621,6 +622,40 @@ ns.RoomCtrl.prototype.handleServiceUpdate = async function( req ) {
 	
 	throw 'ERR_UNHANDLED_UPDATE';
 	
+}
+
+ns.RoomCtrl.prototype.handleServiceDelete = async function( req ) {
+	const self = this;
+	log( 'handleServiceDelete', req, 3 );
+	if ( null == req )
+		throw 'ERR_NO_REQUEST';
+	
+	const data = req.data;
+	const rIds = data.roomId;
+	const deleted = {};
+	const deleting = rIds.map( async rId => {
+		log( 'destroying room', rId );
+		const room = await self.getRoom( rId );
+		if ( null == room ) {
+			deleted[ rId ] = 'ERR_NO_ROOM';
+			return;
+		}
+		
+		try {
+			await room.destroy();
+			room.close();
+		} catch( ex ) {
+			deleted[ rId ] = 'ERR_DESTROY_FAILED';
+			return;
+		}
+		
+		deleted[ rId ] = 0;
+		return rId;
+	});
+	
+	await Promise.all( deleting );
+	
+	return deleted;
 }
 
 ns.RoomCtrl.prototype.handleServiceRemove = async function( req ) {
