@@ -464,8 +464,8 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.serviceConn = new events.RequestNode( 'room', self.service, serviceSink );
 	self.serviceConn.on( 'create', r => self.handleServiceCreate( r ));
 	self.serviceConn.on( 'update', r => self.handleServiceUpdate( r ));
-	self.serviceConn.on( 'remove', r => self.handleServiceDelete( r ));
-	self.serviceConn.on( 'delete', r => self.handleServiceRemove( r ));
+	self.serviceConn.on( 'remove', r => self.handleServiceRemove( r ));
+	self.serviceConn.on( 'delete', r => self.handleServiceDelete( r ));
 	self.serviceConn.on( 'get'   , r => self.handleServiceGet( r ));
 	self.serviceConn.on( 'isUserInRoom', r => self.handleServiceIsUserInRoom( r ));
 	
