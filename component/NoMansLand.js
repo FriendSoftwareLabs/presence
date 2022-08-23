@@ -91,7 +91,6 @@ ns.NoMansLand.prototype.handleClient = function( client ) {
 	// close connection if theres no auth reply within timeout
 	let authTimeout = setTimeout( authTimedOut, self.authTimeoutMS );
 	function authTimedOut() {
-		log( 'client auth timeout hit' );
 		authTimeout = null;
 		client.release();
 		client.close();
@@ -99,7 +98,6 @@ ns.NoMansLand.prototype.handleClient = function( client ) {
 	
 	// oopsie?
 	function clientClosed( e ) {
-		log( 'client closed during auth timeout' );
 		if ( authTimeout )
 			clearTimeout( authTimeout );
 		

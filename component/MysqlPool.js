@@ -55,29 +55,21 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 	self.pool = mySQL.createPool( self.poolConf );
 	self.pool.on( 'connection', logConnection );
 	self.pool.on( 'enqueue', logEnqueue );
+	self.pool.on( 'error', logError );
 	
-	self.getConnection( systemsCheck );
-	function systemsCheck ( err, conn ) {
-		if ( err ) {
-			log( 'pool check, many sharks', err );
-			if ( conn && conn.release )
-				conn.release();
-			
-			self.done( false );
-			return;
-		}
-		
-		self.applyUpdates( conn, applyDone );
+	setTimeout( systemsCheck, 10 );
+	//systemsCheck();
+	
+	function systemsCheck () {
+		self.applyUpdates( self.pool, applyDone );
 		function applyDone( success ) {
-			conn.release();
-			
 			if ( !success ) {
 				log( 'no-go, db patching failed' );
 				self.done( false );
 				return;
 			}
 			
-			self.runStartupProc( conn, procsDone );
+			self.runStartupProc( self.pool, procsDone );
 		}
 		
 		function procsDone( success ) {
@@ -90,6 +82,10 @@ ns.MysqlPool.prototype.init = function( dbConf ) {
 	
 	function logEnqueue( ...args ) {
 		//log( 'connection requested, queued', args );
+	}
+	
+	function logError( ...args ) {
+		log( 'pool error', args );
 	}
 }
 
@@ -117,16 +113,13 @@ ns.MysqlPool.prototype.close = function( callback ) {
 
 ns.MysqlPool.prototype.panic = function() {
 	const self = this;
-	log( 'destroying pool, please panic' );
+	log( 'destroying pool, please panic :)' );
 	self.pool.destroy();
 }
 
 ns.MysqlPool.prototype.getConnection = function( callback ) {
 	const self = this;
-	if ( self.pool )
-		self.pool.getConnection( callback );
-	else
-		callback( false );
+	return self.pool;
 }
 
 // export module
@@ -145,6 +138,8 @@ ns.Patches =function( db, conf, doneCallback ) {
 	self.proceduresPath = self.sqlDirectory + 'auto_update_procs.sh';
 	self.procsUpdatePath = self.sqlDirectory + 'procedures.sql';
 	self.patchList = [];
+	
+	self.fails = 0;
 	
 	self.init();
 }
@@ -304,13 +299,24 @@ ns.Patches.prototype.getPatchList =function( resultBack ) {
 
 ns.Patches.prototype.getDbVersion = function( resultBack ) {
 	const self = this;
-	var query = "SELECT * FROM db_history ORDER BY `_id` DESC LIMIT 1";
+	const query = "SELECT * FROM db_history ORDER BY `_id` DESC LIMIT 1";
 	self.db.query( query, queryBack );
 	function queryBack( err, rows ) {
 		if ( err ) {
-			resultBack( err, null );
+			log( 'dbV err', [ err, self.fails ] );
+			self.fails++;
+			if ( 3 > self.fails ) {
+				setTimeout( getDbV, 2000 );
+				function getDbV() {
+					self.getDbVersion( resultBack );
+				}
+			} else {
+				resultBack( err, null );
+			}
+			
 			return;
 		}
+		log( 'dbV', rows );
 		
 		var dbState = {
 			version : 0,

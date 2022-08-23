@@ -170,8 +170,9 @@ ns.RoomCtrl.prototype.createRoom = async function( accountId, conf ) {
 	if ( !room )
 		return null;
 	
-	const user = await room.connect( accountId );
-	return user;
+	
+	const userRoom = await room.connect( accountId );
+	return userRoom;
 }
 
 ns.RoomCtrl.prototype.joinRoom = async function( accountId, conf ) {
@@ -460,7 +461,9 @@ ns.RoomCtrl.prototype.init = async function() {
 	self.service = new FService();
 	self.serviceConn = new events.RequestNode( 'room', self.service, serviceSink );
 	self.serviceConn.on( 'create', r => self.handleServiceCreate( r ));
+	self.serviceConn.on( 'update', r => self.handleServiceUpdate( r ));
 	self.serviceConn.on( 'remove', r => self.handleServiceRemove( r ));
+	self.serviceConn.on( 'delete', r => self.handleServiceDelete( r ));
 	self.serviceConn.on( 'get'   , r => self.handleServiceGet( r ));
 	self.serviceConn.on( 'isUserInRoom', r => self.handleServiceIsUserInRoom( r ));
 	
@@ -575,9 +578,82 @@ ns.RoomCtrl.prototype.handleServiceCreate = async function( req ) {
 	}
 }
 
+ns.RoomCtrl.prototype.handleServiceUpdate = async function( req ) {
+	const self = this;
+	if ( null == req )
+		throw 'ERR_NO_REQUEST';
+	if ( null == req.originUserId )
+		throw 'ERR_NO_ORIGIN_USER';
+	
+	const oUId = req.originUserId;
+	const data = req.data;
+	const origin = await self.idCache.getByFUserId( oUId );
+	if ( null == origin )
+		throw 'ERR_INVALID_ORIGIN';
+	
+	const rId = data.roomId;
+	const room = await self.getRoom( rId );
+	if ( null == room )
+		throw 'ERR_INVALID_ROOM_ID';
+	
+	const info = room.getInfo();
+	if ( origin.clientId !== info.ownerId )
+		throw 'ERR_NOT_OWNER';
+	
+	if ( null == data.update || null == data.value )
+		throw 'ERR_MISSING_INPUT';
+	
+	if ( 'name' == data.update ) {
+		try {
+			await room.setName( data.value );
+		} catch( ex ) {
+			throw ex;
+		}
+		
+		return {
+			roomId : rId,
+			name   : data.value,
+		};
+	}
+	
+	throw 'ERR_UNHANDLED_UPDATE';
+	
+}
+
+ns.RoomCtrl.prototype.handleServiceDelete = async function( req ) {
+	const self = this;
+	if ( null == req )
+		throw 'ERR_NO_REQUEST';
+	
+	const data = req.data;
+	const rIds = data.roomId;
+	const deleted = {};
+	const deleting = rIds.map( async rId => {
+		const room = await self.getRoom( rId );
+		if ( null == room ) {
+			deleted[ rId ] = 'ERR_NO_ROOM';
+			return;
+		}
+		
+		try {
+			await room.destroy();
+			room.close();
+		} catch( ex ) {
+			deleted[ rId ] = 'ERR_DESTROY_FAILED';
+			return;
+		}
+		
+		deleted[ rId ] = 0;
+		return rId;
+	});
+	
+	await Promise.all( deleting );
+	
+	return deleted;
+}
+
 ns.RoomCtrl.prototype.handleServiceRemove = async function( req ) {
 	const self = this;
-	log( 'handleServiceRemove', req );
 	if ( null == req )
 		throw 'ERR_NO_REQUEST';
 	if ( null == req.originUserId )
@@ -639,7 +715,6 @@ ns.RoomCtrl.prototype.handleServiceGet = async function( req ) {
 
 ns.RoomCtrl.prototype.handleServiceIsUserInRoom = async function( req ) {
 	const self = this;
-	log( 'handleServiceIsUserInRoom', req );
 	if ( null == req )
 		throw 'ERR_NO_REQUEST';
 	if ( null == req.data )
@@ -655,7 +730,6 @@ ns.RoomCtrl.prototype.handleServiceIsUserInRoom = async function( req ) {
 	if ( !uId || !rId )
 		throw 'ERR_INVALID_ARGS';
 	
-	log( 'inputs', [ uId, rId ]);
 	/* disabled for now
 	const room = self.rooms[ rId ] || self.workRooms[ rId ];
 	if ( room ) {
@@ -665,11 +739,9 @@ ns.RoomCtrl.prototype.handleServiceIsUserInRoom = async function( req ) {
 	*/
 	
 	const roomInfo = await self.roomDb.getInfo( rId );
-	log( 'roomInfo', roomInfo, 3 );
 	if ( null == roomInfo.room )
 		throw 'ERR_NOT_A_ROOM';
 	
-	log( 'roomInfo', roomInfo, 3 );
 	const roomConf = roomInfo.room;
 	const auths = roomInfo.authorized;
 	const worgs = roomInfo.workgroups;
@@ -678,11 +750,6 @@ ns.RoomCtrl.prototype.handleServiceIsUserInRoom = async function( req ) {
 	if ( null != roomConf.workgroupId ) {
 		const memberOf = self.worgs.getMemberOf( uId );
 		const inGroup = memberOf.some( userWorgId => userWorgId == roomConf.workgroupId );
-		log( 'workroom memberof', {
-			memberOf : memberOf,
-			workId   : roomConf.workgroupId,
-			inGroup  : inGroup,
-		});
 		return inGroup;
 	}
 	
@@ -691,7 +758,6 @@ ns.RoomCtrl.prototype.handleServiceIsUserInRoom = async function( req ) {
 		const isAuthed = roomInfo.authorized.some( auth => {
 			return auth.accountId == uId;
 		});
-		log( 'isAuthed', isAuthed );
 		if ( isAuthed )
 			return true;
 	}
@@ -699,11 +765,9 @@ ns.RoomCtrl.prototype.handleServiceIsUserInRoom = async function( req ) {
 	// assigned workgroup member check
 	if ( worgs && worgs.length ) {
 		const memberOf = self.worgs.getMemberOfAsFID( uId );
-		log( 'memberof', memberOf );
 		const inGroup = worgs.some( assigned => {
 			return memberOf.some( fWorgId => fWorgId == assigned.fId );
 		});
-		log( 'ingroup', inGroup );
 		if ( inGroup )
 			return true;
 	}
@@ -1052,7 +1116,8 @@ ns.RoomCtrl.prototype.bindRoom = function( room ) {
 	const self = this;
 	const roomId = room.id;
 	room.on( 'empty'              , e => self.removeRoom(               roomId ));
-	room.on( 'invite-add'         , e => self.handleInviteAdd(          e, roomId ));
+	room.on( 'user-add'           , e => self.handleUserAdd(            e, roomId ));
+	room.on( 'user-invite'        , e => self.handleUserInvite(         e, roomId ));
 	room.on( 'invite-invalid'     , e => self.handleInviteInvalid(      e, roomId ));
 	room.on( 'workgroup-assigned' , e => self.handleWorkgroupAssigned(  e, roomId ));
 	room.on( 'workgroup-dismissed', e => self.handleWorkgroupDismissed( e, roomId ));
@@ -1068,7 +1133,16 @@ ns.RoomCtrl.prototype.bindContactRoom = function( room ) {
 	function contactEvent( e ) { self.forwardContactEvent( e, rId ); }
 }
 
-ns.RoomCtrl.prototype.handleInviteAdd = async function( invite, roomId ) {
+ns.RoomCtrl.prototype.handleUserAdd = async function( userId, roomId ) {
+	const self = this;
+	const rj = {
+		type : 'room-join',
+		data : roomId,
+	};
+	self.emit( userId, rj );
+}
+
+ns.RoomCtrl.prototype.handleUserInvite = async function( invite, roomId ) {
 	const self = this;
 	invite.roomId = roomId;
 	const token = invite.token;

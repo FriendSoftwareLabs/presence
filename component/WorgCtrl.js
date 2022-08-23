@@ -211,6 +211,7 @@ ns.WorgCtrl.prototype.cIdToFId = function( cId ) {
 
 ns.WorgCtrl.prototype.getFIdToCId = function( fId ) {
 	const self = this;
+	fId = self.makeFId( fId );
 	const worg = self.fMap[ fId ];
 	if ( !worg )
 		return null;
@@ -1151,7 +1152,6 @@ ns.WorgCtrl.prototype.addToWorg = function( worgId, userId ) {
 			uId   : userId,
 			worg  : worg,
 			userW : userW,
-			user  : user,
 		});
 		return null;
 	}

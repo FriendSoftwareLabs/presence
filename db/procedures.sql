@@ -7,8 +7,9 @@
 
 DELIMITER //
 
-#
+# MAINTENACE
 DROP PROCEDURE IF EXISTS set_last_patch_version;
+DROP PROCEDURE IF EXISTS patch_drop_index;
 
 # STATISTICS
 DROP PROCEDURE IF EXISTS stats_user_relation_date;
@@ -145,7 +146,7 @@ RETURN msg_time;
 END//
 
 #
-#
+# set_last_patch_version
 CREATE PROCEDURE set_last_patch_version(
 	IN `version` INT,
 	IN `comment` VARCHAR( 191 )
@@ -159,6 +160,24 @@ BEGIN
 		`comment`
 	);
 END//
+
+#
+# patch_drop_index
+CREATE PROCEDURE patch_drop_index(
+	IN `tableName` VARCHAR( 191 ),
+	IN `indexName` VARCHAR( 191 )
+)
+BEGIN
+IF((SELECT COUNT(*) AS index_exists FROM information_schema.statistics 
+		WHERE TABLE_SCHEMA = DATABASE()
+		AND table_name = tableName 
+		AND index_name = indexName ) > 0) THEN
+	SET @s = CONCAT('DROP INDEX `' , indexName  , '` ON `' , tableName, '`');
+	PREPARE stmt FROM @s;
+	EXECUTE stmt;
+END IF;
+END//
+
 
 #
 # STATS

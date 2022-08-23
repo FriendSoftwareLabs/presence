@@ -19,7 +19,7 @@ CREATE TABLE `account` (
 	`_id`         INT UNSIGNED NOT NULL auto_increment,
 	`clientId`    VARCHAR( 191 ) NOT NULL UNIQUE,
 	`fUserId`     VARCHAR( 191 ) NULL,
-	`fUsername`   VARCHAR( 191 ) NOT NULL UNIQUE,
+	`fUsername`   VARCHAR( 191 ) NULL,
 	`fLastUpdate` BIGINT NULL,
 	`fIsDisabled` BOOLEAN NULL,
 	`name`        VARCHAR( 191 ) NOT NULL,
@@ -29,7 +29,8 @@ CREATE TABLE `account` (
 	`created`     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	`lastLogin`   TIMESTAMP NULL,
 	`lastOnline`  TIMESTAMP NULL,
-	PRIMARY KEY( _id )
+	PRIMARY KEY( _id ),
+	CONSTRAINT U_acc_fuid UNIQUE INDEX( fUserId )
 ) ENGINE=INNODB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `room` (
@@ -243,6 +244,6 @@ INSERT INTO `db_history`(
 	`version`,
 	`comment`
 ) VALUES (
-	39,
+	42,
 	'tables.sql'
 );

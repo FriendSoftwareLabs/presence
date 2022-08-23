@@ -330,7 +330,6 @@ ns.Account.prototype.bindConn = function() {
 	self.conn.on( 'room', handleRoomMsg );
 	self.conn.on( 'room-get', getRoom );
 	self.conn.on( 'room-join', joinRoom );
-	self.conn.on( 'room-create', createRoom );
 	self.conn.on( 'contact', handleContact );
 	self.conn.on( 'contact-list', ( e, cId ) => self.handleContactList( e, cId ));
 	self.conn.on( 'avatar', ( e, cId ) => self.handleAvatarEvent( e, cId ));
@@ -345,7 +344,6 @@ ns.Account.prototype.bindConn = function() {
 	function handleRoomMsg( e, cId ) { self.log( 'roomMsg - noop', msg ); }
 	function getRoom( e, cId ) { self.getRoom( e, cId ); }
 	function joinRoom( e, cId ) { self.joinRoom( e, cId ); }
-	function createRoom( e, cId ) { self.createRoom( e, cId ); }
 	function handleContact( e, cId ) { self.handleContactEvent( e, cId ); }
 	
 	// requests
@@ -353,8 +351,7 @@ ns.Account.prototype.bindConn = function() {
 	self.conn.on( 'relation-add'         , e => self.handleAddRelation( e ));
 	self.conn.on( 'search-user'          , e => self.handleSearchUser( e ));
 	self.conn.on( 'account-settings-set' , e => self.handleAccSettingSet( e ));
-	
-	//function fGet( e ) { return self.handleFriendGet( e ); }
+	self.conn.on( 'room-create'          , e => self.handleRoomCreate( e ));
 	
 }
 
@@ -484,24 +481,6 @@ ns.Account.prototype.handleWorkRoomJoin = async function( worgId, roomId ) {
 	await self.joinedARoomHooray( room );
 }
 
-/*
-ns.Account.prototype.handleWorkRoomView = async function( worgId, roomId ) {
-	const self = this;
-	const canConnect = self.doPreConnect( roomId );
-	if ( !canConnect )
-		return;
-	
-	let room = await self.roomCtrl.connectWorkView( self.id , worgId );
-	if ( !room ) {
-		self.log( 'handleWorkRoomView - could not connect to room', worgId );
-		self.clearConnecting( roomId );
-		return;
-	}
-	
-	await self.joinedARoomHooray( room );
-}
-*/
-
 ns.Account.prototype.handleWorkgroupJoin = async function( event, roomId ) {
 	const self = this;
 	const canConnect = self.doPreConnect( roomId );
@@ -565,22 +544,6 @@ ns.Account.prototype.connectToContact = async function( contactId ) {
 		return null;
 	}
 	
-	/*
-	const roomDb = new dFace.RoomDB( self.dbPool );
-	const relation = await roomDb.getRelationFor( self.id, contactId );
-	if ( null == relation ) {
-		contact = await self.idCache.get( contactId );
-		self.log( 'connectToContact - no db relation for', {
-			accId     : self.id,
-			contactId : contactId,
-			contact   : contact,
-		});
-		return;
-	}
-	
-	await self.registerRelation( relation );
-	*/
-	
 	await self.joinedARoomHooray( room );
 	
 	return room;
@@ -636,7 +599,6 @@ ns.Account.prototype.handleWorkgroupAssigned = function( addedWorg, roomId ) {
 ns.Account.prototype.initializeClient = async function( event, clientId ) {
 	const self = this;
 	const rooms = self.rooms.getRooms();
-	//const ids = await getIds();
 	const ids = {};
 	const relations = await getRelations();
 	const invites = await self.roomCtrl.getUserInvites( self.id );
@@ -888,23 +850,6 @@ ns.Account.prototype.loadWorkRooms = async function() {
 		await self.joinedARoomHooray( room );
 	}
 	
-	/*
-	async function connectView( conf ) {
-		const rId = conf.clientId;
-		const wId = conf.worgId;
-		const canConnect = self.doPreConnect( rId );
-		if ( !canConnect )
-			return;
-		
-		const room = await self.roomCtrl.connectWorkView( self.id, wId );
-		if ( !room ) {
-			self.log( 'loadWorkRooms - could not conenct to view', wId );
-			return;
-		}
-		
-		await self.joinedARoomHooray( room );
-	}
-	*/
 }
 
 ns.Account.prototype.getRoom = function( roomId, cId ) {
@@ -932,7 +877,7 @@ ns.Account.prototype.joinRoom = async function( conf, cid ) {
 	return true;
 }
 
-ns.Account.prototype.createRoom = async function( conf, cid ) {
+ns.Account.prototype.handleRoomCreate = async function( conf ) {
 	const self = this;
 	conf = conf || {};
 	const room = await self.roomCtrl.createRoom( self.id, conf );
@@ -942,11 +887,12 @@ ns.Account.prototype.createRoom = async function( conf, cid ) {
 			room : room,
 			conf : conf,
 		}, 4 );
-		return;
+		throw 'ERR_CREATE_ROOM_COULD_NOT';
 	}
 	
-	await self.joinedARoomHooray( room, conf.req );
-	return true;
+	await self.joinedARoomHooray( room );
+	const roomConf = room.getConf();
+	return roomConf;
 }
 
 ns.Account.prototype.connectedRoom = async function( room ) {
@@ -966,10 +912,8 @@ ns.Account.prototype.connectedRoom = async function( room ) {
 
 ns.Account.prototype.doPreConnect = function( roomId ) {
 	const self = this;
-	if ( !roomId || !( 'string' === typeof( roomId ))) {
+	if ( !roomId || !( 'string' === typeof( roomId )))
 		throw new Error( 'no room id' );
-		return;
-	}
 	
 	if ( self.rooms.isParticipant( roomId ))
 		return false;
@@ -990,7 +934,7 @@ ns.Account.prototype.joinedARoomHooray = async function( room, reqId  ) {
 	const self = this;
 	if ( !room || !room.roomId || !room.roomName ) {
 		self.log( 'joinedARoom - didnt join a room', room );
-		return;
+		return null;
 	}
 	
 	const conf = room.getConf();
@@ -1001,14 +945,8 @@ ns.Account.prototype.joinedARoomHooray = async function( room, reqId  ) {
 	
 	self.sendJoined( conf, currentRooms );
 	
-	/*
-	const isRes = await self.roomCtrl.handleServiceIsUserInRoom( { data : {
-		roomId : rId,
-		userId : self.id,
-	}});
+	return null;
 	
-	self.log( 'isRes', isRes );
-	*/
 }
 
 ns.Account.prototype.sendJoined = async function( roomConf, currentRooms, clientId ) {

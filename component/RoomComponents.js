@@ -192,7 +192,7 @@ ns.Users.prototype.remove = function( userId ) {
 	const aIdx = self.authorized.indexOf( userId );
 	if ( -1 !== aIdx ) {
 		self.authorized.splice( aIdx, 1 );
-		removeUser = user;
+		removedUser = user;
 	}
 	
 	const gIdx = self.guests.indexOf( userId );
@@ -2525,11 +2525,12 @@ ns.Invite.prototype.init = function( pool, roomId ) {
 	self.db = new dFace.InviteDB( pool, roomId );
 	
 	self.eventMap = {
-		'state'    : ( e, uid ) => self.handleState( e, uid ),
-		'public'   : ( e, uid ) => self.handlePublic( e, uid ),
-		'private'  : ( e, uid ) => self.handlePrivate( e, uid ),
-		'revoke'   : ( e, uid ) => self.handleRevoke( e, uid ),
-		'room-add' : ( e, uid ) => self.handleRoomAdd( e, uid ),
+		'state'       : ( e, uid ) => self.handleState( e, uid ),
+		'public'      : ( e, uid ) => self.handlePublic( e, uid ),
+		'private'     : ( e, uid ) => self.handlePrivate( e, uid ),
+		'revoke'      : ( e, uid ) => self.handleRevoke( e, uid ),
+		'room-add'    : ( e, uid ) => self.handleRoomAdd( e, uid ),
+		'room-invite' : ( e, uid ) => self.handleRoomInvite( e, uid ),
 	};
 }
 
@@ -2751,6 +2752,11 @@ ns.Invite.prototype.persistCurrentTokens = async function() {
 
 ns.Invite.prototype.handleRoomAdd = async function( invited, userId ) {
 	const self = this;
+	self.emit( 'add', invited.clientId );
+}
+
+ns.Invite.prototype.handleRoomInvite = async function( invited, userId ) {
+	const self = this;
 	const targetId = invited.clientId;
 	const token = await self.createToken( 'room', targetId, userId, true );
 	if ( null == token )
@@ -2765,7 +2771,7 @@ ns.Invite.prototype.handleRoomAdd = async function( invited, userId ) {
 	};
 	self.tokens[ token ] = invite;
 	
-	self.emit( 'add', invite );
+	self.emit( 'invite', invite );
 }
 
 ns.Invite.prototype.handleRevoke = async function( token, userId ) {
@@ -3448,8 +3454,10 @@ ns.Workgroup.prototype.getAssigned = function() {
 		if ( !wg )
 			return null;
 		
+		//wLog( 'getAssigned', [ ass, wg ]);
 		ass.clientId = wg.clientId;
 		ass.name = wg.name;
+		ass.fUId = wg.fUId;
 		return ass;
 	}
 }
@@ -4090,7 +4098,13 @@ ns.Settings.prototype.checkIsAdmin = function( userId ) {
 
 ns.Settings.prototype.handleRoomName = async function( name, userId ) {
 	const self = this;
-	const err = await self.setRoomName( name );
+	let err = null;
+	try {
+		await self.setRoomName( name );
+	} catch( ex ) {
+		err = ex;
+	}
+	
 	if ( !userId )
 		return err;
 	
@@ -4104,22 +4118,24 @@ ns.Settings.prototype.handleRoomName = async function( name, userId ) {
 
 ns.Settings.prototype.setRoomName = async function( name ) {
 	const self = this;
+	if ( !self.isPersistent )
+		throw 'ERR_ROOM_NOT_PERSISTED';
 	
 	// TODO name/string checks
+	if ( null == name || '' == name )
+		throw 'ERR_INVALID_NAME';
 	
-	if ( self.isPersistent ) {
-		try {
-			self.db.setName( name );
-		} catch( ex ) {
-			sLog( 'setRoomName - db fail', ex );
-			return ex;
-		}
+	try {
+		await self.db.setName( name );
+	} catch( ex ) {
+		sLog( 'setRoomName - db fail', ex );
+		throw ex;
 	}
 	
 	self.set( 'roomName', name );
 	self.emit( 'roomName', name );
 	
-	return null;
+	return name;
 }
 
 ns.Settings.prototype.handleUserLimit = function( value, userId ) {
