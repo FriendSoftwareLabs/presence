@@ -3,7 +3,7 @@
   "version" : "0.0.0",
   "private" : true,
   "dependencies": {
-    "jimp"        : "^0.6.1",
+    "jimp"        : "^0.16.1",
     "mysql2"      : "^2.1.0",
     "nanomsg"     : "^4.1.0",
     "request"     : "^2.83.0",
