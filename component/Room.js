@@ -343,6 +343,7 @@ ns.Room.prototype.init = async function( worgCtrl ) {
 	self.roomDb = new dFace.RoomDB( self.dbPool, self.id );
 	self.users = new components.Users(
 		self.dbPool,
+		self.ownerId,
 		self.id,
 		self.persistent
 	);
