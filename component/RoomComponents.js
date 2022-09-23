@@ -31,42 +31,44 @@ var ns = {};
 const uLog = require( './Log' )( 'Room > Users' );
 ns.Users = function(
 	dbPool,
+	ownerId,
 	roomId,
 	isPersistent
 ) {
-	const self = this;
-	events.Emitter.call( self );
+	const self = this
+	events.Emitter.call( self )
 	
-	self.isPersistent = isPersistent;
-	self.roomId = roomId;
-	self.workId = null;
-	self.superId = null;
+	self.isPersistent = isPersistent
+	self.ownerId = ownerId
+	self.roomId = roomId
+	self.workId = null
+	self.superId = null
 	
-	self.everyone = {};
-	self.everyId = [];
-	self.atNames = [];
-	self.atNameRemoveList = [];
-	self.notPersisted = [];
-	self.online = [];
-	self.active = [];
-	self.authorized = [];
-	self.admins = [];
-	self.guests = [];
-	self.worgs = {};
-	self.wIds = [];
-	self.subs = {};
-	self.subIds = [];
-	self.viewGroups = [];
-	self.viewers = {};
-	self.viewerIds = [];
-	self.lastRead = {};
-	self.recent = {};
-	self.recentIds = [];
-	self.recentTrimInterval = null;
-	self.recentTrimMS = 1000 * 60 * 10;
-	self.recentMaxMS = 1000 * 60 * 60 * 8;
+	self.everyone = {}
+	self.everyId = []
+	self.atNames = []
+	self.atNameRemoveList = []
+	self.notPersisted = []
+	self.online = []
+	self.active = []
+	self.authorized = []
+	self.admins = []
+	self.guests = []
+	self.worgs = {}
+	self.wIds = []
+	self.subs = {}
+	self.subIds = []
+	self.viewGroups = []
+	self.viewers = {}
+	self.viewerIds = []
+	self.lastRead = {}
+	self.recent = {}
+	self.recentIds = []
+	self.recentTrimInterval = null
+	self.recentTrimMS = 1000 * 60 * 10
+	self.recentMaxMS = 1000 * 60 * 60 * 8
 	
-	self.init( dbPool );
+	self.init( dbPool )
 }
 
 util.inherits( ns.Users, events.Emitter );
@@ -328,6 +330,24 @@ ns.Users.prototype.removeAdmin = function( userId, isIdUpdate ) {
 ns.Users.prototype.getAdmins = function() {
 	const self = this;
 	return self.admins;
+}
+
+ns.Users.prototype.getIsAdmin = function( userId ) {
+	const self = this
+	if ( null == userId )
+		throw 'ERR_NULL'
+	
+	uLog( 'getIsAdmin', [ userId, self.admins ])
+	return ( -1 != self.admins.indexOf( userId ))
+}
+
+ns.Users.prototype.getIsOwner = function( userId ) {
+	const self = this
+	if ( null == userId )
+		throw 'ERR_NULL'
+	
+	uLog( 'getIsOwner', [ userId, self.ownerId ])
+	return userId === self.ownerId
 }
 
 ns.Users.prototype.addAtName = function( userId, isIdUpdate ) {
@@ -4020,21 +4040,20 @@ ns.Settings.prototype.set = function( setting, value ) {
 }
 
 ns.Settings.prototype.handleLoad = async function( event, userId ) {
-	const self = this;
-	const values = self.get();
+	const self = this
+	const values = self.get()
 	if ( null != global.config.server.classroomProxy ) {
-		values.isClassroom = values.isStream;
-		delete values.isStream;
+		values.isClassroom = values.isStream
+		delete values.isStream
 	}
 	
-	const isAdmin = self.checkIsAdmin( userId );
-	if ( !isAdmin )
-		delete values[ 'workgroups' ];
+	if ( false == self.checkIsAdmin( userId ))
+		delete values[ 'workgroups' ]
 	
-	if ( isAdmin )
-		values.authorized = self.users.getAuthorized();
+	if ( self.checkIsAdminOrOwner( userId ))
+		values.authorized = self.users.getAuthorized()
 	
-	return values;
+	return values
 }
 
 ns.Settings.prototype.saveSetting = function( event, userId ) {
@@ -4073,27 +4092,18 @@ ns.Settings.prototype.checkHasProxy = function() {
 
 ns.Settings.prototype.checkIsAdminOrOwner = function( userId ) {
 	const self = this;
-	const user = self.users.get( userId );
-	if ( !user )
-		return false;
+	if ( self.checkIsAdmin( userId ))
+		return true
 	
-	if ( !user.isAdmin && !user.isOwner )
-		return false;
-	else
-		return true;
+	if ( self.users.getIsOwner( userId ))
+		return true
 	
+	return false
 }
 
 ns.Settings.prototype.checkIsAdmin = function( userId ) {
 	const self = this;
-	const user = self.users.get( userId );
-	if ( !user )
-		return false;
-	
-	if ( !user.isAdmin )
-		return false;
-	else
-		return true;
+	return self.users.getIsAdmin( userId )
 }
 
 ns.Settings.prototype.handleRoomName = async function( name, userId ) {

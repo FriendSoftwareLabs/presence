@@ -337,6 +337,7 @@ ns.ContactUsers = function(
 	const self = this;
 	components.Users.call( self,
 		dbPool,
+		null,
 		roomId,
 		true,
 		null
