@@ -648,7 +648,7 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 			ids     : ids,
 			members : {},
 		}
-		const worgs = ids.forEach( wId => {
+		ids.forEach( wId => {
 			const members = self.worgCtrl.getUserList( wId )
 			worgs.members[ wId ] = members
 		})
