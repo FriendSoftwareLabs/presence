@@ -597,28 +597,30 @@ ns.Account.prototype.handleWorkgroupAssigned = function( addedWorg, roomId ) {
 }
 
 ns.Account.prototype.initializeClient = async function( event, clientId ) {
-	const self = this;
-	const rooms = self.rooms.getRooms();
-	const ids = {};
-	const relations = await getRelations();
-	const invites = await self.roomCtrl.getUserInvites( self.id );
+	const self = this
+	const rooms = self.rooms.getRooms()
+	const ids = {}
+	const relations = await getRelations()
+	const invites = await self.roomCtrl.getUserInvites( self.id )
+	const worgs = getWorgs()
 	const state = {
 		identities : ids,
 		rooms      : rooms,
 		relations  : relations,
 		contacts   : self.contactIds,
 		invites    : invites,
+		workgroups : worgs,
 		account    : {
 			host     : global.config.shared.wsHost,
 			clientId : self.id,
 			identity : self.identity,
 		},
-	};
+	}
 	
 	const init = {
 		type : 'initialize',
 		data : state,
-	};
+	}
 	self.conn.send( init, clientId );
 	
 	if ( !self.isLoaded )
@@ -637,6 +639,21 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 			contacts[ cId ] = c;
 		});
 		return contacts;
+	}
+	
+	function getWorgs() {
+		const ids = self.worgCtrl.getMemberOf( self.id )
+		self.log( 'getWorgs, ids', ids )
+		const worgs = {
+			ids     : ids,
+			members : {},
+		}
+		const worgs = ids.forEach( wId => {
+			const members = self.worgCtrl.getUserList( wId )
+			worgs.members[ wId ] = members
+		})
+		
+		return worgs
 	}
 }
 
