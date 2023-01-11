@@ -216,9 +216,9 @@ ns.UserCtrl.prototype.init = function() {
 	self.idc.on( 'invalidate-alphanum-cache', e => self.handleInvalidateANCache( e ));
 	
 	self.worgs.on( 'users-added', ( worgId, accIds ) =>
-		self.handleWorgUsersAdded( worgId, accIds ));
+		self.handleWorgUsersAdded( worgId, accIds ))
 	self.worgs.on( 'regenerate', ( regen, add, rem ) => 
-		self.handleWorgRegenerate( regen, add, rem ));
+		self.handleWorgRegenerate( regen, add, rem ))
 	
 }
 
@@ -380,9 +380,10 @@ ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds
 		return;
 	}
 	
+	log( 'handleWorgUsersAdded', [ worgId, addedAccIds ])
 	const addedOnline = addedAccIds.filter( cId => self.idc.checkOnline( cId ));
 	let worgUserList = self.worgs.getUserList( worgId, true );
-	worgUserList.forEach( accId => add( accId, addedOnline ));
+	worgUserList.forEach( accId => add( accId, addedOnline )); // only adding online? should it be all?
 	addedOnline.forEach( accId => add( accId, worgUserList ));
 	
 	function add( accId, list ) {
@@ -430,6 +431,7 @@ ns.UserCtrl.prototype.handleIdUpdate = function( update ) {
 ns.UserCtrl.prototype.handleIdOnline = function( accId, isOnline ) {
 	const self = this;
 	const affected = self.worgs.getContactList( accId, isOnline );
+	log( 'handleIdOnline', [ accId, isOnline, affected ])
 	affected.forEach( cId => {
 		const acc = self.accounts[ cId ];
 		if ( !acc )
@@ -507,6 +509,7 @@ ns.UserCtrl.prototype.handleWorgUserRemoved = function( removedAccId, worgId ) {
 
 ns.UserCtrl.prototype.handleWorgRegenerate = function( affectedAccIds, added, removed ) {
 	const self = this;
+	log( 'handleWorgRegnerate', [ affectedAccIds, added , removed ])
 	affectedAccIds.forEach( accId => {
 		const acc = self.accounts[ accId ];
 		if ( !acc || acc.closed )
