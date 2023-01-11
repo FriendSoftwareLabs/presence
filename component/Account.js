@@ -150,6 +150,11 @@ ns.Account.prototype.addContact = async function( accId ) {
 	*/
 }
 
+ns.Account.prototype.updateWorkgroup = function( update ) {
+	const self = this
+	self.conn.send( update )
+}
+
 ns.Account.prototype.updateContacts = function() {
 	const self = this;
 	self.log( 'updateContacts- NOOP' );

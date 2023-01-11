@@ -217,6 +217,10 @@ ns.UserCtrl.prototype.init = function() {
 	
 	self.worgs.on( 'users-added', ( worgId, accIds ) =>
 		self.handleWorgUsersAdded( worgId, accIds ))
+	
+	self.worgs.on( 'users-removed', ( worgId, accIds ) => 
+		self.handlelWorgUsersRemoved( worgId, accIds ))
+	
 	self.worgs.on( 'regenerate', ( regen, add, rem ) => 
 		self.handleWorgRegenerate( regen, add, rem ))
 	
@@ -380,11 +384,29 @@ ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds
 		return;
 	}
 	
+	// addContacts 
 	log( 'handleWorgUsersAdded', [ worgId, addedAccIds ])
 	const addedOnline = addedAccIds.filter( cId => self.idc.checkOnline( cId ));
 	let worgUserList = self.worgs.getUserList( worgId, true );
 	worgUserList.forEach( accId => add( accId, addedOnline )); // only adding online? should it be all?
 	addedOnline.forEach( accId => add( accId, worgUserList ));
+	
+	// updateWorkgroup
+	const uptd = {
+		type : 'workgroup-update',
+		data : {
+			id   : worgId,
+			add  : addedAccIds,
+		}
+	}
+	
+	worgUserList.forEach( accId => {
+		const acc = self.accounts[ accId ]
+		if ( !acc || acc.closed )
+			return
+		
+		acc.updateWorkgroup( uptd )
+	})
 	
 	function add( accId, list ) {
 		let acc = self.accounts[ accId ];
@@ -393,6 +415,30 @@ ns.UserCtrl.prototype.handleWorgUsersAdded = async function( worgId, addedAccIds
 		
 		acc.addContacts( list );
 	}
+}
+
+ns.UserCtrl.prototype.handlelWorgUsersRemoved = function( worgId, removedAccIds ) {
+	const self = this
+	log( 'handleWorgUsersRemoved', [ worgId, removedAccIds ])
+	if ( !removedAccIds || !removedAccIds.length )
+		return
+	
+	const uptd = {
+		type : 'workgroup-update',
+		data : {
+			id     : worgId,
+			remove : removedAccIds,
+		}
+	}
+	
+	const worgUserList = self.worgs.getUserList( worgId, true )
+	worgUserList.forEach( accId => {
+		const acc = self.accounts[ accId ]
+		if ( !acc || acc.closed )
+			return
+		
+		acc.updateWorkgroup( uptd )
+	})
 }
 
 ns.UserCtrl.prototype.handleIdAdd = function( id ) {
