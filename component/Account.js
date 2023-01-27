@@ -156,24 +156,24 @@ ns.Account.prototype.updateWorkgroup = function( update ) {
 }
 
 ns.Account.prototype.updateContacts = function() {
-	const self = this;
-	self.log( 'updateContacts- NOOP' );
+	const self = this
+	self.log( 'updateContacts- NOOP' )
 }
 
 ns.Account.prototype.updateWorkgroupContacts = function() {
-	const self = this;
-	const cList = self.worgCtrl.getContactList( self.id, true );
+	const self = this
+	const cList = self.worgCtrl.getContactList( self.id, true )
 	self.log( 'updateWorkgroupContacts', cList )
-	const cMap = {};
+	const cMap = {}
 	cList.forEach( accId => {
-		cMap[ accId ] = true;
-		self.addContact( accId );
-	});
-	const removed = self.contactIds.filter( notInList );
-	removed.forEach( accId => self.removeContact( accId ));
+		cMap[ accId ] = true
+		self.addContact( accId )
+	})
+	const removed = self.contactIds.filter( notInList )
+	removed.forEach( accId => self.removeContact( accId ))
 	
 	function notInList( currId ) {
-		return !cMap[ currId ];
+		return !cMap[ currId ]
 	}
 }
 
