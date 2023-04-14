@@ -111,7 +111,6 @@ ns.Account.prototype.getContactList = function() {
 
 ns.Account.prototype.addContacts = async function( contactList ) {
 	const self = this;
-	self.log( 'addContacts', contactList )
 	await Promise.all( contactList.map( id => self.addContact( id )));
 }
 
@@ -650,7 +649,6 @@ ns.Account.prototype.initializeClient = async function( event, clientId ) {
 	
 	function getWorgs() {
 		const ids = self.worgCtrl.getMemberOf( self.id )
-		self.log( 'getWorgs, ids', ids )
 		const worgs = {
 			ids     : ids,
 			members : {},
